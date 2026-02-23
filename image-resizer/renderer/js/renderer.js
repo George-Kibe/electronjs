@@ -4,6 +4,18 @@ const outputPath = document.querySelector('#output-path');
 const filename = document.querySelector('#filename');
 const heightInput = document.querySelector('#height');
 const widthInput = document.querySelector('#width');
+const chooseBtn = document.querySelector('#img');
+
+let imgPath;
+chooseBtn.addEventListener('click', async () => {
+  imgPath = await window.ipcRenderer.selectImage();
+  if (!imgPath) {
+    console.log("No Image Path")
+    return;
+  };
+  console.log("REAL PATH:", imgPath);
+  filename.innerText = imgPath;
+});
 
 // Load image and show form
 function loadImage(e) {
@@ -19,6 +31,7 @@ function loadImage(e) {
   const image = new Image();
   image.src = URL.createObjectURL(file);
   image.onload = function () {
+    console.log("Image Loaded: ", this.width, this.height)
     widthInput.value = this.width;
     heightInput.value = this.height;
   };
@@ -48,11 +61,11 @@ function resizeImage(e) {
     alertError('Please enter a width and height');
     return;
   }
-
+  console.log("Image", img.files[0])
   // Electron adds a bunch of extra properties to the file object including the path
-  const imgPath = img.files[0].path;
   const width = widthInput.value;
   const height = heightInput.value;
+  console.log("Image Path", imgPath)
 
   ipcRenderer.send('image:resize', {
     imgPath,
