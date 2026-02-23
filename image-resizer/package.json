@@ -1,0 +1,19 @@
+{
+  "name": "image-resizer",
+  "productName": "Image Resizer",
+  "version": "1.0.0",
+  "description": "This is a somple electronjs project for resizing images",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "npx electronmon .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "George Kibe (Courtesy of Traversy Media)",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^40.6.0",
+    "resize-img": "^2.0.0",
+    "toastify-js": "^1.12.0"
+  }
+}
