@@ -1,7 +1,7 @@
-import type { WinrarCloneApi } from '@shared/ipc-contract';
+import type { WinrarCloneBridge } from '@shared/ipc-contract';
 
 declare global {
   interface Window {
-    api: WinrarCloneApi;
+    api: WinrarCloneBridge;
   }
 }

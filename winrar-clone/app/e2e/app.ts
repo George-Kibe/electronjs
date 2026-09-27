@@ -25,7 +25,8 @@ export async function launch(files: string[] = []): Promise<{ app: ElectronAppli
       throw new Error(`Packaged app missing: ${executablePath}. Run pnpm pack:dir`);
     app = await electron.launch({ executablePath, args: files });
   } else {
-    app = await electron.launch({ args: [join(appRoot, 'out/main/index.js'), ...files], cwd: appRoot });
+    // Same as `electron .`: package.json main → out/main/index.js.
+    app = await electron.launch({ args: ['.', ...files], cwd: appRoot });
   }
   const win = await app.firstWindow();
   await win.waitForLoadState('domcontentloaded');

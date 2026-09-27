@@ -57,7 +57,8 @@ if (!app.requestSingleInstanceLock()) {
     const engine = new SevenZipEngine(
       sevenZipPath({
         isPackaged: app.isPackaged,
-        appRoot: app.getAppPath(),
+        // out/main/index.js → project root. app.getAppPath() depends on how Electron was started.
+        appRoot: join(import.meta.dirname, '..', '..'),
         resourcesPath: process.resourcesPath,
         platform: process.platform,
         arch: process.arch,

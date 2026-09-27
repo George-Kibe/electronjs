@@ -35,7 +35,7 @@ export type ResponseOf<C extends Channel> = z.output<IpcContract[C]['response']>
 /** Envelope used on the wire so errors keep their codes (ipcMain.handle rejections lose structure). */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: IpcError };
 
-/** Shape of `window.api` exposed by the preload script. */
+/** Unwrapped API used by renderer code (see renderer/src/lib/api.ts). */
 export interface WinrarCloneApi {
   app: {
     getInfo(): Promise<ResponseOf<'app.getInfo'>>;
@@ -49,3 +49,16 @@ export interface WinrarCloneApi {
     close(sessionId: string): Promise<void>;
   };
 }
+
+/**
+ * Shape of `window.api` as exposed by the preload. Methods resolve with the `{ ok, data | error }`
+ * envelope instead of throwing, because contextBridge copies only `message` from thrown errors and the
+ * structured error code would be lost.
+ */
+export type WinrarCloneBridge = {
+  [G in keyof WinrarCloneApi]: {
+    [M in keyof WinrarCloneApi[G]]: WinrarCloneApi[G][M] extends (...args: infer A) => Promise<infer R>
+      ? (...args: A) => Promise<IpcResult<R>>
+      : never;
+  };
+};

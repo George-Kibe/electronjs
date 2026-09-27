@@ -24,7 +24,8 @@ test.afterAll(() => tmp.cleanup());
 test(`[${target}] uses the bundled 7-Zip engine`, async () => {
   const { app, win } = await launch();
   const info = await win.evaluate(() => window.api.app.getInfo());
-  expect(info).toMatchObject({
+  expect(info.ok).toBe(true);
+  expect(info.ok && info.data).toMatchObject({
     productName: 'WinrarClone',
     sevenZipVersion: '26.03',
     platform: process.platform,

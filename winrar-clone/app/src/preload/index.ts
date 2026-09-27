@@ -1,19 +1,16 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { Channel, IpcResult, RequestOf, ResponseOf, WinrarCloneApi } from '../shared/ipc-contract';
-import type { IpcError } from '../shared/schemas';
+import type { Channel, IpcResult, RequestOf, ResponseOf, WinrarCloneBridge } from '../shared/ipc-contract';
 
 /**
  * The only bridge between the sandboxed renderer and main (docs/04 §1.2). Deliberately tiny: no generic
  * `invoke(channel)` escape hatch is exposed, only named methods.
  */
-async function call<C extends Channel>(channel: C, request?: RequestOf<C>): Promise<ResponseOf<C>> {
-  const result = (await ipcRenderer.invoke(channel, request)) as IpcResult<ResponseOf<C>>;
-  if (result.ok) return result.data;
-  // Errors crossing contextBridge lose their prototype; tag them so the renderer can recognise them.
-  throw Object.assign(new Error(result.error.message), { ipcError: result.error satisfies IpcError });
+function call<C extends Channel>(channel: C, request?: RequestOf<C>): Promise<IpcResult<ResponseOf<C>>> {
+  // Return the envelope as-is: errors thrown across contextBridge lose everything but `message`.
+  return ipcRenderer.invoke(channel, request) as Promise<IpcResult<ResponseOf<C>>>;
 }
 
-const api: WinrarCloneApi = {
+const api: WinrarCloneBridge = {
   app: { getInfo: () => call('app.getInfo'), getLaunchFiles: () => call('app.getLaunchFiles') },
   dialog: { openArchive: () => call('dialog.openArchive') },
   files: {
