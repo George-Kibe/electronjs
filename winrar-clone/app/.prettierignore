@@ -5,3 +5,5 @@ vendor
 test/fixtures
 src/main/engine/__fixtures__
 pnpm-lock.yaml
+test-results
+playwright-report

@@ -15,6 +15,7 @@ function setup() {
     dialog: { showOpenDialog: vi.fn() },
     window: () => null,
     appInfo: { productName: 'WinrarClone', version: '0.1.0', platform: 'linux', arch: 'x64' },
+    launchPaths: [join(rarFixtures, 'rar4-basic.rar')],
   });
   return { refs, handlers, event: {} as never };
 }
@@ -40,6 +41,14 @@ describe.skipIf(!hasBinary)('IPC handlers (real engine)', () => {
         event,
       ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('hands out command-line files once', async () => {
+    const { handlers, event } = setup();
+    expect((await handlers['app.getLaunchFiles'](undefined, event)).map((r) => r.displayName)).toEqual([
+      'rar4-basic.rar',
+    ]);
+    expect(await handlers['app.getLaunchFiles'](undefined, event)).toEqual([]);
   });
 
   it('reports unknown refs as NOT_FOUND', async () => {

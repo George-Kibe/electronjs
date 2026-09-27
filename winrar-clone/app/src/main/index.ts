@@ -10,6 +10,7 @@ import { registerIpc } from './ipc/router';
 import { applyNavigationPolicy, applySessionPolicy, makeSenderCheck } from './security/policy';
 import { secureWebPreferences } from './security/web-preferences';
 import { FileRefRegistry } from './services/file-refs';
+import { launchPaths } from './services/launch-args';
 import { logger } from './services/logger';
 
 const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -77,6 +78,7 @@ if (!app.requestSingleInstanceLock()) {
           platform: process.platform,
           arch: process.arch,
         },
+        launchPaths: launchPaths(process.argv, app.isPackaged),
       }),
       makeSenderCheck(() => (isDev ? devServerUrl! : pathToFileURL(rendererFile).href)),
       (channel, err) => logger.error(`IPC ${channel} failed`, err),

@@ -13,15 +13,30 @@ export type HandlerDeps = {
   dialog: Pick<Dialog, 'showOpenDialog'>;
   window: () => BrowserWindow | null;
   appInfo: { productName: string; version: string; platform: string; arch: string };
+  /** Paths from the command line at startup (see services/launch-args.ts). */
+  launchPaths: string[];
 };
 
 export function createHandlers(deps: HandlerDeps): Handlers {
   let sevenZipVersion: Promise<string | null> | undefined;
+  let pendingLaunchPaths = [...deps.launchPaths];
 
   return {
     'app.getInfo': async () => {
       sevenZipVersion ??= deps.engine.version().catch(() => null);
       return { ...deps.appInfo, sevenZipVersion: await sevenZipVersion };
+    },
+
+    'app.getLaunchFiles': async () => {
+      const paths = pendingLaunchPaths;
+      pendingLaunchPaths = []; // consumed once, so a renderer reload doesn't reopen them
+      return paths.flatMap((p) => {
+        try {
+          return [deps.refs.register(p)];
+        } catch {
+          return [];
+        }
+      });
     },
 
     'dialog.openArchive': async () => {

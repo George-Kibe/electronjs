@@ -16,6 +16,7 @@ function setup(overrides: Partial<Handlers> = {}, trusted = true) {
       platform: 'linux',
       arch: 'x64',
     })),
+    'app.getLaunchFiles': vi.fn(async () => []),
     'dialog.openArchive': vi.fn(async () => null),
     'files.registerDropped': vi.fn(async () => []),
     'archive.open': vi.fn(),
@@ -34,6 +35,7 @@ describe('registerIpc', () => {
   it('registers every contract channel', () => {
     expect([...setup().listeners.keys()].sort()).toEqual([
       'app.getInfo',
+      'app.getLaunchFiles',
       'archive.close',
       'archive.list',
       'archive.open',

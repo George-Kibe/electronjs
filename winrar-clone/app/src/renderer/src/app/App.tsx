@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ArchiveInfo, FileRef } from '@shared/schemas';
 import { ArchiveBrowser } from '../features/browser/ArchiveBrowser';
 import { PasswordDialog } from '../features/browser/PasswordDialog';
@@ -34,6 +34,14 @@ export function App() {
       setView({ kind: 'home' });
     }
   };
+
+  // Open an archive passed on the command line or via file association (FR-BRW-01).
+  useEffect(() => {
+    api.app.getLaunchFiles().then(
+      ([first]) => first && void open(first),
+      () => undefined,
+    );
+  }, []);
 
   const close = () => {
     if (view.kind === 'browser') void api.archive.close(view.sessionId);

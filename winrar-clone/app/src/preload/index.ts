@@ -14,7 +14,7 @@ async function call<C extends Channel>(channel: C, request?: RequestOf<C>): Prom
 }
 
 const api: WinrarCloneApi = {
-  app: { getInfo: () => call('app.getInfo') },
+  app: { getInfo: () => call('app.getInfo'), getLaunchFiles: () => call('app.getLaunchFiles') },
   dialog: { openArchive: () => call('dialog.openArchive') },
   files: {
     // Paths of dropped files are only obtainable here (webUtils), never in the renderer.

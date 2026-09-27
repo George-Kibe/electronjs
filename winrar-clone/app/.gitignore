@@ -6,3 +6,5 @@ vendor/
 test/fixtures/*
 !test/fixtures/rar/
 *.log
+test-results/
+playwright-report/

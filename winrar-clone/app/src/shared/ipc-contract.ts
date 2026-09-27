@@ -15,6 +15,8 @@ import {
  */
 export const ipcContract = {
   'app.getInfo': { request: z.void(), response: AppInfo },
+  /** Archives passed on the command line / via file association at startup (consumed once). */
+  'app.getLaunchFiles': { request: z.void(), response: z.array(FileRef) },
   'dialog.openArchive': { request: z.void(), response: FileRef.nullable() },
   'files.registerDropped': {
     request: z.array(z.string().min(1).max(32_768)).max(1000),
@@ -35,7 +37,10 @@ export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: IpcError 
 
 /** Shape of `window.api` exposed by the preload script. */
 export interface WinrarCloneApi {
-  app: { getInfo(): Promise<ResponseOf<'app.getInfo'>> };
+  app: {
+    getInfo(): Promise<ResponseOf<'app.getInfo'>>;
+    getLaunchFiles(): Promise<ResponseOf<'app.getLaunchFiles'>>;
+  };
   dialog: { openArchive(): Promise<ResponseOf<'dialog.openArchive'>> };
   files: { registerDropped(files: File[]): Promise<ResponseOf<'files.registerDropped'>> };
   archive: {
