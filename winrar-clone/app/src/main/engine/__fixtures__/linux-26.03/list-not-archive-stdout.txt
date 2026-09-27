@@ -1,0 +1,11 @@
+
+7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03
+ 64-bit locale=C.UTF-8 Threads:4 OPEN_MAX:20000, ASM
+
+Scanning the drive for archives:
+1 file, 5000 bytes (5 KiB)
+
+Listing archive: notarchive.zip
+
+
+Errors: 1

@@ -1,0 +1,114 @@
+
+7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03
+ 64-bit locale=C.UTF-8 Threads:4 OPEN_MAX:20000, ASM
+
+Scanning the drive for archives:
+1 file, 336 bytes (1 KiB)
+
+Listing archive: rar4-basic.rar
+
+--
+Path = rar4-basic.rar
+Type = Rar
+Physical Size = 336
+Solid = -
+Blocks = 5
+Multivolume = -
+Volumes = 1
+
+----------
+Path = test.txt
+Folder = -
+Size = 20
+Packed Size = 20
+Modified = 2011-06-26 14:53:46.0000000
+Created = 2011-06-26 14:53:46.0000000
+Accessed = 2011-06-26 14:53:46.0000000
+Attributes =  -rw-r--r--
+Encrypted = -
+Solid = -
+Commented = -
+Split Before = -
+Split After = -
+CRC = BEC8A242
+Host OS = Unix
+Method = m0:17
+Version = 20
+Volume Index = 
+
+Path = testlink
+Folder = -
+Size = 8
+Packed Size = 8
+Modified = 2011-06-24 09:38:34.0000000
+Created = 2011-06-24 09:38:34.0000000
+Accessed = 2011-06-26 11:58:33.0000000
+Attributes =  lrwxrwxrwx
+Encrypted = -
+Solid = -
+Commented = -
+Split Before = -
+Split After = -
+CRC = B6C9447B
+Host OS = Unix
+Method = m0:17
+Version = 20
+Volume Index = 
+
+Path = testdir/test.txt
+Folder = -
+Size = 20
+Packed Size = 20
+Modified = 2011-06-26 14:59:07.0000000
+Created = 2011-06-26 14:59:07.0000000
+Accessed = 2011-06-26 14:59:07.0000000
+Attributes =  -rw-r--r--
+Encrypted = -
+Solid = -
+Commented = -
+Split Before = -
+Split After = -
+CRC = BEC8A242
+Host OS = Unix
+Method = m0:17
+Version = 20
+Volume Index = 
+
+Path = testdir
+Folder = +
+Size = 0
+Packed Size = 0
+Modified = 2011-06-26 14:59:07.0000000
+Created = 2011-06-26 14:59:07.0000000
+Accessed = 2011-06-26 14:59:09.0000000
+Attributes = D drwxr-xr-x
+Encrypted = -
+Solid = -
+Commented = -
+Split Before = -
+Split After = -
+CRC = 00000000
+Host OS = Unix
+Method = m0
+Version = 20
+Volume Index = 
+
+Path = testemptydir
+Folder = +
+Size = 0
+Packed Size = 0
+Modified = 2011-06-21 21:28:59.0000000
+Created = 2011-06-21 21:28:59.0000000
+Accessed = 2011-06-26 11:46:10.0000000
+Attributes = D drwxr-xr-x
+Encrypted = -
+Solid = -
+Commented = -
+Split Before = -
+Split After = -
+CRC = 00000000
+Host OS = Unix
+Method = m0
+Version = 20
+Volume Index = 
+

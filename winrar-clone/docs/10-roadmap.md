@@ -18,11 +18,15 @@ Estimates assume one developer working part-time alongside WhatsappClone. Recali
 ## M0 — Foundations & engine spike
 
 - [x] Documentation set (this folder)
-- [ ] Scaffold `app/` (electron-vite React TS), with the security baseline and IPC router
-- [ ] `scripts/fetch-7zip.ts` + pinned versions/hashes for win-x64/arm64, darwin, linux-x64/arm64
-- [ ] **Spike:** password via stdin on 3 OSes. Capture list/progress/error output fixtures. Measure raw
-  throughput for the baseline.
-- [ ] CI check job. Fixture generator skeleton.
+- [x] Scaffold `app/` (Electron 44, electron-vite 5, React 19, TS 6), with the security baseline (sandbox,
+  context isolation, strict CSP, navigation/permission guards) and a zod-validated IPC router
+- [x] `scripts/fetch-7zip.ts` + pinned 7-Zip 26.03 hashes for win32-x64/arm64, darwin-x64/arm64, linux-x64/arm64
+- [x] **Spike:** password via stdin (works on Linux; CI covers Windows/macOS). List/progress/error output
+  fixtures captured (`src/main/engine/__fixtures__/linux-26.03/`). Findings are in ADR-0002 follow-ups.
+- [ ] Measure raw 7-Zip throughput baseline (moved to M1, together with extraction, NFR-PERF-01)
+- [x] CI check job (`.github/workflows/winrar-ci.yml`, Linux/Windows/macOS). RAR fixtures from the libarchive
+  test suite (`app/test/fixtures/rar/`). The generator for other fixtures comes with M1 safety tests.
+- [x] Minimal UI: open by dialog or drop, password prompt, folder browser with sort, filter and breadcrumbs
 
 **Exit:** the app lists a ZIP and a RAR5 on all 3 OSes in CI. The spike results are recorded in ADR-0002's
 follow-ups.

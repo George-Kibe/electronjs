@@ -1,0 +1,50 @@
+name: winrar-ci
+
+on:
+  pull_request:
+    paths: ['winrar-clone/**', '.github/workflows/winrar-ci.yml']
+  push:
+    branches: [master, main]
+    paths: ['winrar-clone/**', '.github/workflows/winrar-ci.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winrar-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: winrar-clone/app
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # M0 exit criterion: list ZIP and RAR5 on all three OSes (docs/10).
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CI: 'true'
+      # Packaging is not part of this job; skip the ~100 MB Electron download.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: winrar-clone/app/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: winrar-clone/app/.nvmrc
+          cache: pnpm
+          cache-dependency-path: winrar-clone/app/pnpm-lock.yaml
+      - name: Install (also fetches and verifies the pinned 7-Zip)
+        run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test:coverage
+      - run: pnpm build

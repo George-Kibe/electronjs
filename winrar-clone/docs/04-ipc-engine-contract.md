@@ -119,9 +119,13 @@ type BlockReason = 'ABSOLUTE_PATH'|'PARENT_TRAVERSAL'|'SYMLINK_ESCAPE'|'HARDLINK
 
 | Platform | Binary | Location in packaged app |
 | --- | --- | --- |
-| Windows x64/arm64 | `7z.exe` + `7z.dll` (full build, with RAR support) | `resources/7zip/win-<arch>/` |
-| macOS x64/arm64 | `7zz` (universal build from 7-zip.org, signed with our Developer ID) | `Contents/Resources/7zip/darwin/` |
-| Linux x64/arm64 | `7zz` (static build from 7-zip.org) | `resources/7zip/linux-<arch>/` |
+| Windows x64/arm64 | `7z.exe` + `7z.dll` (full build, with RAR support), unpacked from the official `7z<ver>-<arch>.exe` | `resources/7zip/` |
+| macOS x64/arm64 | `7zz` (universal build from the official `-mac.tar.xz`, signed with our Developer ID) | `Contents/Resources/7zip/` |
+| Linux x64/arm64 | `7zzs` (the static build) from the official `-linux-<arch>.tar.xz`, shipped as `7zz` | `resources/7zip/` |
+
+In development the binary lives in `app/vendor/7zip/<platform>-<arch>/`, fetched by `scripts/fetch-7zip.ts`
+from the pinned URLs and SHA-256 hashes in `scripts/7zip-versions.json` (official SourceForge mirror first,
+then 7-zip.org).
 
 `7za` / `7zr` must **not** be used: they lack RAR support. At startup, `7z i` checks that the RAR codec is
 present and reports the version shown on the About screen.
@@ -151,15 +155,20 @@ Symlinks are handled according to the policy in [Security §4.3](06-security.md#
 **Goal:** never put the password on the command line, because `/proc/<pid>/cmdline` is world-readable on
 many Linux systems and command lines are visible to same-user processes on Windows and macOS.
 
-- **Preferred:** don't pass `-p`. 7-Zip prompts `Enter password (will not be echoed):` on stdout and reads a
-  line from stdin. The engine detects the prompt and writes `password + "\n"` to the child's stdin. Wrong
-  password → error pattern `Wrong password` → `WRONG_PASSWORD`.
-- **Spike in M1 (per OS):** confirm that 7-Zip reads the password from a piped stdin on all three OSes. If it
-  doesn't on one OS, the fallback is `-p<password>` for that OS only, the child process lifetime is kept as
-  short as possible, and the risk is documented in [Security §5](06-security.md#5-secrets--passwords).
-- Archives with encrypted headers can't be listed without a password. The engine detects the password
-  prompt (or "Can not open encrypted archive. Wrong password?") during `list`, moves the job or session to
-  `needsPassword`, asks the user, and answers the prompt through stdin as above.
+- **Implemented:** never pass `-p`. 7-Zip prints `Enter password:` **on stdout** (the `-bso` stream) with
+  no trailing newline and reads one line from stdin. `engine/spawn.ts` matches that exact line (a whole-line
+  match, so an entry named "Enter password:" cannot trigger it), then writes `password + "\n"`. Without a
+  password it asks the caller (`onPasswordPrompt`). A declined prompt stops the process and maps to
+  `PASSWORD_REQUIRED`.
+- **Spike result (M0, 7-Zip 26.03, Linux x64):** stdin entry works for `l`, `t` and `x`, for 7z with
+  encrypted headers and for AES ZIP. A wrong password exits with code 2 and prints `ERROR: Wrong password : <entry>`
+  (data) or `Cannot open encrypted archive. Wrong password?` (headers). **If stdin reaches EOF at the
+  prompt, 7-Zip prints "Break signaled" and exits with 255, the same as a user cancel.** That's why the engine
+  must detect the prompt rather than infer "password required" from the exit code. Windows and macOS are
+  verified by the `winrar-ci` matrix (`engine.test.ts`).
+- Archives with encrypted headers can't be listed without a password. The engine detects the prompt during
+  `list`, and the renderer shows the password dialog and re-opens with the password. Archives with only
+  encrypted *data* list without a prompt, and the password is needed only at extract or test time.
 
 ### 2.4 Output parsing
 
@@ -175,7 +184,7 @@ many Linux systems and command lines are visible to same-user processes on Windo
 | Pattern (case-insensitive) | Code |
 | --- | --- |
 | `Wrong password` | `WRONG_PASSWORD` |
-| `Missing volume` / `Unexpected end of archive` with volumes | `MISSING_VOLUME` (volume name extracted) |
+| `Missing volume : <name>` (printed on **stdout** inside `ERRORS:`) | `MISSING_VOLUME` (volume name extracted) |
 | `CRC Failed` / `Data Error` | `CRC_ERROR` (per entry) |
 | `Unsupported Method` | `UNSUPPORTED_METHOD` |
 | `Can not open the file as archive` / `Cannot open the file as archive` | `NOT_ARCHIVE` |
@@ -203,6 +212,14 @@ many Linux systems and command lines are visible to same-user processes on Windo
 - Timeouts: listing 5 min without output → fail with `UNKNOWN`. Extraction has no global timeout.
 - Concurrency limit enforced by JobManager (default 2).
 - Priority: children run at below-normal priority (`os.setPriority`) when "Background mode" is on.
+
+### 2.7 Multi-volume sets
+
+7-Zip reads a volume set correctly only when it is opened from the **first** volume. Opening `part3`
+directly lists from that volume, reports `Headers Error`, and undercounts the volumes. `engine/volumes.ts`
+therefore maps any volume to the first one before every call: `name.partN.rar` (any zero padding) →
+`part1`, `name.rNN` → `name.rar`, `name.NNN` → `name.001`, `name.zNN` → `name.zip`. It falls back to the
+given path if the first volume doesn't exist, and a later call then reports `MISSING_VOLUME`.
 
 ## 3. Launch intents (CLI → app)
 

@@ -1,0 +1,69 @@
+
+7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03
+ 64-bit locale=C.UTF-8 Threads:4 OPEN_MAX:20000, ASM
+
+Scanning the drive for archives:
+1 file, 485 bytes (1 KiB)
+
+Listing archive: ../t.zip
+
+--
+Path = ../t.zip
+Type = zip
+Physical Size = 485
+
+----------
+Path = -dash.txt
+Folder = -
+Size = 2
+Packed Size = 2
+Modified = 2026-09-27 23:18:55.7511091
+Created = 
+Accessed = 
+Attributes =  -rw-r--r--
+Encrypted = -
+Comment = 
+CRC = 46EA081F
+Method = Store
+Characteristics = NTFS
+Host OS = Unix
+Version = 10
+Volume Index = 0
+Offset = 0
+
+Path = dir with space
+Folder = +
+Size = 0
+Packed Size = 0
+Modified = 2026-09-27 23:18:55.7487138
+Created = 
+Accessed = 
+Attributes = D drwxr-xr-x
+Encrypted = -
+Comment = 
+CRC = 
+Method = Store
+Characteristics = NTFS
+Host OS = Unix
+Version = 20
+Volume Index = 0
+Offset = 41
+
+Path = dir with space/ünïcødé 日本.txt
+Folder = -
+Size = 3
+Packed Size = 3
+Modified = 2026-09-27 23:18:55.7487138
+Created = 
+Accessed = 
+Attributes =  -rw-r--r--
+Encrypted = -
+Comment = 
+CRC = ED6F7A7A
+Method = Store
+Characteristics = NTFS : UTF8
+Host OS = Unix
+Version = 10
+Volume Index = 0
+Offset = 86
+

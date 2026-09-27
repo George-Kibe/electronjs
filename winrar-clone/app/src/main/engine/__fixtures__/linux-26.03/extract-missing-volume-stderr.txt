@@ -1,0 +1,5 @@
+
+ERRORS:
+Missing volume : rar5-multi-solid.part03.rar
+
+ERROR: Data Error : elf-Linux-ARMv7-ls

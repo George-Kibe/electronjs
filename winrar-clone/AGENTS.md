@@ -24,7 +24,15 @@ winrar-clone/app/
 
 ## Commands (inside `winrar-clone/app`)
 
-`pnpm dev` · `pnpm lint` · `pnpm typecheck` · `pnpm test` · `pnpm test:e2e` · `pnpm fixtures` (regenerate corpus) · `pnpm dist`
+`pnpm dev` · `pnpm lint` · `pnpm typecheck` · `pnpm format:check` · `pnpm test` · `pnpm test:coverage` · `pnpm build` · `pnpm dist`
+(`pnpm test:e2e` and `pnpm fixtures` arrive in M1.)
+
+- `pnpm install` fetches and verifies the pinned 7-Zip into `vendor/`. Set `SKIP_7ZIP_FETCH=1` to skip, in which
+  case the engine integration tests are skipped locally (never in CI).
+- `ELECTRON_SKIP_BINARY_DOWNLOAD=1` is fine for lint, typecheck, test and build. `pnpm dev` and `pnpm dist`
+  need the Electron binary.
+- Parser fixtures (`src/main/engine/__fixtures__/<os>-<7zip-version>/`) are **captured real output**. Never
+  hand-edit them.
 
 ## Architecture rules
 

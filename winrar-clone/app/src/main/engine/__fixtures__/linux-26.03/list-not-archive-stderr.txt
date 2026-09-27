@@ -1,0 +1,8 @@
+
+ERROR: notarchive.zip : notarchive.zip
+Open ERROR: Cannot open the file as [zip] archive
+
+
+ERRORS:
+Is not archive
+
