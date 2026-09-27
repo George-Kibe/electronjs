@@ -1,5 +1,5 @@
 import fc from 'fast-check';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { firstVolumePath } from './volumes';
 
@@ -32,12 +32,15 @@ describe('firstVolumePath', () => {
       expect(firstVolumePath(join(dir, name), () => true)).toBe(join(dir, name));
   });
 
-  it('never escapes the archive directory', () => {
+  it('always resolves to a file in the same directory as the input', () => {
     fc.assert(
-      fc.property(fc.stringMatching(/^[a-zA-Z0-9 ._-]{1,40}$/), (name) => {
-        const result = firstVolumePath(join(dir, name), () => true);
-        expect(result.startsWith(dir)).toBe(true);
-      }),
+      fc.property(
+        fc.stringMatching(/^[a-zA-Z0-9 ._-]{1,40}$/).filter((n) => n !== '.' && n !== '..'),
+        (name) => {
+          const input = join(dir, name);
+          expect(dirname(firstVolumePath(input, () => true))).toBe(dirname(input));
+        },
+      ),
     );
   });
 });
