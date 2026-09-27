@@ -26,10 +26,12 @@ Estimates assume one developer working part-time alongside WhatsappClone. Recali
 - [ ] Measure raw 7-Zip throughput baseline (moved to M1, together with extraction, NFR-PERF-01)
 - [x] CI check job (`.github/workflows/winrar-ci.yml`, Linux/Windows/macOS). RAR fixtures from the libarchive
   test suite (`app/test/fixtures/rar/`). The generator for other fixtures comes with M1 safety tests.
-- [x] Minimal UI: open by dialog or drop, password prompt, folder browser with sort, filter and breadcrumbs
+- [x] Minimal UI: open by dialog, drop or command line, password prompt, folder browser with sort, filter and breadcrumbs
+- [x] Electron E2E (Playwright) on Linux, Windows and macOS against the built app **and** the
+  electron-builder package: all 7 journeys green (winrar-ci run #3, 2026-09-27)
 
 **Exit:** the app lists a ZIP and a RAR5 on all 3 OSes in CI. The spike results are recorded in ADR-0002's
-follow-ups.
+follow-ups. ✅ **Met on 2026-09-27.**
 
 ## M1 — Open, browse, extract, test
 

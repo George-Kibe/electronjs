@@ -14,5 +14,11 @@ All notable changes to WinrarClone are documented here. The format follows
 - Open an archive by dialog or drag and drop, enter a password for encrypted headers, and browse folders
   with sorting, filtering and breadcrumbs. Bidi-override characters in names are shown visibly.
 - CI workflow on Linux, Windows and macOS. RAR4/RAR5 test fixtures from the libarchive test suite.
+- Open an archive passed on the command line (`WinrarClone <archive>`), which file associations also use.
+- End-to-end tests of the real app, both built and packaged, on Linux, Windows and macOS.
+
+### Fixed
+- Error details (e.g. the name of a missing volume, or "not an archive") were lost between the main process
+  and the window, which showed "Something went wrong." instead.
 - Project documentation: requirements, architecture, UI/UX design, IPC & engine contract, data model,
   security, testing, CI/CD, platform integration, roadmap, ADRs 0001–0006.

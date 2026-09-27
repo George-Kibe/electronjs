@@ -7,7 +7,7 @@ Each project lives in its own independent folder with its own dependencies, docs
 | --- | --- | --- |
 | [`image-editor/`](image-editor/) | Planning | Photoshop-style raster editor: layers, selections, masks, adjustments, painting, text, PSD, batch, on-device AI. Formerly `image-resizer`. |
 | [`whatsapp-clone/`](whatsapp-clone/) | Planning | Real-time messaging platform: desktop client + Node.js backend. 1:1 and group chat, media, E2EE, voice/video calls. |
-| [`winrar-clone/`](winrar-clone/) | In development (M0) | Archive manager: extract RAR/ZIP/7z/tar, create ZIP/7z/tar, browse, test, OS shell integration. |
+| [`winrar-clone/`](winrar-clone/) | In development (M0 done, M1 next) | Archive manager: extract RAR/ZIP/7z/tar, create ZIP/7z/tar, browse, test, OS shell integration. |
 
 > **Naming:** `ImageEditor`, `WhatsappClone` and `WinrarClone` are working names only. They will be renamed before any
 > public release. We must not ship with "WhatsApp" or "WinRAR" in product names, icons or store listings,
