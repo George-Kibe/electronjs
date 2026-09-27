@@ -4,7 +4,7 @@
 
 ## Project & requirement
 
-- Project: <!-- whatsapp-desktop | whatsapp-server | whatsapp-protocol | winrar-app | docs | ci -->
+- Project: <!-- image-editor | whatsapp-desktop | whatsapp-server | whatsapp-protocol | winrar-app | docs | ci -->
 - Implements: <!-- e.g. FR-MSG-03, NFR-PERF-02 -->
 - ADR: <!-- link if applicable -->
 

@@ -1,0 +1,41 @@
+# ADR-0003: Sparse immutable tiles + WebGL2 compositor, CPU as source of truth
+
+- **Status:** Accepted (validated by the M0 spike; record measurements below)
+- **Date:** 2026-09-27
+- **Related requirements:** NFR-PERF-01..05, NFR-MEM-01, NFR-REL-02, FR-HIS-*
+
+## Context
+
+We need smooth painting and navigation on 24 MP+ documents with 20+ layers, live adjustment previews,
+deep undo, and resilience to GPU context loss, all inside an Electron renderer.
+
+## Options considered
+
+1. **Canvas 2D per layer:** simple, but compositing many large layers with custom blend modes and live
+   adjustments on the CPU/Skia path cannot hit the frame budgets. Masks and adjustment layers are awkward.
+   Memory is a full buffer per layer.
+2. **WebGL2 with whole-layer textures:** fast, but limited by `MAX_TEXTURE_SIZE` (often 16384) and VRAM, has
+   no sparsity, and context loss loses data if the GPU is the source of truth.
+3. **WebGPU:** a modern API with compute shaders, but availability on Linux and older GPUs is uneven in
+   Chromium today. It could be adopted later behind the same compositor interface.
+4. **Sparse tiles (256²) in CPU memory + WebGL2 compositor/texture cache (chosen):** the approach used by
+   professional editors. Sparse memory, arbitrary document size, dirty-region rendering, cheap history
+   (immutable tiles), and GPU context loss is recoverable.
+
+## Decision
+
+- Tiles: 256×256, RGBA8 (masks A8), **straight alpha** in storage (preserves colour under low alpha,
+  matches PSD/PNG semantics), **immutable** (copy-on-write) and reference-counted.
+- GPU: WebGL2 via ANGLE. Tile textures are an LRU cache. RGBA16F intermediates where
+  `EXT_color_buffer_float` is available. Premultiplied compositing internally.
+- Brush strokes and filters render on the GPU and are read back asynchronously (PBO + fence) into new
+  CPU tiles before the command commits.
+- The engine runs on the renderer main thread (lowest input latency). CPU-heavy work goes to workers.
+  An `OffscreenCanvas` engine worker is a possible future move if UI-thread contention shows up in profiling.
+
+## Consequences
+
+- Readback adds latency at stroke commit (not during the stroke). Keep dirty regions tight.
+- Tile-apron handling is needed for convolution filters (sampling neighbour tiles).
+- Two implementations of each pixel operation (GPU shader + CPU reference) are needed, but they double as a test oracle.
+- **Spike results (fill in M0):** brush latency p95 = __ ms, pan/zoom p95 = __ ms on {matrix}.
