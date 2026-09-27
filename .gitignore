@@ -142,3 +142,16 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# macOS
+.DS_Store
+
+# Electron build output
+out/
+dist/
+release/
+
+# WinrarClone: 7-Zip binaries are fetched at install time; generated fixtures (RAR samples are committed)
+winrar-clone/app/vendor/
+winrar-clone/app/test/fixtures/*
+!winrar-clone/app/test/fixtures/rar/

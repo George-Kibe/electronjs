@@ -1,0 +1,72 @@
+# Electron Desktop Apps
+
+A collection of cross-platform desktop applications built with [Electron](https://www.electronjs.org/).
+Each project lives in its own independent folder with its own dependencies, docs and release process.
+
+| Project | Status | Description |
+| --- | --- | --- |
+| [`image-resizer/`](image-resizer/) | Done (learning project) | Resize images from a simple desktop UI. Plain JS + Electron. |
+| [`whatsapp-clone/`](whatsapp-clone/) | Planning | Real-time messaging platform: desktop client + Node.js backend. 1:1 and group chat, media, E2EE, voice/video calls. |
+| [`winrar-clone/`](winrar-clone/) | Planning | Archive manager: extract RAR/ZIP/7z/tar, create ZIP/7z/tar, browse, test, OS shell integration. |
+
+> **Naming:** `WhatsappClone` and `WinrarClone` are working names only. They will be renamed before any
+> public release. We must not ship with "WhatsApp" or "WinRAR" in product names, icons or store listings,
+> because both are registered trademarks. See [ADR guidance in each project](whatsapp-clone/docs/adr/).
+
+## Repository layout
+
+```
+.
+├── README.md                 # You are here
+├── AGENTS.md                 # Instructions for AI coding agents (all tools)
+├── CLAUDE.md                 # Claude Code specific instructions (imports AGENTS.md)
+├── CONTRIBUTING.md           # How to contribute: branching, commits, reviews
+├── SECURITY.md               # How to report vulnerabilities
+├── LICENSE                   # MIT
+├── .github/                  # PR template, CI workflows (per-project, path-filtered)
+├── image-resizer/            # Existing learning project
+├── whatsapp-clone/
+│   ├── desktop/              # Electron + React client        (to be scaffolded)
+│   ├── server/               # NestJS API + realtime gateway  (to be scaffolded)
+│   ├── protocol/             # Shared wire types / zod schemas (to be scaffolded)
+│   └── docs/                 # Requirements, architecture, design, ADRs...
+└── winrar-clone/
+    ├── app/                  # Electron + React app           (to be scaffolded)
+    └── docs/                 # Requirements, architecture, design, ADRs...
+```
+
+## Documentation map
+
+Each project has the same documentation set so they are easy to navigate:
+
+| # | Document | WhatsappClone | WinrarClone |
+| --- | --- | --- | --- |
+| 01 | Requirements (PRD) | [link](whatsapp-clone/docs/01-requirements.md) | [link](winrar-clone/docs/01-requirements.md) |
+| 02 | Architecture | [link](whatsapp-clone/docs/02-architecture.md) | [link](winrar-clone/docs/02-architecture.md) |
+| 03 | UI/UX design | [link](whatsapp-clone/docs/03-ui-ux-design.md) | [link](winrar-clone/docs/03-ui-ux-design.md) |
+| 04 | Interfaces (API / IPC) | [API & realtime protocol](whatsapp-clone/docs/04-api-protocol.md) | [IPC & engine contract](winrar-clone/docs/04-ipc-engine-contract.md) |
+| 05 | Data model | [link](whatsapp-clone/docs/05-data-model.md) | [Settings & state](winrar-clone/docs/05-data-model.md) |
+| 06 | Security & threat model | [link](whatsapp-clone/docs/06-security.md) | [link](winrar-clone/docs/06-security.md) |
+| 07 | Testing & QA strategy | [link](whatsapp-clone/docs/07-testing-strategy.md) | [link](winrar-clone/docs/07-testing-strategy.md) |
+| 08 | CI/CD & release | [link](whatsapp-clone/docs/08-ci-cd-release.md) | [link](winrar-clone/docs/08-ci-cd-release.md) |
+| 09 | Operations | [Deployment & ops](whatsapp-clone/docs/09-deployment-operations.md) | [OS integration](winrar-clone/docs/09-platform-integration.md) |
+| 10 | Roadmap | [link](whatsapp-clone/docs/10-roadmap.md) | [link](winrar-clone/docs/10-roadmap.md) |
+| — | ADRs | [link](whatsapp-clone/docs/adr/) | [link](winrar-clone/docs/adr/) |
+
+## Shared engineering baseline
+
+Both new projects share these conventions. The per-project docs go into detail.
+
+- **Language:** TypeScript (strict), ESM.
+- **Desktop:** Electron (latest stable) + [electron-vite](https://electron-vite.org/) + React + Tailwind CSS.
+- **Packaging:** electron-builder; Windows (NSIS), macOS (DMG, notarized), Linux (AppImage, deb, rpm).
+- **Updates:** electron-updater backed by GitHub Releases.
+- **Quality:** ESLint, Prettier, Vitest (unit), Playwright (Electron E2E), GitHub Actions on all 3 OSes.
+- **Runtime:** Node.js 24 LTS for tooling and the server.
+- **Package manager:** pnpm, one lockfile per independent package.
+- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/). **Versioning:** SemVer per project.
+
+## License
+
+[MIT](LICENSE) © 2026 George Kibe. Third-party components keep their own licenses. See each project's
+`THIRD_PARTY_NOTICES.md`.
