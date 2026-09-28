@@ -1,0 +1,57 @@
+@import 'tailwindcss';
+
+/* Design tokens (docs/03 §2). Rebranding only touches this block. */
+@theme {
+  --color-brand: #7048e8;
+  --color-brand-contrast: #ffffff;
+  --color-bg: #f5f5f7;
+  --color-panel: #ffffff;
+  --color-raised: #f0f0f3;
+  --color-border: #dcdce2;
+  --color-text: #1b1c20;
+  --color-muted: #5f6270;
+  --color-danger: #c92a2a;
+  --color-focus: #1c7ed6;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-brand: #9775fa;
+    --color-brand-contrast: #0b0b12;
+    --color-bg: #141519;
+    --color-panel: #1c1d22;
+    --color-raised: #25262c;
+    --color-border: #34363d;
+    --color-text: #e6e7eb;
+    --color-muted: #9b9eab;
+    --color-danger: #ff6b6b;
+    --color-focus: #74c0fc;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', Ubuntu, sans-serif;
+  font-size: 13px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

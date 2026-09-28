@@ -25,14 +25,14 @@ winrar-clone/
 
 ## Quick start (development)
 
-> Not scaffolded yet. These commands describe the target developer experience.
+Requires Node.js 22.12+ (24 recommended) and pnpm 10 (`corepack enable`).
 
 ```bash
 cd winrar-clone/app
 pnpm install            # postinstall runs scripts/fetch-7zip.ts: downloads the pinned 7-Zip build and verifies its SHA-256
 pnpm dev                # Electron with HMR
 pnpm test               # unit tests
-pnpm test:e2e           # Playwright E2E over the fixture archive corpus
+pnpm lint && pnpm typecheck
 pnpm dist               # local installer for the current OS
 ```
 

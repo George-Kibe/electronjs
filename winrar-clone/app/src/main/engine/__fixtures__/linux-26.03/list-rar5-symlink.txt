@@ -1,0 +1,118 @@
+
+7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03
+ 64-bit locale=C.UTF-8 Threads:4 OPEN_MAX:20000, ASM
+
+Scanning the drive for archives:
+1 file, 190 bytes (1 KiB)
+
+Listing archive: rar5-symlink.rar
+
+--
+Path = rar5-symlink.rar
+Type = Rar5
+Physical Size = 190
+Characteristics = Locator QuickOpen:0
+Encrypted = -
+Solid = -
+Blocks = 4
+Method = v6:32M:m0
+Multivolume = -
+Volumes = 1
+
+----------
+Path = file.txt
+Folder = -
+Size = 5
+Packed Size = 5
+Modified = 2019-04-17 20:31:52
+Created = 
+Accessed = 
+Attributes =  -rw-r--r--
+Alternate Stream = -
+Encrypted = -
+Solid = -
+Split Before = -
+Split After = -
+CRC = 7D931721
+Host OS = Unix
+Method = v6:m0:32M
+Characteristics = UnixTime CRC
+Symbolic Link = 
+Hard Link = 
+Copy Link = 
+Volume Index = 
+Checksum = 
+NT Security = 
+
+Path = symlink.txt
+Folder = -
+Size = 8
+Packed Size = 0
+Modified = 2019-04-17 20:32:23
+Created = 
+Accessed = 
+Attributes =  lrwxr-xr-x
+Alternate Stream = -
+Encrypted = -
+Solid = -
+Split Before = -
+Split After = -
+CRC = 00000000
+Host OS = Unix
+Method = v6:m0:32M
+Characteristics = UnixTime CRC Link:UnixSymLink
+Symbolic Link = file.txt
+Hard Link = 
+Copy Link = 
+Volume Index = 
+Checksum = 
+NT Security = 
+
+Path = dirlink
+Folder = -
+Size = 3
+Packed Size = 0
+Modified = 2019-04-17 21:10:33
+Created = 
+Accessed = 
+Attributes =  lrwxr-xr-x
+Alternate Stream = -
+Encrypted = -
+Solid = -
+Split Before = -
+Split After = -
+CRC = 00000000
+Host OS = Unix
+Method = v6:m0:32M
+Characteristics = UnixTime CRC Link:UnixSymLink:D
+Symbolic Link = dir
+Hard Link = 
+Copy Link = 
+Volume Index = 
+Checksum = 
+NT Security = 
+
+Path = dir
+Folder = +
+Size = 0
+Packed Size = 0
+Modified = 2019-04-17 21:10:30
+Created = 
+Accessed = 
+Attributes = D drwxr-xr-x
+Alternate Stream = -
+Encrypted = -
+Solid = -
+Split Before = -
+Split After = -
+CRC = 00000000
+Host OS = Unix
+Method = v6:m0
+Characteristics = Dir UnixTime CRC
+Symbolic Link = 
+Hard Link = 
+Copy Link = 
+Volume Index = 
+Checksum = 
+NT Security = 
+

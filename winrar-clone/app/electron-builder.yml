@@ -1,0 +1,53 @@
+# Packaging config (docs/08 §2). Product name and appId are placeholders until the rename (docs/01 Q1).
+appId: com.georgekibe.winrarclone
+productName: WinrarClone
+copyright: Copyright © 2026 George Kibe
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asar: true
+# 7-Zip ships next to the app, not inside asar (it is executed as a separate process).
+extraResources:
+  - from: vendor/7zip/${platform}-${arch}
+    to: 7zip
+    filter: ['**/*', '!.version']
+fileAssociations:
+  - ext: [rar, zip, 7z, tar, gz, tgz, bz2, tbz2, xz, txz, iso, cab, arj, lzh, cpio, wim, '001']
+    name: Archive
+    role: Viewer
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+mac:
+  category: public.app-category.utilities
+  hardenedRuntime: true
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  # The bundled 7zz must be signed individually with hardened runtime before notarization.
+  binaries:
+    - Contents/Resources/7zip/7zz
+linux:
+  category: Utility
+  target: [AppImage, deb, rpm]
+  mimeTypes:
+    - application/vnd.rar
+    - application/zip
+    - application/x-7z-compressed
+    - application/x-tar
+    - application/gzip
+    - application/x-xz
+    - application/x-bzip2
+    - application/x-iso9660-image
+publish:
+  provider: github

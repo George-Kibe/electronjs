@@ -1,0 +1,71 @@
+{
+  "$comment": "Pinned official 7-Zip builds. Bump with the winrar-7zip-watch workflow; hashes verified on download. Minimum version 25.01 (see docs/06 and NFR-SEC-02).",
+  "version": "26.03",
+  "mirrors": [
+    "https://downloads.sourceforge.net/project/sevenzip/7-Zip/{version}/{file}",
+    "https://www.7-zip.org/a/{file}"
+  ],
+  "targets": {
+    "linux-x64": {
+      "file": "7z2603-linux-x64.tar.xz",
+      "sha256": "dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695",
+      "kind": "tar.xz",
+      "extract": {
+        "7zzs": "7zz",
+        "License.txt": "License.txt"
+      }
+    },
+    "linux-arm64": {
+      "file": "7z2603-linux-arm64.tar.xz",
+      "sha256": "2389ba20e4d8295e8709c20b6263b69bd1ec4972fe38a04ad7a1badbf595b996",
+      "kind": "tar.xz",
+      "extract": {
+        "7zzs": "7zz",
+        "License.txt": "License.txt"
+      }
+    },
+    "darwin-x64": {
+      "file": "7z2603-mac.tar.xz",
+      "sha256": "5ca87677072c59f5602e5c49baa27d4694bacd2259b4e507f0094249d4281480",
+      "kind": "tar.xz",
+      "extract": {
+        "7zz": "7zz",
+        "License.txt": "License.txt"
+      }
+    },
+    "darwin-arm64": {
+      "file": "7z2603-mac.tar.xz",
+      "sha256": "5ca87677072c59f5602e5c49baa27d4694bacd2259b4e507f0094249d4281480",
+      "kind": "tar.xz",
+      "extract": {
+        "7zz": "7zz",
+        "License.txt": "License.txt"
+      }
+    },
+    "win32-x64": {
+      "file": "7z2603-x64.exe",
+      "sha256": "0859c524b8a63551848f0c246abddcb1d0b7b656b0fbfe879f8d85e61a9e6edd",
+      "kind": "7z-sfx",
+      "extract": {
+        "7z.exe": "7z.exe",
+        "7z.dll": "7z.dll",
+        "License.txt": "License.txt"
+      }
+    },
+    "win32-arm64": {
+      "file": "7z2603-arm64.exe",
+      "sha256": "e22ce71c11dcf503c448fe51e56f41830eb4e1344fa5c7731ae63bce533a8e8e",
+      "kind": "7z-sfx",
+      "extract": {
+        "7z.exe": "7z.exe",
+        "7z.dll": "7z.dll",
+        "License.txt": "License.txt"
+      }
+    }
+  },
+  "windowsBootstrap": {
+    "$comment": "Only used on Windows hosts to obtain a 7-Zip that can unpack the win32 .exe packages (msiexec administrative install, no registry changes).",
+    "file": "7z2603-x64.msi",
+    "sha256": "c0680064d698a62dd4a5a47f403db356a6531a5473e4c4b1d090ea2590513926"
+  }
+}

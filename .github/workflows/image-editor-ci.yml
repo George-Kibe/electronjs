@@ -1,0 +1,99 @@
+name: image-editor-ci
+
+on:
+  pull_request:
+    paths: ['image-editor/**', '.github/workflows/image-editor-ci.yml']
+  push:
+    branches: [master, main, 'claude/**']
+    paths: ['image-editor/**', '.github/workflows/image-editor-ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-editor-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: image-editor/app
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CI: 'true'
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: image-editor/app/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: image-editor/app/.nvmrc
+          cache: pnpm
+          cache-dependency-path: image-editor/app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - name: Unit tests (engine core, codec host with real sharp, main process)
+        run: pnpm test:coverage
+      - name: Install Chromium for GPU conformance tests
+        run: pnpm exec playwright install chromium
+      - name: GPU conformance (shaders vs CPU reference, headless Chromium WebGL2)
+        run: pnpm test:gpu
+      - run: pnpm build
+
+  e2e:
+    name: e2e (${{ matrix.os }})
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CI: 'true'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: image-editor/app/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: image-editor/app/.nvmrc
+          cache: pnpm
+          cache-dependency-path: image-editor/app/pnpm-lock.yaml
+      - name: Allow Chromium's sandbox on Ubuntu 24.04 (AppArmor restricts unprivileged user namespaces)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: pnpm install --frozen-lockfile
+      - name: Build and package (electron-builder --dir)
+        run: pnpm pack:dir
+      - name: E2E against the built app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a pnpm exec playwright test; else pnpm exec playwright test; fi
+      - name: E2E against the packaged app
+        shell: bash
+        env:
+          E2E_TARGET: packaged
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a pnpm exec playwright test; else pnpm exec playwright test; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-editor-e2e-${{ matrix.os }}
+          path: |
+            image-editor/app/test-results/
+            image-editor/app/playwright-report/
+          retention-days: 14

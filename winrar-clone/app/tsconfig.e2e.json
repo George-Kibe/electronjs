@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "tsBuildInfoFile": "./node_modules/.cache/tsc/e2e.tsbuildinfo"
+  },
+  "include": [
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "test/helpers/**/*.ts",
+    "src/shared/**/*",
+    "src/main/engine/**/*.ts",
+    "src/renderer/src/env.d.ts"
+  ]
+}

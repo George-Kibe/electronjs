@@ -5,12 +5,12 @@ its own `AGENTS.md` with more specific rules; **the nearest `AGENTS.md` to the f
 
 ## Repository shape
 
-- This is **not** a monorepo workspace. `image-resizer/`, `whatsapp-clone/*` and `winrar-clone/*` are
+- This is **not** a monorepo workspace. `image-editor/app`, `whatsapp-clone/*` and `winrar-clone/app` are
   independent packages, each with its own `package.json` and lockfile. Always `cd` into the package before
   installing or running scripts.
 - `whatsapp-clone/` contains three packages: `desktop/`, `server/`, `protocol/`. `desktop` and `server`
   depend on `protocol` through a `file:../protocol` dependency.
-- `image-resizer/` is a finished learning project. **Do not modify it** unless the task explicitly asks.
+- `image-editor/` replaced the old `image-resizer` learning project (its code is in git history at `3eadc27`).
 
 ## Before you write code
 
@@ -29,7 +29,7 @@ its own `AGENTS.md` with more specific rules; **the nearest `AGENTS.md` to the f
 - Never disable, skip or delete a failing test to make CI pass. Fix the cause or ask.
 - Never add a dependency without checking its license (MIT/Apache-2.0/BSD/ISC/LGPL-dynamic are OK;
   GPL/AGPL need an ADR) and its maintenance status.
-- Never use the trademarks "WhatsApp" or "WinRAR" in user-facing strings, icons, bundle IDs or metadata.
+- Never use the trademarks "WhatsApp", "WinRAR" or "Photoshop" in user-facing strings, icons, bundle IDs or metadata.
   Use the product-name constants.
 
 ## Conventions
@@ -37,8 +37,8 @@ its own `AGENTS.md` with more specific rules; **the nearest `AGENTS.md` to the f
 - TypeScript `strict: true`, no `any` unless justified with a comment. ESM only.
 - Files: `kebab-case.ts`. React components: `PascalCase.tsx`. Tests go next to code as `*.test.ts(x)`, or under `e2e/`.
 - Commits: Conventional Commits with a project scope, e.g. `feat(whatsapp-desktop): add typing indicator`,
-  `fix(winrar-app): reject symlink escapes`. Scopes: `whatsapp-desktop`, `whatsapp-server`,
-  `whatsapp-protocol`, `winrar-app`, `docs`, `ci`, `repo`.
+  `fix(winrar-app): reject symlink escapes`. Scopes: `image-editor`, `whatsapp-desktop`,
+  `whatsapp-server`, `whatsapp-protocol`, `winrar-app`, `docs`, `ci`, `repo`.
 - Keep PRs small and scoped to one project where possible.
 
 ## Definition of done (every change)

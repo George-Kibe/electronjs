@@ -1,0 +1,40 @@
+
+7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03
+ 64-bit locale=C.UTF-8 Threads:4 OPEN_MAX:20000, ASM
+
+Scanning the drive for archives:
+1 file, 13312 bytes (13 KiB)
+
+Extracting archive: rar5-multi-solid.part01.rar
+--
+Path = rar5-multi-solid.part01.rar
+Type = Rar5
+ERROR = Missing volume : rar5-multi-solid.part03.rar
+Physical Size = 13312
+Total Physical Size = 26624
+Characteristics = Volume Solid Locator QuickOpen:13204
+Encrypted = -
+Solid = +
+Blocks = 1
+Method = v6:1M:m5
+Multivolume = +
+Volume Index = 0
+Volumes = 2
+
+- cebula.txt
+- test.bin
+- test1.bin
+- test2.bin
+- test3.bin
+- test4.bin
+- test5.bin
+- test6.bin
+- elf-Linux-ARMv7-ls
+
+Sub items Errors: 1
+
+Archives with Errors: 1
+
+Open Errors: 1
+
+Sub items Errors: 1

@@ -1,0 +1,5 @@
+# Keep LF everywhere so Prettier and byte-exact parser fixtures behave the same on Windows checkouts.
+* text=auto eol=lf
+*.rar binary
+*.bin binary
+src/main/engine/__fixtures__/** -text

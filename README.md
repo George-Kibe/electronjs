@@ -5,13 +5,13 @@ Each project lives in its own independent folder with its own dependencies, docs
 
 | Project | Status | Description |
 | --- | --- | --- |
-| [`image-resizer/`](image-resizer/) | Done (learning project) | Resize images from a simple desktop UI. Plain JS + Electron. |
+| [`image-editor/`](image-editor/) | In development (M1 in progress) | Photoshop-style raster editor: layers, selections, masks, adjustments, painting, text, PSD, batch, on-device AI. Formerly `image-resizer`. |
 | [`whatsapp-clone/`](whatsapp-clone/) | Planning | Real-time messaging platform: desktop client + Node.js backend. 1:1 and group chat, media, E2EE, voice/video calls. |
-| [`winrar-clone/`](winrar-clone/) | Planning | Archive manager: extract RAR/ZIP/7z/tar, create ZIP/7z/tar, browse, test, OS shell integration. |
+| [`winrar-clone/`](winrar-clone/) | In development (M0 done, M1 next) | Archive manager: extract RAR/ZIP/7z/tar, create ZIP/7z/tar, browse, test, OS shell integration. |
 
-> **Naming:** `WhatsappClone` and `WinrarClone` are working names only. They will be renamed before any
+> **Naming:** `ImageEditor`, `WhatsappClone` and `WinrarClone` are working names only. They will be renamed before any
 > public release. We must not ship with "WhatsApp" or "WinRAR" in product names, icons or store listings,
-> because both are registered trademarks. See [ADR guidance in each project](whatsapp-clone/docs/adr/).
+> because both are registered trademarks (the same care applies to "Photoshop" and Adobe's icons). See [ADR guidance in each project](whatsapp-clone/docs/adr/).
 
 ## Repository layout
 
@@ -24,7 +24,9 @@ Each project lives in its own independent folder with its own dependencies, docs
 ├── SECURITY.md               # How to report vulnerabilities
 ├── LICENSE                   # MIT
 ├── .github/                  # PR template, CI workflows (per-project, path-filtered)
-├── image-resizer/            # Existing learning project
+├── image-editor/
+│   ├── app/                  # Electron + React + WebGL2 app      (to be scaffolded)
+│   └── docs/                 # Requirements, architecture, design, ADRs...
 ├── whatsapp-clone/
 │   ├── desktop/              # Electron + React client        (to be scaffolded)
 │   ├── server/               # NestJS API + realtime gateway  (to be scaffolded)
@@ -39,23 +41,23 @@ Each project lives in its own independent folder with its own dependencies, docs
 
 Each project has the same documentation set so they are easy to navigate:
 
-| # | Document | WhatsappClone | WinrarClone |
-| --- | --- | --- | --- |
-| 01 | Requirements (PRD) | [link](whatsapp-clone/docs/01-requirements.md) | [link](winrar-clone/docs/01-requirements.md) |
-| 02 | Architecture | [link](whatsapp-clone/docs/02-architecture.md) | [link](winrar-clone/docs/02-architecture.md) |
-| 03 | UI/UX design | [link](whatsapp-clone/docs/03-ui-ux-design.md) | [link](winrar-clone/docs/03-ui-ux-design.md) |
-| 04 | Interfaces (API / IPC) | [API & realtime protocol](whatsapp-clone/docs/04-api-protocol.md) | [IPC & engine contract](winrar-clone/docs/04-ipc-engine-contract.md) |
-| 05 | Data model | [link](whatsapp-clone/docs/05-data-model.md) | [Settings & state](winrar-clone/docs/05-data-model.md) |
-| 06 | Security & threat model | [link](whatsapp-clone/docs/06-security.md) | [link](winrar-clone/docs/06-security.md) |
-| 07 | Testing & QA strategy | [link](whatsapp-clone/docs/07-testing-strategy.md) | [link](winrar-clone/docs/07-testing-strategy.md) |
-| 08 | CI/CD & release | [link](whatsapp-clone/docs/08-ci-cd-release.md) | [link](winrar-clone/docs/08-ci-cd-release.md) |
-| 09 | Operations | [Deployment & ops](whatsapp-clone/docs/09-deployment-operations.md) | [OS integration](winrar-clone/docs/09-platform-integration.md) |
-| 10 | Roadmap | [link](whatsapp-clone/docs/10-roadmap.md) | [link](winrar-clone/docs/10-roadmap.md) |
-| — | ADRs | [link](whatsapp-clone/docs/adr/) | [link](winrar-clone/docs/adr/) |
+| # | Document | ImageEditor | WhatsappClone | WinrarClone |
+| --- | --- | --- | --- | --- |
+| 01 | Requirements (PRD) | [link](image-editor/docs/01-requirements.md) | [link](whatsapp-clone/docs/01-requirements.md) | [link](winrar-clone/docs/01-requirements.md) |
+| 02 | Architecture | [link](image-editor/docs/02-architecture.md) | [link](whatsapp-clone/docs/02-architecture.md) | [link](winrar-clone/docs/02-architecture.md) |
+| 03 | UI/UX design | [link](image-editor/docs/03-ui-ux-design.md) | [link](whatsapp-clone/docs/03-ui-ux-design.md) | [link](winrar-clone/docs/03-ui-ux-design.md) |
+| 04 | Interfaces (API / IPC) | [IPC & command API](image-editor/docs/04-ipc-command-api.md) | [API & realtime protocol](whatsapp-clone/docs/04-api-protocol.md) | [IPC & engine contract](winrar-clone/docs/04-ipc-engine-contract.md) |
+| 05 | Data model | [Model & `.iep` format](image-editor/docs/05-data-model.md) | [link](whatsapp-clone/docs/05-data-model.md) | [Settings & state](winrar-clone/docs/05-data-model.md) |
+| 06 | Security & threat model | [link](image-editor/docs/06-security.md) | [link](whatsapp-clone/docs/06-security.md) | [link](winrar-clone/docs/06-security.md) |
+| 07 | Testing & QA strategy | [link](image-editor/docs/07-testing-strategy.md) | [link](whatsapp-clone/docs/07-testing-strategy.md) | [link](winrar-clone/docs/07-testing-strategy.md) |
+| 08 | CI/CD & release | [link](image-editor/docs/08-ci-cd-release.md) | [link](whatsapp-clone/docs/08-ci-cd-release.md) | [link](winrar-clone/docs/08-ci-cd-release.md) |
+| 09 | Domain-specific | [Formats & colour](image-editor/docs/09-file-formats-color.md) | [Deployment & ops](whatsapp-clone/docs/09-deployment-operations.md) | [OS integration](winrar-clone/docs/09-platform-integration.md) |
+| 10 | Roadmap | [link](image-editor/docs/10-roadmap.md) | [link](whatsapp-clone/docs/10-roadmap.md) | [link](winrar-clone/docs/10-roadmap.md) |
+| — | ADRs | [link](image-editor/docs/adr/) | [link](whatsapp-clone/docs/adr/) | [link](winrar-clone/docs/adr/) |
 
 ## Shared engineering baseline
 
-Both new projects share these conventions. The per-project docs go into detail.
+All three projects share these conventions. The per-project docs go into detail.
 
 - **Language:** TypeScript (strict), ESM.
 - **Desktop:** Electron (latest stable) + [electron-vite](https://electron-vite.org/) + React + Tailwind CSS.

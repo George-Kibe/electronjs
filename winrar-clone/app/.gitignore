@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+coverage/
+vendor/
+test/fixtures/*
+!test/fixtures/rar/
+*.log
+test-results/
+playwright-report/

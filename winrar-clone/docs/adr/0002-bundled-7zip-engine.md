@@ -39,4 +39,16 @@ typed errors.
 - We track 7-Zip releases (weekly watch workflow) and ship security updates within 14 days.
 - Parser correctness depends on the CLI output format, so we pin versions and use captured-output fixtures.
 - The M0 spike must confirm stdin password entry on all OSes (see [04 §2.3](../04-ipc-engine-contract.md#23-password-handling)).
+
+## Follow-ups (M0 spike, 2026-09-27)
+
+- Pinned **7-Zip 26.03** (latest at the time). Official builds are fetched from the SourceForge mirror, with
+  7-zip.org as fallback, and verified by SHA-256 (`app/scripts/7zip-versions.json`). Linux ships the static
+  `7zzs`. Windows `7z.exe`/`7z.dll` are unpacked from the official installer with a host 7-Zip.
+- Password through stdin: **works** on Linux (list/test/extract, 7z with encrypted headers, AES ZIP). EOF at the
+  prompt makes 7-Zip exit with 255 ("Break signaled"), so the prompt must be detected on stdout. Windows and macOS are
+  covered by the CI matrix.
+- 7-Zip does not resolve the first volume itself, so we added `volumes.ts` ([04 §2.7](../04-ipc-engine-contract.md#27-multi-volume-sets)).
+- Some fatal errors (e.g. `Missing volume`) are printed on stdout, not stderr, so the classifier reads both.
+- On Windows 7-Zip prints CRLF line endings, so the line splitter treats `\r\n` as one newline (regression-tested).
 - THIRD_PARTY_NOTICES and the About → Licenses screen must include the 7-Zip license and the unRAR restriction.
