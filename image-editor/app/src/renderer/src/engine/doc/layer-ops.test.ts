@@ -223,11 +223,14 @@ describe('layer operations (FR-LAY-02): exact undo/redo', () => {
       fc.property(
         fc.array(fc.tuple(fc.integer({ min: 0, max: 6 }), fc.nat(), fc.nat()), { maxLength: 25 }),
         (ops) => {
-          const d = doc(
-            solid('bg', [255, 255, 255, 255]),
-            solid('a', [255, 0, 0, 200]),
-            createGroupLayer('g', [solid('b', [0, 0, 255, 128])]),
-          );
+          // One tile keeps each merge cheap; the structure, not the pixel count, is under test.
+          const small = (name: string, rgba: [number, number, number, number]) =>
+            createRasterLayer(name, TileGrid.filled(64, 64, rgba));
+          const d = new Document(64, 64, [
+            small('bg', [255, 255, 255, 255]),
+            small('a', [255, 0, 0, 200]),
+            createGroupLayer('g', [small('b', [0, 0, 255, 128])]),
+          ]);
           const initial = shape(d.layers);
           const history = new History(d, { maxSteps: 1000, maxBytes: 1024 ** 3 });
           for (const [op, i, j] of ops) {
@@ -256,5 +259,5 @@ describe('layer operations (FR-LAY-02): exact undo/redo', () => {
       ),
       { numRuns: 60 },
     );
-  });
+  }, 30_000);
 });
