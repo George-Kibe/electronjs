@@ -61,4 +61,11 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Renderer unit tests run in Node (Vitest) and may read fixtures from disk; GPU tests run in Chromium.
+    files: ['src/renderer/**/*.test.ts'],
+    ignores: ['src/renderer/**/*.gpu.test.ts'],
+    languageOptions: { globals: globals.node },
+    rules: { 'no-restricted-imports': 'off' },
+  },
 );

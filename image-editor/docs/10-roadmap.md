@@ -45,6 +45,18 @@ M1 (ADR-0003 follow-ups).
 FR-DOC-01..06, 09..12 · FR-NAV-01, 02, 06 · FR-LAY-01 (raster/group), 02, 03 (Normal + 8 common modes), 06 ·
 FR-TRF-01..03, 07 · FR-PNT-01, 02, 06, 07 · FR-HIS-01, 02 · FR-GEN-01..05, 07, 08
 
+Progress (built in vertical slices, each E2E-tested on 3 OSes):
+
+- [x] **Slice 1 — files:** `.iep` save/open (FR-DOC-04) with the v1 golden fixture; Export As with live size
+      estimate and before/after preview, all 7 formats, resize on export (FR-DOC-05); Quick Export PNG
+      (FR-DOC-06); metadata policy for JPEG/PNG (FR-DOC-09); unsaved-changes guard on close/quit/open/new
+      and Revert (FR-DOC-11); BMP open (built-in codec); native File/Edit/View menu.
+- [ ] Slice 2 — layers: groups, layer operations, Normal + 8 blend modes, fill, thumbnails
+- [ ] Slice 3 — painting: brush options and pressure, pencil, eyedropper, colour picker, move tool
+- [ ] Slice 4 — transforms: crop, image/canvas size, rotate/flip
+- [ ] Slice 5 — navigation and history: zoom range, pixel grid, scrollbars, status bar, history budget, snapshots
+- [ ] Slice 6 — app shell: tabs, recent files, clipboard, autosave recovery, preferences, themes, updates, welcome
+
 **Exit:** journeys 1–2 (minus adjustments) pass E2E on 3 OSes. T-HIS-01, T-GPU-01, T-IO-01..04, T-REC-01
 green. Signed installers with auto-update. 10 testers use it for a week with no data loss.
 

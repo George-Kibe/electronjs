@@ -8,6 +8,7 @@ import {
 import { createServer, type AddressInfo } from 'node:net';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import sharp from 'sharp';
 
 export const appRoot = resolve(import.meta.dirname, '..');
 export const target = process.env.E2E_TARGET === 'packaged' ? 'packaged' : 'dev';
@@ -92,6 +93,10 @@ export async function launch(files: string[] = []): Promise<Launched> {
   const close = async () => {
     win.removeAllListeners();
     await browser.close().catch(() => undefined); // connectOverCDP: disconnects, leaves the app running
+    // destroy() skips the unsaved-changes guard (FR-DOC-11), which would otherwise cancel the quit.
+    await app
+      .evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()))
+      .catch(() => undefined);
     await app.close();
   };
   try {
@@ -107,4 +112,26 @@ export async function snapshot(win: Page, name: string): Promise<void> {
   await win.screenshot({
     path: join(appRoot, 'test-results', 'screens', `${process.platform}-${target}-${name}.png`),
   });
+}
+
+/** RGB of the canvas at a point in page coordinates, read from a real screenshot. */
+export async function canvasPixel(win: Page, x: number, y: number): Promise<[number, number, number]> {
+  const png = await win.screenshot({ clip: { x, y, width: 1, height: 1 } });
+  const { data } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  return [data[0]!, data[1]!, data[2]!];
+}
+
+export async function paintLine(win: Page, from: [number, number], to: [number, number]): Promise<void> {
+  await win.mouse.move(...from);
+  await win.mouse.down();
+  for (let i = 1; i <= 20; i++)
+    await win.mouse.move(from[0] + ((to[0] - from[0]) * i) / 20, from[1] + ((to[1] - from[1]) * i) / 20);
+  await win.mouse.up();
+}
+
+/** Makes the next native save dialogs return `path` (Playwright cannot drive OS dialogs). */
+export async function stubSaveDialog(app: ElectronApplication, path: string): Promise<void> {
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as typeof dialog.showSaveDialog;
+  }, path);
 }

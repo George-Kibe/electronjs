@@ -23,7 +23,8 @@ window.addEventListener('message', (event) => {
   }
 });
 
-function portFor(requestId: string, timeoutMs = 30_000): Promise<MessagePort> {
+/** The MessagePort main delivered for a codec request (decode or encode). */
+export function codecPort(requestId: string, timeoutMs = 30_000): Promise<MessagePort> {
   const early = arrived.get(requestId);
   if (early) {
     arrived.delete(requestId);
@@ -32,7 +33,7 @@ function portFor(requestId: string, timeoutMs = 30_000): Promise<MessagePort> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       waiting.delete(requestId);
-      reject(new Error('The image decoder did not respond.'));
+      reject(new Error('The image codec did not respond.'));
     }, timeoutMs);
     waiting.set(requestId, (port) => {
       clearTimeout(timer);
@@ -44,7 +45,7 @@ function portFor(requestId: string, timeoutMs = 30_000): Promise<MessagePort> {
 /** Decodes an image in the codec host; pixels stream over a direct MessagePort (docs/04 §1.1). */
 export async function decodeImage(ref: FileRef): Promise<{ header: DecodedHeader; rgba: Uint8Array }> {
   const { requestId } = await api.codec.decode(ref);
-  const port = await portFor(requestId);
+  const port = await codecPort(requestId);
   return new Promise((resolve, reject) => {
     let header: DecodedHeader | null = null;
     let rgba: Uint8Array | null = null;

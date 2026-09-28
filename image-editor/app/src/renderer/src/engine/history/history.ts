@@ -85,6 +85,15 @@ export class History {
     return this.bytes;
   }
 
+  /**
+   * Identity of the current state: the last applied command (or null at the initial state). Compared with
+   * the value recorded at save time to know whether the document has unsaved changes (FR-DOC-11).
+   * A coalesced edit replaces the last command, so it changes the identity too.
+   */
+  get top(): Command | null {
+    return this.done.at(-1) ?? null;
+  }
+
   /** Done entries followed by undone (redoable) ones, in chronological order. */
   entries(): HistoryEntry[] {
     return [...this.done, ...[...this.undone].reverse()].map((c, index) => ({ label: c.label, index }));

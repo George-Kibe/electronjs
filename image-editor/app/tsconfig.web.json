@@ -6,5 +6,6 @@
     "types": ["vite/client"],
     "tsBuildInfoFile": "./node_modules/.cache/tsc/web.tsbuildinfo"
   },
-  "include": ["src/renderer/src/**/*", "src/shared/**/*"]
+  "include": ["src/renderer/src/**/*", "src/shared/**/*"],
+  "exclude": ["src/renderer/src/**/*.test.ts"]
 }

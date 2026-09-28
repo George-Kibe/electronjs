@@ -23,10 +23,16 @@ function setup(overrides: Partial<Handlers> = {}, trusted = true) {
 describe('registerIpc', () => {
   it('registers every channel', () => {
     expect([...setup().listeners.keys()].sort()).toEqual([
+      'app.closeWindow',
       'app.getInfo',
       'app.getLaunchFiles',
+      'app.setDocumentEdited',
       'codec.decode',
+      'codec.encode',
       'dialog.openImage',
+      'dialog.saveAs',
+      'file.readBytes',
+      'file.writeAtomic',
       'files.registerDropped',
     ]);
   });

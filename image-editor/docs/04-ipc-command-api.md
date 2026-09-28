@@ -63,7 +63,29 @@ interface Api {
 }
 ```
 
+**As built (M1 slice 1)** — `app/src/shared/ipc-contract.ts` is the source of truth:
+
+| Channel | Purpose |
+| --- | --- |
+| `app.getInfo`, `app.getLaunchFiles` | App info; files from argv/file associations (handed out once) |
+| `app.setDocumentEdited(boolean)` | Unsaved-changes state for the close/quit guard and the macOS close-button dot |
+| `app.closeWindow()` | Close after the renderer resolved Save / Don't Save (main event `app.closeRequested` asks first) |
+| `dialog.openImage()` | Images and `.iep` projects |
+| `dialog.saveAs({ suggestedName, kind })` | `kind` = `'project'` or an export format; adds the extension; returns a **writable** ref |
+| `file.readBytes(ref)` | Bytes of a chosen file (≤ 2 GiB), parsed in the file worker |
+| `file.writeAtomic(ref, bytes)` | Temp + fsync + rename; only save-dialog refs or an opened `.iep` (else `FORBIDDEN`) |
+| `codec.decode(ref)`, `codec.encode()` | Open a codec session; the MessagePort arrives via `codec.port` |
+
+Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks. Menu
+accelerators are displayed but not registered; the renderer's keymap handles keys.
+
 ### 1.1 codec-host messages (over the brokered MessagePort)
+
+**Encode as built:** the file worker (not the UI thread) flattens the document and posts `encode-start`
+(`width`, `height`, zod-validated `ExportOptions`, source EXIF), then 16 MB `chunk`s, then `encode-end`; the
+reply is `encoded { bytes }` or `error`. Chunks are structured-cloned, not transferred: Electron's
+`MessagePortMain` cannot receive transferred `ArrayBuffer`s (found by E2E).
+
 
 ```ts
 // renderer → codec-host

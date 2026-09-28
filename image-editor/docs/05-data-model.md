@@ -117,7 +117,11 @@ project.iep (zip)
 }
 ```
 
-Layers are listed bottom → top. Groups nest their children. The manifest is validated with zod on load.
+Layers are listed bottom → top. Groups nest their children. `document` may also carry `name`,
+`sourceProfile` and `exif` (a path to `meta/exif.bin`, the source image's raw EXIF, kept for the export
+metadata policy). Tile paths are derived from the layer's index (`layers/<index>/tiles.bin`), never from its
+id, because ids come from files. A layer type the reader does not know is left out and the document opens
+read-only (Save becomes Save As), so it is never silently dropped from the original file. The manifest is validated with zod on load.
 Unknown fields are preserved on save (forward compatibility), and unknown layer types are kept opaque, with
 a warning.
 

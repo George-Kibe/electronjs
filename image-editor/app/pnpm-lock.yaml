@@ -11,6 +11,9 @@ importers:
       electron-log:
         specifier: ^5.4.4
         version: 5.4.4
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@24.19.0)

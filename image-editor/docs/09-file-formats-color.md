@@ -16,7 +16,7 @@
 | WebP | ✅ (still; the first frame of animations) | ✅ (lossy/lossless, quality, alpha quality) | sharp | |
 | AVIF | ✅ | ✅ (quality, effort, 8-bit) | sharp (libheif + aom, bundled in sharp's prebuilds) | Encoding is slow at high effort. Default effort 4. |
 | GIF | ✅ (first frame) | ✅ (single frame, palette + dithering) | sharp | Animation is a non-goal |
-| BMP | ✅ | ✅ | Import: sharp. Export: small built-in encoder (sharp has no BMP output). | 24/32-bit |
+| BMP | ✅ | ✅ | Small built-in codec in codec-host (`bmp.ts`): sharp/libvips has no BMP support at all. | Import: 1/4/8-bit palette, 16/24/32-bit, BI_RGB/BITFIELDS (RLE rejected). Export: 24-bit (matte) or 32-bit BGRA. |
 | TIFF | ✅ (first page; 8/16-bit; LZW/ZIP/JPEG) | ✅ (LZW/ZIP, 8-bit, single layer) | sharp | Multi-page and layered TIFF → first page / composite only |
 | PSD | ✅ | ✅ | ag-psd (worker) | See §3. PSB (large document) is import-only, if ag-psd handles the size within limits. |
 | HEIC/HEIF | ❌ (Future) | ❌ | — | HEVC patent licensing. Future option: OS codecs (Windows HEIF/HEVC extensions, macOS ImageIO) through a small native helper. |
@@ -100,6 +100,14 @@ The data model keeps `colorSpace` and tile `channels`/depth fields so a later AD
 
 ## 5. Export options (Export As dialog)
 
+**Metadata policy (FR-DOC-09).** The source EXIF block travels with the document as opaque bytes (also in
+`.iep`). On export, codec-host parses it and **rebuilds** a new block from an allow-list (`exif.ts`) instead of
+deleting tags in place, so dropped data cannot survive as unreferenced bytes: "Remove location" keeps camera,
+exposure, date and copyright tags; "Keep" also keeps GPS and serial numbers; maker notes, thumbnails and size
+tags are never kept, and Orientation is always 1 (pixels are exported upright). The block is inserted as an
+APP1 segment (JPEG) or an `eXIf` chunk (PNG). Other formats are written without camera metadata in v1.
+
+
 | Option | Formats | Default |
 | --- | --- | --- |
 | Quality | JPEG, WebP (lossy), AVIF | 85 / 80 / 60 |
@@ -110,5 +118,5 @@ The data model keeps `colorSpace` and tile `channels`/depth fields so a later AD
 | Palette (quantise) + colours + dither | PNG, GIF | off (PNG) / on (GIF) |
 | Resize on export | all | off |
 | Matte colour for transparency | JPEG, BMP (24-bit) | white |
-| Metadata | all | Remove location |
+| Metadata | JPEG, PNG (others are written without camera metadata) | Remove location |
 | Embed sRGB profile | all except BMP/GIF | on |

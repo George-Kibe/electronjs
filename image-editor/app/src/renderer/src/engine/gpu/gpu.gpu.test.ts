@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { accumulateDabs, applyStroke, DEFAULT_BRUSH, type BrushSettings, type Dab } from '../brush/brush';
 import { createRasterLayer, Document } from '../doc/document';
+import { compositePixel, liveLayers } from '../doc/flatten';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
 import { TILE_SIZE, TileGrid } from '../tiles/tile';
@@ -108,7 +109,7 @@ describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
     let maxErr = 0;
     for (let y = 0; y < size; y += 3) {
       for (let x = 0; x < size; x += 3) {
-        const expected = doc.compositePixel(x, y);
+        const expected = compositePixel(liveLayers(doc.layers), x, y);
         const i = ((size - 1 - y) * size + x) * 4; // readPixels rows are bottom-up
         for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
       }

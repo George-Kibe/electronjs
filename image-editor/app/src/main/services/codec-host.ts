@@ -36,6 +36,16 @@ export class CodecHost {
     return requestId;
   }
 
+  /** Opens an encode session: the renderer streams pixels over the port and receives the file bytes. */
+  encode(target: WebContents): string {
+    const requestId = randomUUID();
+    const { port1, port2 } = new MessageChannelMain();
+    const job: CodecJob = { type: 'encode', requestId };
+    this.process().postMessage(job, [port1]);
+    target.postMessage('codec.port', { requestId }, [port2]);
+    return requestId;
+  }
+
   stop(): void {
     this.child?.kill();
     this.child = null;

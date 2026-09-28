@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MAX_INPUT_PIXELS } from '@shared/constants';
+import { encodeBmp } from './bmp';
 import { decodeToRgba, iccDescription } from './decode';
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-codec-'));
@@ -35,6 +36,11 @@ beforeAll(async () => {
     .png()
     .toFile(f('too-wide.png'));
   writeFileSync(f('junk.jpg'), 'definitely not an image');
+  writeFileSync(f('image.bmp'), encodeBmp(new Uint8Array([255, 0, 0, 255, 0, 0, 255, 128]), 2, 1, 32));
+  await sharp({ create: { width: 4, height: 4, channels: 3, background: '#123456' } })
+    .withExif({ IFD0: { Make: 'Acme' } })
+    .jpeg()
+    .toFile(f('exif.jpg'));
   const jpeg = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#888' } })
     .jpeg()
     .toBuffer();
@@ -77,6 +83,17 @@ describe('decodeToRgba (real sharp/libvips)', () => {
 
   it('enforces the pixel budget before decoding (bomb guard)', async () => {
     await expect(decodeToRgba(f('p3.png'), 3)).rejects.toMatchObject({ code: 'TOO_LARGE' });
+  });
+
+  it('opens BMP files with the built-in decoder (sharp has no BMP support)', async () => {
+    const { header, data } = await decodeToRgba(f('image.bmp'), MAX_INPUT_PIXELS);
+    expect(header).toMatchObject({ format: 'bmp', width: 2, height: 1, exif: null });
+    expect([...data]).toEqual([255, 0, 0, 255, 0, 0, 255, 128]);
+  });
+
+  it('carries the source EXIF block for export (FR-DOC-09)', async () => {
+    const { header } = await decodeToRgba(f('exif.jpg'), MAX_INPUT_PIXELS);
+    expect(Buffer.from(header.exif!).toString('latin1')).toContain('Acme');
   });
 
   it('maps unreadable input to clear codes', async () => {

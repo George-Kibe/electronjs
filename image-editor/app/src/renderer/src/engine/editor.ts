@@ -5,8 +5,10 @@ import {
   PaintTilesCommand,
   SetActiveLayerCommand,
   SetLayerPropsCommand,
+  type Command,
 } from './doc/commands';
 import { createRasterLayer, Document } from './doc/document';
+import { fromSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
 import { Compositor } from './gpu/compositor';
 import { StrokeBuffer } from './gpu/stroke-buffer';
 import { History, type HistoryEntry } from './history/history';
@@ -15,8 +17,22 @@ import { parseTileKey, TileGrid, type Tile, type TileKey } from './tiles/tile';
 
 export type Tool = 'brush' | 'eraser' | 'hand' | 'zoom';
 
+/** Where the open document lives on disk (a FileRef from main; the engine never sees paths). */
+export type DocumentFile = { id: string; displayName: string; displayDir: string };
+
 export type EditorSnapshot = {
   doc: { width: number; height: number; name: string; sourceProfile: string | null } | null;
+  /** Save state (FR-DOC-04/11). */
+  file: {
+    /** The file the document was opened from or last saved to. */
+    ref: DocumentFile | null;
+    /** True when `ref` is a project (.iep) that Save can overwrite. */
+    isProject: boolean;
+    /** Unsaved changes since open/save. */
+    dirty: boolean;
+    /** Why Save must go to a new file (a project from a newer version), if so. */
+    readOnlyReason: string | null;
+  };
   /** Top → bottom, as shown in the Layers panel. */
   layers: Array<{ id: string; name: string; visible: boolean; opacity: number }>;
   activeLayerId: string | null;
@@ -34,6 +50,12 @@ type ActiveStroke = { layerId: string; settings: BrushSettings; generator: DabGe
 export type EditorState = {
   doc: Document | null;
   history: History | null;
+  file: {
+    ref: DocumentFile | null;
+    isProject: boolean;
+    readOnlyReason: string | null;
+    savedTop: Command | null;
+  };
   view: { zoom: number; panX: number; panY: number; autoFit: boolean };
   tool: Tool;
   brush: BrushSettings;
@@ -59,6 +81,9 @@ export class Editor {
   private strokeBuffer!: StrokeBuffer;
   private doc: Document | null = null;
   private history: History | null = null;
+  private file: EditorState['file'] = { ref: null, isProject: false, readOnlyReason: null, savedTop: null };
+  /** Increments on every document change; lets the file worker reuse a flatten for repeated exports. */
+  private version = 0;
   readonly viewport = new Viewport();
   private tool: Tool = 'brush';
   private brush: BrushSettings = { ...DEFAULT_BRUSH };
@@ -151,19 +176,48 @@ export class Editor {
     width: number,
     height: number,
     rgba: Uint8Array,
-    name: string,
-    sourceProfile: string | null,
+    meta: { name: string; sourceProfile: string | null; exif: Uint8Array | null },
+    file: DocumentFile | null = null,
   ): void {
     const doc = new Document(
       width,
       height,
       createRasterLayer('Background', TileGrid.fromRgba(width, height, rgba)),
-      {
-        name,
-        sourceProfile,
-      },
+      meta,
     );
-    this.open(doc);
+    this.open(doc, { ref: file, isProject: false, readOnlyReason: null });
+  }
+
+  /** Opens a project read by the file worker. */
+  openProject(snapshot: DocSnapshot, file: DocumentFile | null, readOnlyReason: string | null): void {
+    const doc = fromSnapshot(snapshot);
+    if (file) doc.meta.name = file.displayName;
+    this.open(doc, { ref: file, isProject: file !== null, readOnlyReason });
+  }
+
+  /** Plain copy of the document for the file worker (tile bytes are shared, not copied). */
+  getDocSnapshot(): DocSnapshot | null {
+    return this.doc ? toSnapshot(this.doc) : null;
+  }
+
+  get documentVersion(): number {
+    return this.version;
+  }
+
+  /** Identifies the current history state; take it together with getDocSnapshot() when saving. */
+  saveToken(): Command | null {
+    return this.history?.top ?? null;
+  }
+
+  /**
+   * Records a successful save of the state identified by `token`: the document now lives at `ref` (a
+   * project) and is clean — unless it was edited while the file was being written.
+   */
+  markSaved(ref: DocumentFile, token: Command | null): void {
+    if (!this.doc) return;
+    this.doc.meta.name = ref.displayName;
+    this.file = { ref, isProject: true, readOnlyReason: null, savedTop: token };
+    this.changed();
   }
 
   /** Snapshot of the CPU-side state, to continue on another canvas. */
@@ -172,30 +226,43 @@ export class Editor {
     return {
       doc: this.doc,
       history: this.history,
+      file: this.file,
       view: { zoom, panX, panY, autoFit: this.autoFit },
       tool: this.tool,
       brush: this.brush,
     };
   }
 
-  /** Continues editing a document exported from another Editor (history and view included). */
+  /** Continues editing a document exported from another Editor (history, file state and view included). */
   adopt(state: EditorState): void {
     this.doc = state.doc;
     this.history = state.history;
-    if (this.history) this.history.onChange = () => this.changed();
+    this.file = state.file;
+    if (this.history) this.history.onChange = () => this.onHistoryChange();
     Object.assign(this.viewport, { zoom: state.view.zoom, panX: state.view.panX, panY: state.view.panY });
     this.autoFit = state.view.autoFit;
     this.tool = state.tool;
     this.brush = state.brush;
+    this.version++;
     this.changed();
   }
 
-  private open(doc: Document): void {
+  private open(
+    doc: Document,
+    file: Omit<EditorState['file'], 'savedTop'> = { ref: null, isProject: false, readOnlyReason: null },
+  ): void {
     this.stroke = null;
     this.strokeBuffer.clear();
     this.doc = doc;
-    this.history = new History(doc, { maxSteps: 100, maxBytes: 2 * 1024 ** 3 }, () => this.changed());
+    this.history = new History(doc, { maxSteps: 100, maxBytes: 2 * 1024 ** 3 }, () => this.onHistoryChange());
+    this.file = { ...file, savedTop: null };
+    this.version++;
     this.fitToScreen();
+  }
+
+  private onHistoryChange(): void {
+    this.version++;
+    this.changed();
   }
 
   // ---- state for the UI ------------------------------------------------------------------------
@@ -211,7 +278,15 @@ export class Editor {
     const doc = this.doc;
     const debug = this.gl.getExtension('WEBGL_debug_renderer_info');
     return {
-      doc: doc ? { width: doc.width, height: doc.height, ...doc.meta } : null,
+      doc: doc
+        ? { width: doc.width, height: doc.height, name: doc.meta.name, sourceProfile: doc.meta.sourceProfile }
+        : null,
+      file: {
+        ref: this.file.ref,
+        isProject: this.file.isProject,
+        dirty: doc !== null && (this.history?.top ?? null) !== this.file.savedTop,
+        readOnlyReason: this.file.readOnlyReason,
+      },
       layers: doc
         ? [...doc.layers].reverse().map(({ id, name, visible, opacity }) => ({ id, name, visible, opacity }))
         : [],

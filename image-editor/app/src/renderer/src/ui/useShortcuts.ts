@@ -1,10 +1,19 @@
 import { useEffect } from 'react';
 import type { Editor } from '../engine/editor';
 
+export type ShortcutActions = {
+  open(): void;
+  newDocument(): void;
+  save(): void;
+  saveAs(): void;
+  exportAs(): void;
+  quickExport(): void;
+};
+
 /**
  * Photoshop-compatible defaults (docs/03 §6). Ignored while typing in form fields.
  */
-export function useShortcuts(editor: Editor | null, actions: { open: () => void }): void {
+export function useShortcuts(editor: Editor | null, actions: ShortcutActions): void {
   useEffect(() => {
     if (!editor) return;
     const typing = (t: EventTarget | null) =>
@@ -23,7 +32,12 @@ export function useShortcuts(editor: Editor | null, actions: { open: () => void 
       const handled = (() => {
         if (mod && key === 'z') return run(() => (e.shiftKey ? editor.redo() : editor.undo()));
         if (mod && key === 'y') return run(() => editor.redo());
+        // e.code for the Alt combinations: on macOS, Alt changes e.key to another character.
+        if (mod && e.altKey && e.shiftKey && e.code === 'KeyW') return run(() => actions.exportAs());
+        if (mod && e.altKey && e.shiftKey && e.code === 'Quote') return run(() => actions.quickExport());
         if (mod && key === 'o') return run(() => actions.open());
+        if (mod && key === 's') return run(() => (e.shiftKey ? actions.saveAs() : actions.save()));
+        if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());
         if (mod && e.shiftKey && key === 'n') return run(() => editor.addLayer());
         if (mod && key === '0') return run(() => editor.fitToScreen());
         if (mod && key === '1') return run(() => editor.zoomTo(1));

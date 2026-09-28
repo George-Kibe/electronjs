@@ -7,26 +7,27 @@ import {
   useSyncExternalStore,
   type DragEvent,
 } from 'react';
-import type { FileRef } from '@shared/schemas';
+import type { MenuCommandId } from '@shared/menu';
 import { Editor, type EditorSnapshot, type EditorState } from '../engine/editor';
-import { api, errorMessage } from '../lib/api';
-import { decodeImage } from '../lib/codec';
+import { api, errorMessage, events } from '../lib/api';
 import { Button } from './components/Button';
+import { ExportDialog } from './components/ExportDialog';
 import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
+import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
 import { ToolBar } from './components/ToolBar';
+import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
-import { useShortcuts } from './useShortcuts';
+import { useFileActions } from './useFileActions';
+import { useShortcuts, type ShortcutActions } from './useShortcuts';
 
 const noSubscribe = () => () => undefined;
 
 export function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [initialLabel, setInitialLabel] = useState('New');
+  const [newOpen, setNewOpen] = useState(false);
   // Bumping the key replaces the <canvas> (and its WebGL context) after an unrecoverable context loss;
   // the new Editor adopts the old one's document and history.
   const [canvasKey, setCanvasKey] = useState(0);
@@ -61,32 +62,8 @@ export function App() {
     editor?.getSnapshot ?? (() => null),
   );
 
-  const openRef = useCallback(
-    async (ref: FileRef) => {
-      if (!editor) return;
-      setError(null);
-      setBusy(`Opening ${ref.displayName}…`);
-      try {
-        const { header, rgba } = await decodeImage(ref);
-        editor.loadImage(header.width, header.height, rgba, ref.displayName, header.sourceProfile);
-        setInitialLabel('Open');
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [editor],
-  );
-
-  const openDialog = useCallback(async () => {
-    try {
-      const ref = await api.dialog.openImage();
-      if (ref) await openRef(ref);
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-  }, [openRef]);
+  const files = useFileActions(editor);
+  const { openRef } = files;
 
   // Files passed on the command line / via file association (FR-DOC-02).
   useEffect(() => {
@@ -97,18 +74,52 @@ export function App() {
     );
   }, [editor, openRef]);
 
-  const actions = useMemo(() => ({ open: () => void openDialog() }), [openDialog]);
+  const actions: ShortcutActions = useMemo(
+    () => ({
+      open: () => void files.openDialog(),
+      newDocument: () => setNewOpen(true),
+      save: () => void files.save(),
+      saveAs: () => void files.saveAs(),
+      exportAs: files.openExport,
+      quickExport: () => void files.quickExport(),
+    }),
+    [files],
+  );
   useShortcuts(editor, actions);
+
+  // Native menu (docs/04 §2.5).
+  useEffect(
+    () =>
+      events.onMenuCommand((id: MenuCommandId) => {
+        const run: Record<MenuCommandId, () => void> = {
+          'file.new': actions.newDocument,
+          'file.open': actions.open,
+          'file.save': actions.save,
+          'file.saveAs': actions.saveAs,
+          'file.exportAs': actions.exportAs,
+          'file.quickExport': actions.quickExport,
+          'file.revert': () => void files.revert(),
+          'edit.undo': () => editor?.undo(),
+          'edit.redo': () => editor?.redo(),
+          'view.zoomIn': () => editor?.zoomBy(2),
+          'view.zoomOut': () => editor?.zoomBy(0.5),
+          'view.fit': () => editor?.fitToScreen(),
+          'view.actualSize': () => editor?.zoomTo(1),
+        };
+        run[id]();
+      }),
+    [actions, files, editor],
+  );
 
   const onDrop = async (e: DragEvent) => {
     e.preventDefault();
-    const files = [...e.dataTransfer.files];
-    if (!files.length) return;
+    const dropped = [...e.dataTransfer.files];
+    if (!dropped.length) return;
     try {
-      const [first] = await api.files.registerDropped(files);
+      const [first] = await api.files.registerDropped(dropped);
       if (first) await openRef(first);
     } catch (err) {
-      setError(errorMessage(err));
+      files.reportError(err);
     }
   };
 
@@ -124,11 +135,22 @@ export function App() {
   }
 
   const hasDoc = Boolean(snap?.doc);
+  const toast = files.error ?? files.busy ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <header className="bg-ui-panel border-ui-border flex h-9 items-center gap-1 border-b px-2">
-        <Button onClick={() => void openDialog()} title="Open (Ctrl+O)">
+        <Button onClick={actions.open} title="Open (Ctrl+O)">
           Open…
+        </Button>
+        <Button onClick={actions.save} disabled={!hasDoc || Boolean(files.busy)} title="Save (Ctrl+S)">
+          Save
+        </Button>
+        <Button
+          onClick={actions.exportAs}
+          disabled={!hasDoc || Boolean(files.busy)}
+          title="Export As (Ctrl+Alt+Shift+W)"
+        >
+          Export…
         </Button>
         <Button onClick={() => editor?.undo()} disabled={!snap?.history.canUndo} title="Undo (Ctrl+Z)">
           Undo
@@ -136,7 +158,10 @@ export function App() {
         <Button onClick={() => editor?.redo()} disabled={!snap?.history.canRedo} title="Redo (Ctrl+Shift+Z)">
           Redo
         </Button>
-        <span className="text-ui-muted ml-3 truncate">{snap?.doc?.name ?? ''}</span>
+        <span className="text-ui-muted ml-3 truncate" aria-label="Document">
+          {snap?.doc?.name ?? ''}
+          {snap?.file.dirty ? <span aria-label="unsaved changes"> •</span> : null}
+        </span>
       </header>
       {snap && hasDoc && (
         <OptionsBar
@@ -159,9 +184,7 @@ export function App() {
             className={`block h-full w-full ${snap?.tool === 'hand' ? 'cursor-grab' : 'cursor-crosshair'}`}
             style={{ touchAction: 'none' }}
           />
-          {!hasDoc && (
-            <Welcome onNew={(w, h) => editor?.newDocument(w, h)} onOpen={() => void openDialog()} />
-          )}
+          {!hasDoc && <Welcome onNew={(w, h) => void files.newDocument(w, h)} onOpen={actions.open} />}
         </div>
         {snap && hasDoc && (
           <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">
@@ -177,7 +200,7 @@ export function App() {
             />
             <HistoryPanel
               history={snap.history}
-              initialLabel={initialLabel}
+              initialLabel={snap.file.ref ? 'Open' : 'New'}
               onGoTo={(i) => editor?.goToHistory(i)}
             />
           </aside>
@@ -198,21 +221,43 @@ export function App() {
             <span className="ml-auto truncate">{snap.gpu}</span>
           </>
         ) : (
-          <span>{busy ?? 'Ready'}</span>
+          <span>{files.busy ?? 'Ready'}</span>
         )}
       </footer>
-      {(busy || error) && (
+      {toast && (
         <div
-          role={error ? 'alert' : 'status'}
-          className={`bg-ui-panel fixed bottom-10 left-1/2 -translate-x-1/2 rounded border px-4 py-2 shadow-lg ${error ? 'border-danger text-danger' : 'border-ui-border'}`}
+          role={files.error ? 'alert' : 'status'}
+          className={`bg-ui-panel fixed bottom-10 left-1/2 z-40 -translate-x-1/2 rounded border px-4 py-2 shadow-lg ${files.error ? 'border-danger text-danger' : 'border-ui-border'}`}
         >
-          {error ?? busy}
-          {error && (
-            <button className="text-ui-muted ml-3" aria-label="Dismiss" onClick={() => setError(null)}>
+          {toast}
+          {!files.busy && (
+            <button
+              className="text-ui-muted ml-3"
+              aria-label="Dismiss"
+              onClick={files.error ? files.dismissError : files.dismissNotice}
+            >
               ✕
             </button>
           )}
         </div>
+      )}
+      {files.unsaved && <UnsavedDialog name={files.unsaved.name} onChoose={files.unsaved.resolve} />}
+      {files.exporting && editor && (
+        <ExportDialog
+          editor={editor}
+          initial={files.exportInitial}
+          onExport={(o) => void files.exportWith(o)}
+          onCancel={files.closeExport}
+        />
+      )}
+      {newOpen && (
+        <NewDocumentDialog
+          onCancel={() => setNewOpen(false)}
+          onCreate={(w, h) => {
+            setNewOpen(false);
+            void files.newDocument(w, h);
+          }}
+        />
       )}
     </div>
   );

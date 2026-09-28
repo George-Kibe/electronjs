@@ -27,7 +27,7 @@ export const AppInfo = z.object({
 export type AppInfo = z.infer<typeof AppInfo>;
 
 export const IpcError = z.object({
-  code: z.union([CodecErrorCode, z.enum(['VALIDATION_FAILED', 'FORBIDDEN', 'NOT_FOUND'])]),
+  code: z.union([CodecErrorCode, z.enum(['VALIDATION_FAILED', 'FORBIDDEN', 'NOT_FOUND', 'WRITE_FAILED'])]),
   message: z.string(),
 });
 export type IpcError = z.infer<typeof IpcError>;

@@ -1,9 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { launch, snapshot, target } from './app';
+import { canvasPixel, launch, paintLine, snapshot, target } from './app';
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-e2e-'));
 const photo = join(dir, 'phone-photo.jpg');
@@ -18,21 +18,6 @@ test.beforeAll(async () => {
   writeFileSync(junk, 'not an image');
 });
 test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
-
-/** RGB of the canvas at a point in page coordinates, read from a real screenshot. */
-async function canvasPixel(win: Page, x: number, y: number): Promise<[number, number, number]> {
-  const png = await win.screenshot({ clip: { x, y, width: 1, height: 1 } });
-  const { data } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  return [data[0]!, data[1]!, data[2]!];
-}
-
-async function paintLine(win: Page, from: [number, number], to: [number, number]): Promise<void> {
-  await win.mouse.move(...from);
-  await win.mouse.down();
-  for (let i = 1; i <= 20; i++)
-    await win.mouse.move(from[0] + ((to[0] - from[0]) * i) / 20, from[1] + ((to[1] - from[1]) * i) / 20);
-  await win.mouse.up();
-}
 
 test(`[${target}] opens a phone photo upright, paints on a new layer, undoes and redoes`, async () => {
   const { win, close } = await launch([photo]);
@@ -135,7 +120,7 @@ test(`[${target}] runs cross-origin isolated with the security baseline`, async 
     sharedArrayBuffer: 'function',
     require: 'undefined',
     process: 'undefined',
-    apiKeys: ['app', 'codec', 'dialog', 'files'],
+    apiKeys: ['app', 'codec', 'dialog', 'events', 'file', 'files'],
     networkBlocked: true,
     webgl2: true,
   });

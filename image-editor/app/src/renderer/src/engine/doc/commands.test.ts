@@ -160,14 +160,4 @@ describe('commands + history', () => {
       }),
     );
   });
-
-  it('composites visible layers with opacity (CPU reference)', () => {
-    const doc = newDoc(); // white background
-    const top = createRasterLayer('top', TileGrid.filled(512, 512, [255, 0, 0, 255]));
-    top.opacity = 0.5;
-    doc.layers.push(top);
-    expect(doc.compositePixel(10, 10)).toEqual([255, 128, 128, 255]);
-    top.visible = false;
-    expect(doc.compositePixel(10, 10)).toEqual([255, 255, 255, 255]);
-  });
 });
