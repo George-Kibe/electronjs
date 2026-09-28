@@ -40,6 +40,8 @@ test(`[${target}] opens a phone photo upright, paints on a new layer, undoes and
   await expect(status).toContainText('480 × 640 px'); // EXIF orientation applied (FR-DOC-09)
   await expect(win.getByRole('list', { name: 'History' })).toContainText('Open');
 
+  // If the GPU context was lost, painting must wait for recovery (restore or a fresh canvas).
+  await expect(win.locator('footer')).toContainText(/strokes RGBA/, { timeout: 15_000 });
   console.log(`[${process.platform}/${target}] GPU: ${await win.locator('footer').innerText()}`);
   await win.getByRole('button', { name: 'New layer' }).click();
   await expect(win.getByRole('option', { name: /Layer 1/ })).toHaveAttribute('aria-selected', 'true');
@@ -87,6 +89,7 @@ test(`[${target}] erases to transparency (checkerboard shows through)`, async ()
   await win.getByRole('spinbutton').nth(1).fill('300');
   await win.getByRole('button', { name: 'Create' }).click();
   await win.getByRole('button', { name: 'Eraser (E)' }).click();
+  await expect(win.locator('footer')).toContainText(/strokes RGBA/, { timeout: 15_000 });
   const box = (await win.locator('canvas').boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;

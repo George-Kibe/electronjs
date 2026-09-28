@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type DragEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+} from 'react';
 import type { FileRef } from '@shared/schemas';
-import { Editor, type EditorSnapshot } from '../engine/editor';
+import { Editor, type EditorSnapshot, type EditorState } from '../engine/editor';
 import { api, errorMessage } from '../lib/api';
 import { decodeImage } from '../lib/codec';
 import { Button } from './components/Button';
@@ -19,12 +27,25 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [initialLabel, setInitialLabel] = useState('New');
+  // Bumping the key replaces the <canvas> (and its WebGL context) after an unrecoverable context loss;
+  // the new Editor adopts the old one's document and history.
+  const [canvasKey, setCanvasKey] = useState(0);
+  const carryOver = useRef<EditorState | null>(null);
 
   // Callback ref with cleanup (React 19): the engine owns the canvas for the component's lifetime.
   const attachCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     if (!canvas) return;
     try {
-      const instance = new Editor(canvas);
+      const instance: Editor = new Editor(canvas, {
+        onUnrecoverableContextLoss: () => {
+          carryOver.current = instance.exportState();
+          setCanvasKey((k) => k + 1);
+        },
+      });
+      if (carryOver.current) {
+        instance.adopt(carryOver.current);
+        carryOver.current = null;
+      }
       setEditor(instance);
       return () => {
         instance.dispose();
@@ -131,6 +152,7 @@ export function App() {
         {snap && hasDoc && <ToolBar tool={snap.tool} onSelect={(t) => editor?.setTool(t)} />}
         <div className="relative min-w-0 flex-1">
           <canvas
+            key={canvasKey}
             ref={attachCanvas}
             aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
             role="img"

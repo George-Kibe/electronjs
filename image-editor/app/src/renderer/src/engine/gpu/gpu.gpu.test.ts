@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { accumulateDabs, applyStroke, DEFAULT_BRUSH, type BrushSettings, type Dab } from '../brush/brush';
 import { createRasterLayer, Document } from '../doc/document';
+import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
 import { TILE_SIZE, TileGrid } from '../tiles/tile';
 import { Compositor } from './compositor';
@@ -113,5 +114,50 @@ describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
       }
     }
     expect(maxErr).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('WebGL context loss (NFR-REL-02)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+
+  it('asks the host to move the document when the context is not restored', async () => {
+    const onUnrecoverableContextLoss = vi.fn();
+    const canvas = editorCanvas();
+    const editor = new Editor(canvas, { onUnrecoverableContextLoss, restoreTimeoutMs: 50 });
+    editor.newDocument(64, 64);
+    editor.addLayer();
+    canvas.getContext('webgl2')!.getExtension('WEBGL_lose_context')!.loseContext();
+    await vi.waitFor(() => expect(onUnrecoverableContextLoss).toHaveBeenCalledOnce());
+    expect(editor.getSnapshot().gpu).toMatch(/lost/);
+
+    // A fresh canvas adopts the document and its history; nothing is lost.
+    const state = editor.exportState();
+    editor.dispose();
+    const next = new Editor(editorCanvas());
+    next.adopt(state);
+    expect(next.getSnapshot().layers.map((l) => l.name)).toEqual(['Layer 1', 'Background']);
+    expect(next.getSnapshot().history.entries.map((e) => e.label)).toEqual(['New Layer']);
+    next.undo();
+    expect(next.getSnapshot().layers).toHaveLength(1);
+    next.dispose();
+  });
+
+  it('keeps working after the context is restored', async () => {
+    const onUnrecoverableContextLoss = vi.fn();
+    const canvas = editorCanvas();
+    const editor = new Editor(canvas, { onUnrecoverableContextLoss, restoreTimeoutMs: 5000 });
+    editor.newDocument(64, 64);
+    const ext = canvas.getContext('webgl2')!.getExtension('WEBGL_lose_context')!;
+    ext.loseContext();
+    await vi.waitFor(() => expect(editor.getSnapshot().gpu).toMatch(/lost/));
+    ext.restoreContext();
+    await vi.waitFor(() => expect(editor.getSnapshot().gpu).toMatch(/strokes RGBA/));
+    expect(onUnrecoverableContextLoss).not.toHaveBeenCalled();
+    editor.dispose();
   });
 });

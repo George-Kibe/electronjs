@@ -18,7 +18,8 @@ export class History {
   constructor(
     private readonly doc: Document,
     private readonly options: HistoryOptions = { maxSteps: 100, maxBytes: 1024 ** 3 },
-    private readonly onChange: (dirty: DirtySet) => void = () => undefined,
+    /** Rebound when a document moves to a new Editor after an unrecoverable context loss. */
+    public onChange: (dirty: DirtySet) => void = () => undefined,
   ) {}
 
   execute(cmd: Command, { coalesce = false } = {}): void {

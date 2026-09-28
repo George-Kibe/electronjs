@@ -30,6 +30,25 @@ export type EditorSnapshot = {
 
 type ActiveStroke = { layerId: string; settings: BrushSettings; generator: DabGenerator; pointerId: number };
 
+/** Everything needed to continue editing on a fresh canvas (CPU state only; GPU state is rebuilt). */
+export type EditorState = {
+  doc: Document | null;
+  history: History | null;
+  view: { zoom: number; panX: number; panY: number; autoFit: boolean };
+  tool: Tool;
+  brush: BrushSettings;
+};
+
+export type EditorOptions = {
+  /**
+   * Called when a lost WebGL context is not restored in time. The host should give the editor's state to
+   * a new Editor on a new canvas (NFR-REL-02: pixels live in CPU tiles, nothing is lost).
+   */
+  onUnrecoverableContextLoss?: () => void;
+  /** How long to wait for `webglcontextrestored` before giving up on this canvas. */
+  restoreTimeoutMs?: number;
+};
+
 /**
  * Engine façade (docs/02 §3): owns the document, history, viewport, tools and GPU. Framework-free; the UI
  * subscribes to snapshots (useSyncExternalStore) and calls methods. Stroke input never triggers UI renders.
@@ -55,8 +74,12 @@ export class Editor {
   private snapshot: EditorSnapshot;
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
+  private restoreTimer = 0;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly options: EditorOptions = {},
+  ) {
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: true });
     if (!gl) throw new Error('WebGL2 is not available on this system.');
     this.gl = gl;
@@ -75,6 +98,13 @@ export class Editor {
         e.preventDefault(); // ask the browser to restore the context
         console.warn('[engine] WebGL context lost; waiting for restore');
         this.stroke = null; // any stroke in progress cannot be committed
+        // Some drivers never restore (seen on Linux software GL). Fall back to a fresh canvas.
+        window.clearTimeout(this.restoreTimer);
+        this.restoreTimer = window.setTimeout(() => {
+          if (!this.gl.isContextLost()) return;
+          console.warn('[engine] WebGL context was not restored; moving the document to a new canvas');
+          this.options.onUnrecoverableContextLoss?.();
+        }, this.options.restoreTimeoutMs ?? 1500);
         this.changed();
       },
       { signal },
@@ -95,6 +125,7 @@ export class Editor {
 
   /** NFR-REL-02: pixels live in CPU tiles, so a lost GPU context only needs re-uploading. */
   private onContextRestored(): void {
+    window.clearTimeout(this.restoreTimer);
     this.stroke = null;
     this.initGpu(); // textures are rebuilt lazily from the CPU tiles
     console.info(`[engine] WebGL context restored (${this.strokeBuffer.format})`);
@@ -133,6 +164,30 @@ export class Editor {
       },
     );
     this.open(doc);
+  }
+
+  /** Snapshot of the CPU-side state, to continue on another canvas. */
+  exportState(): EditorState {
+    const { zoom, panX, panY } = this.viewport;
+    return {
+      doc: this.doc,
+      history: this.history,
+      view: { zoom, panX, panY, autoFit: this.autoFit },
+      tool: this.tool,
+      brush: this.brush,
+    };
+  }
+
+  /** Continues editing a document exported from another Editor (history and view included). */
+  adopt(state: EditorState): void {
+    this.doc = state.doc;
+    this.history = state.history;
+    if (this.history) this.history.onChange = () => this.changed();
+    Object.assign(this.viewport, { zoom: state.view.zoom, panX: state.view.panX, panY: state.view.panY });
+    this.autoFit = state.view.autoFit;
+    this.tool = state.tool;
+    this.brush = state.brush;
+    this.changed();
   }
 
   private open(doc: Document): void {
@@ -439,6 +494,7 @@ export class Editor {
   }
 
   dispose(): void {
+    window.clearTimeout(this.restoreTimer);
     cancelAnimationFrame(this.frame);
     this.abort.abort();
     this.resizeObserver.disconnect();

@@ -32,8 +32,7 @@ export async function launch(files: string[] = []): Promise<{ app: ElectronAppli
   const win = await app.firstWindow();
   win.on('console', (m) => console.log(`[renderer ${m.type()}] ${m.text()}`));
   win.on('crash', () => console.log('[renderer] CRASHED'));
-  // firstWindow() can resolve before the app page commits; wait for the real UI.
-  await win.waitForURL(/^(app:|http:\/\/localhost)/, { timeout: 30_000 });
+  // firstWindow() can resolve before the app page commits; wait for the app's own UI (survives navigations).
   await win.getByRole('button', { name: /Open/ }).first().waitFor({ timeout: 30_000 });
   return { app, win };
 }
