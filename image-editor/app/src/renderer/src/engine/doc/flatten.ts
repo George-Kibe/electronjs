@@ -1,48 +1,100 @@
 import { TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
-import type { BlendMode } from './document';
+import { blendInto, blendModeIndex } from './blend';
+import type { BlendMode, Layer } from './document';
 
-/** What the CPU compositor needs from a layer; satisfied by live layers and by worker snapshots. */
-export type FlatLayer = {
-  visible: boolean;
-  opacity: number;
-  fillOpacity: number;
-  blendMode: BlendMode;
-  tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined;
-};
+type NodeProps = { visible: boolean; opacity: number; fillOpacity: number; blendMode: BlendMode };
+
+/** What the CPU compositor needs from the layer tree; satisfied by live layers and by worker snapshots. */
+export type FlatLayer =
+  | (NodeProps & { kind: 'raster'; tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined })
+  | (NodeProps & { kind: 'group'; passThrough: boolean; children: FlatLayer[] });
+
+const TILE_PIXELS = TILE_SIZE * TILE_SIZE;
+
+/** Scratch buffers for isolated groups, one per nesting depth. */
+const scratch: Float32Array[] = [];
+function scratchAt(depth: number, length: number): Float32Array {
+  let buf = scratch[depth];
+  if (!buf || buf.length < length) scratch[depth] = buf = new Float32Array(length);
+  const view = buf.subarray(0, length);
+  view.fill(0);
+  return view;
+}
 
 /**
- * CPU reference compositor (docs/02 §5.2): bottom → top, gamma-space blending on straight 8-bit tiles
- * (ADR-0004). The GPU compositor must match it (gpu.gpu.test.ts). Used for export, previews and tests.
- * M1 slice 1: Normal only.
+ * Composites `nodes` (bottom → top) into `acc` (premultiplied RGBA floats, 0..1) for `count` pixels of tile
+ * `key`, starting at pixel `first` of the tile. The CPU reference for the GPU compositor (docs/02 §5.2):
+ * gamma-space blending (ADR-0004), pass-through groups inline, other groups isolated then blended.
  */
+function compositeSpan(
+  nodes: readonly FlatLayer[],
+  key: TileKey,
+  acc: Float32Array,
+  first: number,
+  count: number,
+  depth: number,
+): void {
+  for (const node of nodes) {
+    if (!node.visible) continue;
+    if (node.kind === 'raster') {
+      const t = node.tile(key);
+      const k = node.opacity * node.fillOpacity;
+      if (!t || k === 0) continue;
+      const mode = blendModeIndex(node.blendMode);
+      for (let p = 0; p < count; p++) {
+        const s = (first + p) * 4;
+        const a = t[s + 3]!;
+        if (a === 0) continue;
+        blendInto(acc, p * 4, mode, t[s]! / 255, t[s + 1]! / 255, t[s + 2]! / 255, (a / 255) * k);
+      }
+    } else if (node.passThrough && node.opacity === 1) {
+      compositeSpan(node.children, key, acc, first, count, depth);
+    } else {
+      if (node.opacity === 0) continue;
+      const group = scratchAt(depth, count * 4);
+      compositeSpan(node.children, key, group, first, count, depth + 1);
+      // Pass-through groups with reduced opacity are composited isolated and blended normally.
+      const mode = node.passThrough ? 0 : blendModeIndex(node.blendMode);
+      for (let p = 0; p < count; p++) {
+        const i = p * 4;
+        const a = group[i + 3]!;
+        if (a === 0) continue;
+        blendInto(acc, i, mode, group[i]! / a, group[i + 1]! / a, group[i + 2]! / a, a * node.opacity);
+      }
+    }
+  }
+}
+
+function toByte(acc: Float32Array, i: number): [number, number, number, number] {
+  const a = acc[i + 3]!;
+  if (a <= 0) return [0, 0, 0, 0];
+  return [
+    Math.round(Math.min(1, acc[i]! / a) * 255),
+    Math.round(Math.min(1, acc[i + 1]! / a) * 255),
+    Math.round(Math.min(1, acc[i + 2]! / a) * 255),
+    Math.round(Math.min(1, a) * 255),
+  ];
+}
+
+/** Straight RGBA8 of the composite at one document pixel. */
 export function compositePixel(
   layers: readonly FlatLayer[],
   x: number,
   y: number,
 ): [number, number, number, number] {
   const key = tileKey(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE));
-  const i = ((y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)) * 4;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  let a = 0; // premultiplied accumulation, 0..1
-  for (const layer of layers) {
-    if (!layer.visible) continue;
-    const t = layer.tile(key);
-    if (!t) continue;
-    const sa = (t[i + 3]! / 255) * layer.opacity * layer.fillOpacity;
-    r = (t[i]! / 255) * sa + r * (1 - sa);
-    g = (t[i + 1]! / 255) * sa + g * (1 - sa);
-    b = (t[i + 2]! / 255) * sa + b * (1 - sa);
-    a = sa + a * (1 - sa);
-  }
-  if (a === 0) return [0, 0, 0, 0];
-  return [
-    Math.round((r / a) * 255),
-    Math.round((g / a) * 255),
-    Math.round((b / a) * 255),
-    Math.round(a * 255),
-  ];
+  const acc = new Float32Array(4);
+  compositeSpan(layers, key, acc, (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE), 1, 0);
+  return toByte(acc, 0);
+}
+
+/** Straight RGBA8 of one whole tile of the composite (merge commands, previews). */
+export function compositeTile(layers: readonly FlatLayer[], key: TileKey): Uint8ClampedArray {
+  const acc = new Float32Array(TILE_PIXELS * 4);
+  compositeSpan(layers, key, acc, 0, TILE_PIXELS, 0);
+  const out = new Uint8ClampedArray(TILE_PIXELS * 4);
+  for (let i = 0; i < out.length; i += 4) out.set(toByte(acc, i), i);
+  return out;
 }
 
 /**
@@ -56,41 +108,19 @@ export function flatten(
   onRow?: (done: number, total: number) => void,
 ): Uint8ClampedArray {
   const out = new Uint8ClampedArray(width * height * 4);
-  const acc = new Float32Array(TILE_SIZE * TILE_SIZE * 4);
+  const acc = new Float32Array(TILE_PIXELS * 4);
   const rows = Math.ceil(height / TILE_SIZE);
   const cols = Math.ceil(width / TILE_SIZE);
-  const shown = layers.filter((l) => l.visible && l.opacity * l.fillOpacity > 0);
   for (let ty = 0; ty < rows; ty++) {
     for (let tx = 0; tx < cols; tx++) {
       acc.fill(0);
-      const key = tileKey(tx, ty);
-      for (const layer of shown) {
-        const t = layer.tile(key);
-        if (!t) continue;
-        const k = layer.opacity * layer.fillOpacity;
-        for (let i = 0; i < acc.length; i += 4) {
-          const sa = (t[i + 3]! / 255) * k;
-          if (sa === 0) continue;
-          const keep = 1 - sa;
-          acc[i] = (t[i]! / 255) * sa + acc[i]! * keep;
-          acc[i + 1] = (t[i + 1]! / 255) * sa + acc[i + 1]! * keep;
-          acc[i + 2] = (t[i + 2]! / 255) * sa + acc[i + 2]! * keep;
-          acc[i + 3] = sa + acc[i + 3]! * keep;
-        }
-      }
+      compositeSpan(layers, tileKey(tx, ty), acc, 0, TILE_PIXELS, 0);
       const w = Math.min(TILE_SIZE, width - tx * TILE_SIZE);
       const h = Math.min(TILE_SIZE, height - ty * TILE_SIZE);
       for (let y = 0; y < h; y++) {
         let o = ((ty * TILE_SIZE + y) * width + tx * TILE_SIZE) * 4;
         let i = y * TILE_SIZE * 4;
-        for (let x = 0; x < w; x++, i += 4, o += 4) {
-          const a = acc[i + 3]!;
-          if (a === 0) continue; // out is zero-initialised: transparent black
-          out[o] = Math.round((acc[i]! / a) * 255);
-          out[o + 1] = Math.round((acc[i + 1]! / a) * 255);
-          out[o + 2] = Math.round((acc[i + 2]! / a) * 255);
-          out[o + 3] = Math.round(a * 255);
-        }
+        for (let x = 0; x < w; x++, i += 4, o += 4) if (acc[i + 3]! > 0) out.set(toByte(acc, i), o);
       }
     }
     onRow?.(ty + 1, rows);
@@ -99,8 +129,8 @@ export function flatten(
 }
 
 /**
- * Small flattened preview (the `.iep` preview.png and recent-file thumbnails): each output pixel averages a
- * 2×2 grid of composited samples, so thin strokes don't vanish entirely.
+ * Small flattened preview (the `.iep` preview.png, recent-file and layer thumbnails): each output pixel
+ * averages a 2×2 grid of composited samples, so thin strokes don't vanish entirely.
  */
 export function flattenPreview(
   layers: readonly FlatLayer[],
@@ -142,21 +172,17 @@ export function flattenPreview(
   return { width: w, height: h, rgba };
 }
 
-/** Adapts live raster layers (engine/doc) to the compositor. */
-export function liveLayers(
-  layers: ReadonlyArray<{
-    visible: boolean;
-    opacity: number;
-    fillOpacity: number;
-    blendMode: BlendMode;
-    tiles: { get(key: TileKey): { data: Uint8ClampedArray } | undefined };
-  }>,
-): FlatLayer[] {
-  return layers.map((l) => ({
-    visible: l.visible,
-    opacity: l.opacity,
-    fillOpacity: l.fillOpacity,
-    blendMode: l.blendMode,
-    tile: (key) => l.tiles.get(key)?.data,
-  }));
+/** Adapts the live layer tree (engine/doc) to the compositor. */
+export function liveLayers(layers: readonly Layer[]): FlatLayer[] {
+  return layers.map((l): FlatLayer => {
+    const props = {
+      visible: l.visible,
+      opacity: l.opacity,
+      fillOpacity: l.fillOpacity,
+      blendMode: l.blendMode,
+    };
+    if (l.type === 'group')
+      return { ...props, kind: 'group', passThrough: l.passThrough, children: liveLayers(l.children) };
+    return { ...props, kind: 'raster', tile: (key) => l.tiles.get(key)?.data };
+  });
 }

@@ -28,6 +28,7 @@ export function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [engineNotice, setEngineNotice] = useState<string | null>(null);
   // Bumping the key replaces the <canvas> (and its WebGL context) after an unrecoverable context loss;
   // the new Editor adopts the old one's document and history.
   const [canvasKey, setCanvasKey] = useState(0);
@@ -38,6 +39,7 @@ export function App() {
     if (!canvas) return;
     try {
       const instance: Editor = new Editor(canvas, {
+        onNotice: setEngineNotice,
         onUnrecoverableContextLoss: () => {
           carryOver.current = instance.exportState();
           setCanvasKey((k) => k + 1);
@@ -61,6 +63,12 @@ export function App() {
     editor?.subscribe ?? noSubscribe,
     editor?.getSnapshot ?? (() => null),
   );
+
+  useEffect(() => {
+    if (!engineNotice) return;
+    const timer = window.setTimeout(() => setEngineNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [engineNotice]);
 
   const files = useFileActions(editor);
   const { openRef } = files;
@@ -101,6 +109,17 @@ export function App() {
           'file.revert': () => void files.revert(),
           'edit.undo': () => editor?.undo(),
           'edit.redo': () => editor?.redo(),
+          'layer.new': () => editor?.addLayer(),
+          'layer.newGroup': () => editor?.addGroup(),
+          'layer.duplicate': () => editor?.duplicateLayer(),
+          'layer.delete': () => editor?.deleteLayer(),
+          'layer.group': () => editor?.groupActiveLayer(),
+          'layer.ungroup': () => editor?.ungroupActiveLayer(),
+          'layer.bringForward': () => editor?.nudgeActiveLayer(1),
+          'layer.sendBackward': () => editor?.nudgeActiveLayer(-1),
+          'layer.mergeDown': () => editor?.mergeDown(),
+          'layer.mergeVisible': () => editor?.mergeVisible(),
+          'layer.flatten': () => editor?.flattenImage(),
           'view.zoomIn': () => editor?.zoomBy(2),
           'view.zoomOut': () => editor?.zoomBy(0.5),
           'view.fit': () => editor?.fitToScreen(),
@@ -135,7 +154,7 @@ export function App() {
   }
 
   const hasDoc = Boolean(snap?.doc);
-  const toast = files.error ?? files.busy ?? files.notice;
+  const toast = files.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <header className="bg-ui-panel border-ui-border flex h-9 items-center gap-1 border-b px-2">
@@ -188,16 +207,7 @@ export function App() {
         </div>
         {snap && hasDoc && (
           <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">
-            <LayersPanel
-              layers={snap.layers}
-              activeLayerId={snap.activeLayerId}
-              onSelect={(id) => editor?.setActiveLayer(id)}
-              onVisible={(id, v) => editor?.setLayerVisible(id, v)}
-              onOpacity={(id, o) => editor?.setLayerOpacity(id, o)}
-              onOpacityDone={() => editor?.endCoalesce()}
-              onAdd={() => editor?.addLayer()}
-              onDelete={() => editor?.deleteActiveLayer()}
-            />
+            {editor && <LayersPanel editor={editor} snap={snap} />}
             <HistoryPanel
               history={snap.history}
               initialLabel={snap.file.ref ? 'Open' : 'New'}
@@ -234,7 +244,13 @@ export function App() {
             <button
               className="text-ui-muted ml-3"
               aria-label="Dismiss"
-              onClick={files.error ? files.dismissError : files.dismissNotice}
+              onClick={
+                files.error
+                  ? files.dismissError
+                  : engineNotice
+                    ? () => setEngineNotice(null)
+                    : files.dismissNotice
+              }
             >
               ✕
             </button>

@@ -1,6 +1,6 @@
 import type { Tile, TileKey } from '../tiles/tile';
 import { TILE_BYTES } from '../tiles/tile';
-import { createRasterLayer, type Document, type RasterLayer } from './document';
+import { createRasterLayer, type Document, type Layer, type LayerProps } from './document';
 
 export type DirtySet = { layerIds: string[]; tiles: TileKey[] | 'all' };
 
@@ -15,7 +15,7 @@ export interface Command {
   mergeWith?(next: Command): Command | null;
 }
 
-/** Swaps tile references on one layer: the core of brush/eraser/fill undo (ADR-0005). */
+/** Swaps tile references on one raster layer: the core of brush/eraser/fill undo (ADR-0005). */
 export class PaintTilesCommand implements Command {
   constructor(
     readonly label: string,
@@ -25,7 +25,7 @@ export class PaintTilesCommand implements Command {
   ) {}
 
   private apply(doc: Document, tiles: ReadonlyMap<TileKey, Tile | undefined>): DirtySet {
-    const grid = doc.layer(this.layerId).tiles;
+    const grid = doc.raster(this.layerId).tiles;
     for (const [key, tile] of tiles) grid.set(key, tile);
     return { layerIds: [this.layerId], tiles: [...tiles.keys()] };
   }
@@ -46,16 +46,20 @@ export class PaintTilesCommand implements Command {
   }
 }
 
+/** Inserts a layer (new raster by default) into `parentId`'s children at `index`, and selects it. */
 export class AddLayerCommand implements Command {
-  readonly label = 'New Layer';
-  private readonly layer: RasterLayer;
+  readonly label: string;
+  private readonly layer: Layer;
   private previousActive = '';
 
   constructor(
-    name: string,
+    nameOrLayer: string | Layer,
     private readonly index: number,
+    private readonly parentId: string | null = null,
+    label = 'New Layer',
   ) {
-    this.layer = createRasterLayer(name);
+    this.layer = typeof nameOrLayer === 'string' ? createRasterLayer(nameOrLayer) : nameOrLayer;
+    this.label = label;
   }
 
   get layerId(): string {
@@ -64,69 +68,85 @@ export class AddLayerCommand implements Command {
 
   do(doc: Document): DirtySet {
     this.previousActive = doc.activeLayerId;
-    doc.layers.splice(this.index, 0, this.layer);
+    doc.container(this.parentId).splice(this.index, 0, this.layer);
     doc.activeLayerId = this.layer.id;
     return { layerIds: [this.layer.id], tiles: 'all' };
   }
 
   undo(doc: Document): DirtySet {
-    doc.layers.splice(doc.indexOf(this.layer.id), 1);
+    const siblings = doc.container(this.parentId);
+    siblings.splice(siblings.indexOf(this.layer), 1);
     doc.activeLayerId = this.previousActive;
     return { layerIds: [this.layer.id], tiles: 'all' };
   }
 
   sizeBytes(): number {
-    return 256;
+    return 256 + tileBytes([this.layer]);
   }
 }
 
 export class DeleteLayerCommand implements Command {
   readonly label = 'Delete Layer';
   private index = -1;
-  private layer: RasterLayer | undefined;
+  private siblings: Layer[] = [];
+  private layer: Layer | undefined;
   private previousActive = '';
 
   constructor(private readonly layerId: string) {}
 
   do(doc: Document): DirtySet {
-    if (doc.layers.length <= 1) throw new Error('A document needs at least one layer');
-    this.index = doc.indexOf(this.layerId);
+    const loc = doc.locate(this.layerId);
+    if (loc.parent === null && doc.layers.length <= 1) throw new Error('A document needs at least one layer');
+    this.siblings = loc.siblings;
+    this.index = loc.index;
     this.previousActive = doc.activeLayerId;
-    [this.layer] = doc.layers.splice(this.index, 1);
-    if (doc.activeLayerId === this.layerId) doc.activeLayerId = doc.layers[Math.max(0, this.index - 1)]!.id;
+    [this.layer] = loc.siblings.splice(loc.index, 1);
+    if (!doc.has(doc.activeLayerId))
+      doc.activeLayerId = nearestLayer(doc, loc.siblings, loc.index, loc.parent?.id);
     return { layerIds: [this.layerId], tiles: 'all' };
   }
 
   undo(doc: Document): DirtySet {
-    doc.layers.splice(this.index, 0, this.layer!);
+    this.siblings.splice(this.index, 0, this.layer!);
     doc.activeLayerId = this.previousActive;
     return { layerIds: [this.layerId], tiles: 'all' };
   }
 
   sizeBytes(): number {
-    let n = 0;
-    for (const _ of this.layer?.tiles.keys() ?? []) n += TILE_BYTES;
-    return n;
+    return this.layer ? tileBytes([this.layer]) : 0;
   }
 }
 
-type LayerProps = Partial<Pick<RasterLayer, 'name' | 'visible' | 'opacity'>>;
+/** The layer below the removed position, else the one above, else the parent group. */
+function nearestLayer(doc: Document, siblings: Layer[], index: number, parentId: string | undefined): string {
+  return (siblings[index - 1] ?? siblings[index])?.id ?? parentId ?? doc.layers.at(-1)!.id;
+}
+
+const PROP_LABELS: Record<string, string> = {
+  opacity: 'Layer Opacity',
+  fillOpacity: 'Fill Opacity',
+  visible: 'Layer Visibility',
+  name: 'Rename Layer',
+  blendMode: 'Blend Mode',
+  locks: 'Lock Layer',
+  passThrough: 'Blend Mode',
+  clipped: 'Clipping Mask',
+};
 
 export class SetLayerPropsCommand implements Command {
   readonly label: string;
-  private before: LayerProps = {};
+  private before: Partial<LayerProps> = {};
 
   constructor(
     private readonly layerId: string,
-    private readonly props: LayerProps,
+    private readonly props: Partial<LayerProps>,
   ) {
-    this.label =
-      'opacity' in props ? 'Layer Opacity' : 'visible' in props ? 'Layer Visibility' : 'Rename Layer';
+    this.label = PROP_LABELS[Object.keys(props)[0] ?? ''] ?? 'Layer Properties';
   }
 
   do(doc: Document): DirtySet {
-    const layer = doc.layer(this.layerId);
-    this.before = Object.fromEntries(Object.keys(this.props).map((k) => [k, layer[k as keyof LayerProps]]));
+    const layer = doc.layer(this.layerId) as unknown as Record<string, unknown>;
+    this.before = Object.fromEntries(Object.keys(this.props).map((k) => [k, layer[k]]));
     Object.assign(layer, this.props);
     return { layerIds: [this.layerId], tiles: 'all' };
   }
@@ -166,5 +186,65 @@ export class SetActiveLayerCommand implements Command {
   }
   sizeBytes(): number {
     return 32;
+  }
+}
+
+/** Copies the tree structure (groups and arrays); raster layers and their immutable tiles are shared. */
+export function cloneTree(layers: readonly Layer[]): Layer[] {
+  return layers.map((l) =>
+    l.type === 'group' ? { ...l, locks: { ...l.locks }, children: cloneTree(l.children) } : l,
+  );
+}
+
+/** Tile bytes held by the raster layers in `layers` (for history accounting). */
+export function tileBytes(layers: readonly Layer[]): number {
+  let n = 0;
+  for (const l of layers) n += l.type === 'group' ? tileBytes(l.children) : l.tiles.size * TILE_BYTES;
+  return n;
+}
+
+export type TreeEdit = {
+  /** The new root level (built from a cloneTree() copy; unchanged raster layers may be shared). */
+  root: Layer[];
+  activeLayerId: string;
+  /** Bytes of tiles created by this edit (merges); they are owned by history. */
+  newTileBytes?: number;
+};
+
+/**
+ * Structural edit of the layer tree as one undo step: group, ungroup, move, duplicate, merge, flatten
+ * (docs/04 §2.2). `build` runs once, on the first do(); afterwards do/undo only swap the root contents, so
+ * they are exact inverses and cost O(layers), never O(pixels).
+ */
+export class TreeCommand implements Command {
+  private before: { root: Layer[]; active: string } | null = null;
+  private after: TreeEdit | null = null;
+
+  constructor(
+    readonly label: string,
+    private readonly build: (doc: Document) => TreeEdit,
+  ) {}
+
+  private install(doc: Document, root: Layer[], active: string): DirtySet {
+    doc.layers.splice(0, doc.layers.length, ...root);
+    doc.activeLayerId = active;
+    return { layerIds: [], tiles: 'all' };
+  }
+
+  do(doc: Document): DirtySet {
+    if (!this.after) {
+      this.before = { root: [...doc.layers], active: doc.activeLayerId };
+      this.after = this.build(doc);
+      if (this.after.root.length === 0) throw new Error('A document needs at least one layer');
+    }
+    return this.install(doc, this.after.root, this.after.activeLayerId);
+  }
+
+  undo(doc: Document): DirtySet {
+    return this.install(doc, this.before!.root, this.before!.active);
+  }
+
+  sizeBytes(): number {
+    return 512 + (this.after?.newTileBytes ?? 0);
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { accumulateDabs, applyStroke, DEFAULT_BRUSH, type BrushSettings, type Dab } from '../brush/brush';
-import { createRasterLayer, Document } from '../doc/document';
+import { IMPLEMENTED_BLEND_MODES } from '../doc/blend';
+import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
 import { compositePixel, liveLayers } from '../doc/flatten';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
@@ -91,6 +92,7 @@ describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
         buffer: stroke,
         layerId: layer.id,
         settings,
+        preserveAlpha: false,
       },
     );
     const pixels = new Uint8Array(size * size * 4);
@@ -111,6 +113,154 @@ describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
       for (let x = 0; x < size; x += 3) {
         const expected = compositePixel(liveLayers(doc.layers), x, y);
         const i = ((size - 1 - y) * size + x) * 4; // readPixels rows are bottom-up
+        for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+      }
+    }
+    expect(maxErr).toBeLessThanOrEqual(2);
+  });
+});
+
+/**
+ * Renders `doc` at zoom 1 and returns the largest per-channel difference from the CPU compositor, split into
+ * opaque pixels (T-BLD-01: ±2/255) and translucent ones, which the canvas shows over the checkerboard: there
+ * the 8-bit straight rounding of the CPU reference adds up to ~1/255 more.
+ */
+function maxCompositeError(
+  doc: Document,
+  format?: 'rgba16f' | 'rgba8',
+): { opaque: number; translucent: number } {
+  const { width: w, height: h } = doc;
+  const gl = context(w, h);
+  const compositor = new Compositor(gl);
+  const stroke = new StrokeBuffer(gl, compositor.quad);
+  compositor.targetFormat = format ?? stroke.format;
+  compositor.render(doc, new Viewport(), { cssWidth: w, cssHeight: h, width: w, height: h, dpr: 1 });
+  const pixels = new Uint8Array(w * h * 4);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const err = { opaque: 0, translucent: 0 };
+  for (let y = 1; y < h; y += 5) {
+    for (let x = 2; x < w; x += 5) {
+      const [r, g, b, a] = compositePixel(liveLayers(doc.layers), x, y);
+      const row = h - 1 - y; // readPixels rows are bottom-up
+      // The canvas shows the composite over the checkerboard (checker.frag: 8 px cells, 0.8 / 1.0 grey).
+      const light = (Math.floor((x + 0.5) / 8) + Math.floor((row + 0.5) / 8)) % 2 === 1;
+      const under = (light ? 1 : 0.8) * 255 * (1 - a / 255);
+      const shown = [r, g, b].map((v) => (v * a) / 255 + under);
+      const i = (row * w + x) * 4;
+      const key = a === 255 ? 'opaque' : 'translucent';
+      for (let c = 0; c < 3; c++) err[key] = Math.max(err[key], Math.abs(pixels[i + c]! - shown[c]!));
+    }
+  }
+  return err;
+}
+
+function expectClose(doc: Document): void {
+  const { opaque, translucent } = maxCompositeError(doc);
+  expect(opaque).toBeLessThanOrEqual(2);
+  expect(translucent).toBeLessThanOrEqual(3);
+}
+
+/** Opaque colourful backdrop and a semi-transparent gradient to blend onto it. */
+function gradients(size: number): { backdrop: Uint8ClampedArray; source: Uint8ClampedArray } {
+  const backdrop = new Uint8ClampedArray(size * size * 4);
+  const source = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      backdrop.set([(x * 255) / size, (y * 255) / size, 128, y < size / 6 ? 90 : 255], i);
+      source.set([255 - (y * 255) / size, 60, (x * 255) / size, 40 + ((x * 3 + y) % 215)], i);
+    }
+  }
+  return { backdrop, source };
+}
+
+describe('blend modes and groups: GPU vs CPU (T-BLD-01, M1 subset)', () => {
+  const size = 120;
+  const { backdrop, source } = gradients(size);
+
+  it.each(IMPLEMENTED_BLEND_MODES.flatMap((mode) => [0.3, 1].map((opacity) => [mode, opacity] as const)))(
+    '%s at opacity %s',
+    (mode, opacity) => {
+      const doc = new Document(size, size, [
+        createRasterLayer('bg', TileGrid.fromRgba(size, size, backdrop)),
+        createRasterLayer('top', TileGrid.fromRgba(size, size, source), { blendMode: mode, opacity }),
+      ]);
+      expectClose(doc);
+    },
+  );
+
+  it.each([
+    ['pass-through', true, 'normal', 1],
+    ['isolated multiply group at 60 %', false, 'multiply', 0.6],
+    ['pass-through group at 50 % (composited isolated)', true, 'normal', 0.5],
+  ] as const)('%s', (_name, passThrough, mode, opacity) => {
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.fromRgba(size, size, backdrop)),
+      createGroupLayer(
+        'g',
+        [
+          createRasterLayer('a', TileGrid.fromRgba(size, size, source), { blendMode: 'screen' }),
+          createRasterLayer('b', TileGrid.filled(size, size, [200, 40, 40, 160]), { blendMode: 'overlay' }),
+        ],
+        { passThrough, blendMode: mode, opacity },
+      ),
+    ]);
+    expectClose(doc);
+  });
+
+  it('transparency-lock preview keeps alpha exactly like the CPU commit', () => {
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      createRasterLayer('p', TileGrid.fromRgba(size, size, source)),
+    ]);
+    const layer = doc.raster(doc.layers[1]!.id);
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    const settings: BrushSettings = {
+      ...DEFAULT_BRUSH,
+      color: [0, 200, 0],
+      opacity: 0.8,
+      hardness: 1,
+      mode: 'paint',
+    };
+    stroke.hardness = 1;
+    const lockDabs: Dab[] = [{ x: 60, y: 60, radius: 40, alpha: 1 }];
+    stroke.addDabs(lockDabs, size, size);
+    compositor.render(
+      doc,
+      new Viewport(),
+      { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+      {
+        buffer: stroke,
+        layerId: layer.id,
+        settings,
+        preserveAlpha: true,
+      },
+    );
+    const pixels = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    for (const key of stroke.keys()) {
+      const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+      const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+      accumulateDabs(cov, tileX, tileY, lockDabs, 1);
+      const before = layer.tiles.get(key);
+      const after = applyStroke(
+        before,
+        cov,
+        settings,
+        { tileX, tileY, docWidth: size, docHeight: size },
+        true,
+      );
+      for (let i = 3; i < 256 * 256 * 4; i += 4) expect(after?.data[i]).toBe(before?.data[i]); // alpha kept
+      layer.tiles.set(key, after);
+    }
+    let maxErr = 0;
+    for (let y = 30; y < 90; y += 3) {
+      for (let x = 30; x < 90; x += 3) {
+        const expected = compositePixel(liveLayers(doc.layers), x, y);
+        const i = ((size - 1 - y) * size + x) * 4;
         for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
       }
     }

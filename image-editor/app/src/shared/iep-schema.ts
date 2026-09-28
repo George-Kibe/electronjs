@@ -8,6 +8,7 @@ export const IEP_VERSION = 1;
 /** Safety limits on load (docs/05 §2.4). */
 export const IEP_LIMITS = {
   maxLayers: 1000,
+  maxGroupDepth: 32,
   maxTilesPerLayer: 10_000,
   maxManifestBytes: 16 * 1024 * 1024,
 } as const;
@@ -64,6 +65,15 @@ export const LayerBase = z.looseObject({
 
 export const RasterLayerEntry = LayerBase.extend({ type: z.literal('raster'), tiles: EntryPath });
 export type RasterLayerEntry = z.infer<typeof RasterLayerEntry>;
+
+/** Children are validated recursively by the reader (depth and total count are limited). */
+export const GroupLayerEntry = LayerBase.extend({
+  type: z.literal('group'),
+  passThrough: z.boolean().default(true),
+  collapsed: z.boolean().default(false),
+  children: z.array(z.unknown()).max(IEP_LIMITS.maxLayers),
+});
+export type GroupLayerEntry = z.infer<typeof GroupLayerEntry>;
 
 export const DocumentEntry = z.looseObject({
   width: side,

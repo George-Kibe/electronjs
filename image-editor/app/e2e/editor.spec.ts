@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { canvasPixel, launch, paintLine, snapshot, target } from './app';
+import { canvasPixel, launch, paintLine, snapshot, target, docCanvas } from './app';
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-e2e-'));
 const photo = join(dir, 'phone-photo.jpg');
@@ -31,7 +31,7 @@ test(`[${target}] opens a phone photo upright, paints on a new layer, undoes and
   await win.getByRole('button', { name: 'New layer' }).click();
   await expect(win.getByRole('option', { name: /Layer 1/ })).toHaveAttribute('aria-selected', 'true');
 
-  const box = (await win.locator('canvas').boundingBox())!;
+  const box = (await docCanvas(win).boundingBox())!;
   const cy = box.y + box.height / 2;
   const cx = box.x + box.width / 2;
   const before = await canvasPixel(win, cx, cy);
@@ -75,7 +75,7 @@ test(`[${target}] erases to transparency (checkerboard shows through)`, async ()
   await win.getByRole('button', { name: 'Create' }).click();
   await win.getByRole('button', { name: 'Eraser (E)' }).click();
   await expect(win.locator('footer')).toContainText(/strokes RGBA/, { timeout: 15_000 });
-  const box = (await win.locator('canvas').boundingBox())!;
+  const box = (await docCanvas(win).boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   await paintLine(win, [cx - 40, cy], [cx + 40, cy]);
