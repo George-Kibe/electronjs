@@ -68,6 +68,24 @@ export function menuTemplate(
       ],
     },
     {
+      label: 'Layer',
+      submenu: [
+        cmd('New Layer', 'layer.new', 'CmdOrCtrl+Shift+N'),
+        cmd('New Group', 'layer.newGroup'),
+        cmd('Duplicate Layer', 'layer.duplicate', 'CmdOrCtrl+J'),
+        cmd('Delete Layer', 'layer.delete'),
+        { type: 'separator' },
+        cmd('Group Layers', 'layer.group', 'CmdOrCtrl+G'),
+        cmd('Ungroup Layers', 'layer.ungroup', 'CmdOrCtrl+Shift+G'),
+        cmd('Bring Forward', 'layer.bringForward', 'CmdOrCtrl+]'),
+        cmd('Send Backward', 'layer.sendBackward', 'CmdOrCtrl+['),
+        { type: 'separator' },
+        cmd('Merge Down', 'layer.mergeDown', 'CmdOrCtrl+E'),
+        cmd('Merge Visible', 'layer.mergeVisible', 'CmdOrCtrl+Shift+E'),
+        cmd('Flatten Image', 'layer.flatten'),
+      ],
+    },
+    {
       label: 'View',
       submenu: [
         cmd('Zoom In', 'view.zoomIn', 'CmdOrCtrl+='),

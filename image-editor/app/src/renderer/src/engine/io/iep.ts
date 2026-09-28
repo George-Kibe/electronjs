@@ -1,7 +1,9 @@
 import { deflateSync, inflateSync, strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import {
   DocumentEntry,
+  GroupLayerEntry,
   IEP_LIMITS,
+  LayerBase,
   IEP_MIMETYPE,
   IEP_VERSION,
   Manifest,
@@ -151,6 +153,7 @@ function decodeTile(bin: Uint8Array, e: TileIndex): Uint8Array {
 const KNOWN_DOC_KEYS = new Set(Object.keys(DocumentEntry.shape));
 const KNOWN_MANIFEST_KEYS = new Set(['format', 'version', 'app', 'document', 'layers']);
 const KNOWN_RASTER_KEYS = new Set(Object.keys(RasterLayerEntry.shape));
+const KNOWN_GROUP_KEYS = new Set(Object.keys(GroupLayerEntry.shape));
 
 function pick(obj: Record<string, unknown>, known: Set<string>): Record<string, unknown> | undefined {
   const extra = Object.fromEntries(Object.entries(obj).filter(([k]) => !known.has(k)));
@@ -166,14 +169,13 @@ export function writeIep(
     // First and stored, so tools can sniff the type (ODF/EPUB convention).
     mimetype: [strToU8(IEP_MIMETYPE), { level: 0 }],
   };
-  const layers = doc.layers.map((l: LayerSnapshot, i) => {
-    // Paths use the index, not the id: ids come from files and must never become arbitrary zip paths.
-    const tiles = `layers/${i}/tiles.bin`;
-    files[tiles] = [encodeTiles(l.tiles), { level: 0 }]; // payloads are already deflated
-    return {
+  // Tile paths use a running index, not the id: ids come from files and must never become zip paths.
+  let next = 0;
+  const entry = (l: LayerSnapshot): Record<string, unknown> => {
+    const common = {
       ...l.extra,
       id: l.id,
-      type: 'raster',
+      type: l.type,
       name: l.name,
       visible: l.visible,
       opacity: l.opacity,
@@ -181,9 +183,19 @@ export function writeIep(
       blendMode: l.blendMode,
       locks: l.locks,
       clipped: l.clipped,
-      tiles,
     };
-  });
+    if (l.type === 'group')
+      return {
+        ...common,
+        passThrough: l.passThrough,
+        collapsed: l.collapsed,
+        children: l.children.map(entry),
+      };
+    const tiles = `layers/${next++}/tiles.bin`;
+    files[tiles] = [encodeTiles(l.tiles), { level: 0 }]; // payloads are already deflated
+    return { ...common, tiles };
+  };
+  const layers = doc.layers.map(entry);
   const document: Record<string, unknown> = {
     ...doc.extra?.document,
     width: doc.width,
@@ -256,26 +268,44 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
   const cols = Math.ceil(width / TILE_SIZE);
   const rows = Math.ceil(height / TILE_SIZE);
 
-  // Validate every layer and index its tiles before inflating anything (bomb guard).
-  const plans: Array<{ entry: RasterLayerEntry; bin: Uint8Array; index: TileIndex[] }> = [];
+  // Validate the whole tree and index every tile before inflating anything (bomb guard).
+  type Plan =
+    | { kind: 'raster'; entry: RasterLayerEntry; bin: Uint8Array; index: TileIndex[] }
+    | { kind: 'group'; entry: GroupLayerEntry; children: Plan[] };
   const ids = new Set<string>();
   let skipped = 0;
   let tileCount = 0;
-  for (const base of manifest.layers) {
-    if (base.type !== 'raster') {
-      skipped++;
-      continue;
+  let layerCount = 0;
+  const plan = (list: unknown[], depth: number): Plan[] => {
+    if (depth > IEP_LIMITS.maxGroupDepth) throw new IepError('This project has groups nested too deeply.');
+    const out: Plan[] = [];
+    for (const raw of list) {
+      if (++layerCount > IEP_LIMITS.maxLayers) throw new IepError('This project has too many layers.');
+      const base = LayerBase.safeParse(raw);
+      if (!base.success) throw new IepError('This project has an invalid layer.');
+      if (base.data.type !== 'raster' && base.data.type !== 'group') {
+        skipped++;
+        continue;
+      }
+      if (ids.has(base.data.id)) throw new IepError('This project has duplicate layer ids.');
+      ids.add(base.data.id);
+      if (base.data.type === 'group') {
+        const group = GroupLayerEntry.safeParse(raw);
+        if (!group.success) throw new IepError('This project has an invalid layer.');
+        out.push({ kind: 'group', entry: group.data, children: plan(group.data.children, depth + 1) });
+        continue;
+      }
+      const layer = RasterLayerEntry.safeParse(raw);
+      if (!layer.success) throw new IepError('This project has an invalid layer.');
+      const bin = entries[layer.data.tiles];
+      if (!bin) throw new IepError(`Layer “${layer.data.name}” is missing its pixels.`);
+      const index = indexTiles(bin, cols, rows);
+      tileCount += index.length;
+      out.push({ kind: 'raster', entry: layer.data, bin, index });
     }
-    const layer = RasterLayerEntry.safeParse(base);
-    if (!layer.success) throw new IepError('This project has an invalid layer.');
-    if (ids.has(layer.data.id)) throw new IepError('This project has duplicate layer ids.');
-    ids.add(layer.data.id);
-    const bin = entries[layer.data.tiles];
-    if (!bin) throw new IepError(`Layer “${layer.data.name}” is missing its pixels.`);
-    const index = indexTiles(bin, cols, rows);
-    tileCount += index.length;
-    plans.push({ entry: layer.data, bin, index });
-  }
+    return out;
+  };
+  const plans = plan(manifest.layers, 0);
   if (skipped > 0)
     reasons.push(
       `${skipped} layer${skipped === 1 ? '' : 's'} use features this version cannot show, so ${skipped === 1 ? 'it is' : 'they are'} left out.`,
@@ -284,23 +314,37 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
   if (tileCount * TILE_BYTES > opts.maxTileBytes)
     throw new IepError('This project is too large to open with the current memory budget.');
 
-  const layers: LayerSnapshot[] = plans.map(({ entry, bin, index }) => {
-    const tiles: Array<[TileKey, Uint8Array]> = index.map((e) => [tileKey(e.tx, e.ty), decodeTile(bin, e)]);
-    const extra = pick(entry, KNOWN_RASTER_KEYS);
-    return {
-      id: entry.id,
-      type: 'raster',
-      name: entry.name,
-      visible: entry.visible,
-      opacity: entry.opacity,
-      fillOpacity: entry.fillOpacity,
-      blendMode: entry.blendMode,
-      locks: entry.locks,
-      clipped: entry.clipped,
-      ...(extra ? { extra } : {}),
-      tiles,
+  const build = (p: Plan): LayerSnapshot => {
+    const e = p.entry;
+    const common = {
+      id: e.id,
+      name: e.name,
+      visible: e.visible,
+      opacity: e.opacity,
+      fillOpacity: e.fillOpacity,
+      blendMode: e.blendMode,
+      locks: e.locks,
+      clipped: e.clipped,
     };
-  });
+    if (p.kind === 'group') {
+      const extra = pick(p.entry, KNOWN_GROUP_KEYS);
+      return {
+        ...common,
+        type: 'group',
+        passThrough: p.entry.passThrough,
+        collapsed: p.entry.collapsed,
+        children: p.children.map(build),
+        ...(extra ? { extra } : {}),
+      };
+    }
+    const extra = pick(p.entry, KNOWN_RASTER_KEYS);
+    const tiles: Array<[TileKey, Uint8Array]> = p.index.map((t) => [
+      tileKey(t.tx, t.ty),
+      decodeTile(p.bin, t),
+    ]);
+    return { ...common, type: 'raster', tiles, ...(extra ? { extra } : {}) };
+  };
+  const layers = plans.map(build);
 
   const d = manifest.document;
   const exifPath = d.exif;

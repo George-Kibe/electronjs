@@ -39,6 +39,12 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && key === 's') return run(() => (e.shiftKey ? actions.saveAs() : actions.save()));
         if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());
         if (mod && e.shiftKey && key === 'n') return run(() => editor.addLayer());
+        if (mod && !e.shiftKey && key === 'j') return run(() => editor.duplicateLayer());
+        if (mod && key === 'g')
+          return run(() => (e.shiftKey ? editor.ungroupActiveLayer() : editor.groupActiveLayer()));
+        if (mod && key === 'e') return run(() => (e.shiftKey ? editor.mergeVisible() : editor.mergeDown()));
+        if (mod && e.code === 'BracketRight') return run(() => editor.nudgeActiveLayer(1));
+        if (mod && e.code === 'BracketLeft') return run(() => editor.nudgeActiveLayer(-1));
         if (mod && key === '0') return run(() => editor.fitToScreen());
         if (mod && key === '1') return run(() => editor.zoomTo(1));
         if (mod && (key === '=' || key === '+')) return run(() => editor.zoomBy(2));

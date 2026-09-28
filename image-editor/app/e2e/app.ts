@@ -135,3 +135,6 @@ export async function stubSaveDialog(app: ElectronApplication, path: string): Pr
     dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as typeof dialog.showSaveDialog;
   }, path);
 }
+
+/** The document canvas (layer thumbnails are canvases too). */
+export const docCanvas = (win: Page) => win.getByRole('img', { name: /^Canvas/ });

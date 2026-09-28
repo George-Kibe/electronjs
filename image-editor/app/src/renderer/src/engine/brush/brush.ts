@@ -141,7 +141,10 @@ export function applyStroke(
   coverage: Float32Array,
   settings: Pick<BrushSettings, 'color' | 'opacity' | 'mode'>,
   bounds: { tileX: number; tileY: number; docWidth: number; docHeight: number },
+  /** Transparency lock (FR-LAY-02): paint recolours existing pixels only; the eraser does nothing. */
+  preserveAlpha = false,
 ): Tile | undefined {
+  if (preserveAlpha && (!before || settings.mode === 'erase')) return before;
   const out = before ? new Uint8ClampedArray(before.data) : new Uint8ClampedArray(TILE_BYTES);
   const w = Math.min(TILE_SIZE, bounds.docWidth - bounds.tileX * TILE_SIZE);
   const h = Math.min(TILE_SIZE, bounds.docHeight - bounds.tileY * TILE_SIZE);
@@ -155,6 +158,13 @@ export function applyStroke(
       changed = true;
       const p = i * 4;
       const ad = out[p + 3]! / 255;
+      if (preserveAlpha) {
+        if (ad === 0) continue;
+        out[p] = out[p]! + (cr - out[p]!) * as;
+        out[p + 1] = out[p + 1]! + (cg - out[p + 1]!) * as;
+        out[p + 2] = out[p + 2]! + (cb - out[p + 2]!) * as;
+        continue;
+      }
       if (settings.mode === 'erase') {
         out[p + 3] = ad * (1 - as) * 255;
         continue;

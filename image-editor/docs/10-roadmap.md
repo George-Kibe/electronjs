@@ -51,7 +51,11 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       estimate and before/after preview, all 7 formats, resize on export (FR-DOC-05); Quick Export PNG
       (FR-DOC-06); metadata policy for JPEG/PNG (FR-DOC-09); unsaved-changes guard on close/quit/open/new
       and Revert (FR-DOC-11); BMP open (built-in codec); native File/Edit/View menu.
-- [ ] Slice 2 — layers: groups, layer operations, Normal + 8 blend modes, fill, thumbnails
+- [ ] Slice 2 — layers: groups (pass-through and isolated), duplicate, rename, reorder by drag, show/hide,
+      locks (all/pixels/transparency; position is enforced by the Move tool in slice 3), merge down, merge
+      visible, flatten; opacity and fill; Normal + 8 blend modes (Darken, Multiply, Lighten, Screen, Overlay,
+      Soft Light, Hard Light, Difference — the most used; the other 9 of FR-LAY-03 arrive in M2 and render as
+      Normal until then); live thumbnails. "Rasterize" applies to text/shape layers and arrives with them (M3).
 - [ ] Slice 3 — painting: brush options and pressure, pencil, eyedropper, colour picker, move tool
 - [ ] Slice 4 — transforms: crop, image/canvas size, rotate/flip
 - [ ] Slice 5 — navigation and history: zoom range, pixel grid, scrollbars, status bar, history budget, snapshots

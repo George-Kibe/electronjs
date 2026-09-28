@@ -15,7 +15,12 @@ All notable changes to ImageEditor are documented here. The format follows
 - "Save changes?" prompt when closing, quitting, opening another file, creating a new document or reverting
   with unsaved changes. The window title shows the document name and a dot for unsaved changes.
 - Open BMP images (they previously failed to open).
-- File, Edit and View menus with the standard shortcuts.
+- File, Edit, Layer and View menus with the standard shortcuts.
+- Layer groups (drag layers in and out, collapse, pass-through or isolated), duplicate (Ctrl+J), group
+  (Ctrl+G) and ungroup, bring forward/send backward (Ctrl+] / Ctrl+[), merge down (Ctrl+E), merge visible,
+  flatten, rename by double-click, and layer thumbnails.
+- Blend modes Darken, Multiply, Lighten, Screen, Overlay, Soft Light, Hard Light and Difference; fill
+  opacity; layer locks (lock all, lock pixels, lock transparent pixels).
 - M0 app (`app/`): open images (PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF) with EXIF orientation and ICC → sRGB
   conversion, or create a new document. Brush and eraser with size, hardness, opacity, flow and colour.
   Layers (add, delete, show/hide, opacity), undo/redo with a History panel, pan/zoom, Photoshop-style shortcuts.

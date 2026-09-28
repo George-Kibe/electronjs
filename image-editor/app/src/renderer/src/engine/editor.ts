@@ -7,7 +7,27 @@ import {
   SetLayerPropsCommand,
   type Command,
 } from './doc/commands';
-import { createRasterLayer, Document } from './doc/document';
+import {
+  createGroupLayer,
+  createRasterLayer,
+  Document,
+  type BlendMode,
+  type Layer,
+  type LayerLocks,
+  type LayerProps,
+} from './doc/document';
+import { liveLayers, flattenPreview } from './doc/flatten';
+import {
+  duplicateLayer,
+  flattenImage,
+  groupLayer,
+  mergeDown,
+  mergeDownBlocker,
+  mergeVisible,
+  moveLayer,
+  nudgeLayer,
+  ungroupLayer,
+} from './doc/layer-ops';
 import { fromSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
 import { Compositor } from './gpu/compositor';
 import { StrokeBuffer } from './gpu/stroke-buffer';
@@ -33,15 +53,34 @@ export type EditorSnapshot = {
     /** Why Save must go to a new file (a project from a newer version), if so. */
     readOnlyReason: string | null;
   };
-  /** Top → bottom, as shown in the Layers panel. */
-  layers: Array<{ id: string; name: string; visible: boolean; opacity: number }>;
+  /** Rows of the Layers panel: top → bottom, children under their group (hidden when collapsed). */
+  layers: LayerRow[];
   activeLayerId: string | null;
+  /** Whether each layer operation applies to the active layer (null = yes, else why not). */
+  layerOps: { mergeDown: string | null; canUngroup: boolean; canDelete: boolean };
   history: { entries: HistoryEntry[]; position: number; canUndo: boolean; canRedo: boolean };
   zoom: number;
   tool: Tool;
   brush: BrushSettings;
   cursor: { x: number; y: number } | null;
   gpu: string;
+};
+
+export type LayerRow = {
+  id: string;
+  type: 'raster' | 'group';
+  name: string;
+  visible: boolean;
+  opacity: number;
+  fillOpacity: number;
+  blendMode: BlendMode;
+  locks: LayerLocks;
+  passThrough: boolean;
+  collapsed: boolean;
+  depth: number;
+  parentId: string | null;
+  /** Changes whenever the layer's pixels change; key for thumbnails (FR-LAY-06). */
+  contentKey: string;
 };
 
 type ActiveStroke = { layerId: string; settings: BrushSettings; generator: DabGenerator; pointerId: number };
@@ -69,6 +108,8 @@ export type EditorOptions = {
   onUnrecoverableContextLoss?: () => void;
   /** How long to wait for `webglcontextrestored` before giving up on this canvas. */
   restoreTimeoutMs?: number;
+  /** Short user-facing explanation when an action is refused (e.g. painting on a locked layer). */
+  onNotice?: (message: string) => void;
 };
 
 /**
@@ -100,6 +141,7 @@ export class Editor {
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
   private restoreTimer = 0;
+  private readonly thumbs = new Map<string, { width: number; height: number; rgba: Uint8ClampedArray }>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -146,6 +188,8 @@ export class Editor {
   private initGpu(): void {
     this.compositor = new Compositor(this.gl);
     this.strokeBuffer = new StrokeBuffer(this.gl, this.compositor.quad);
+    // Composite buffers need the same capability the stroke self-test checked (blending into the format).
+    this.compositor.targetFormat = this.strokeBuffer.format;
   }
 
   /** NFR-REL-02: pixels live in CPU tiles, so a lost GPU context only needs re-uploading. */
@@ -287,10 +331,17 @@ export class Editor {
         dirty: doc !== null && (this.history?.top ?? null) !== this.file.savedTop,
         readOnlyReason: this.file.readOnlyReason,
       },
-      layers: doc
-        ? [...doc.layers].reverse().map(({ id, name, visible, opacity }) => ({ id, name, visible, opacity }))
-        : [],
+      layers: doc ? layerRows(doc.layers) : [],
       activeLayerId: doc?.activeLayerId ?? null,
+      layerOps: doc
+        ? {
+            mergeDown: mergeDownBlocker(doc, doc.activeLayerId),
+            canUngroup: doc.activeLayer.type === 'group',
+            canDelete:
+              !doc.activeLayer.locks.all &&
+              !(doc.layers.length <= 1 && doc.locate(doc.activeLayerId).parent === null),
+          }
+        : { mergeDown: 'No document.', canUngroup: false, canDelete: false },
       history: {
         entries: this.history?.entries() ?? [],
         position: this.history?.position ?? -1,
@@ -327,25 +378,172 @@ export class Editor {
     this.history?.goTo(index);
   }
 
-  addLayer(): void {
-    const doc = this.doc;
-    if (!doc || !this.history) return;
-    const name = `Layer ${doc.layers.length}`;
-    this.history.execute(new AddLayerCommand(name, doc.indexOf(doc.activeLayerId) + 1));
+  private exec(cmd: Parameters<History['execute']>[0] | null, opts?: { coalesce?: boolean }): void {
+    if (cmd && this.history && !this.stroke) this.history.execute(cmd, opts);
   }
 
+  /** Where a new layer goes: above the active layer, in the same group. */
+  private insertionPoint(): { parentId: string | null; index: number } {
+    const loc = this.doc!.locate(this.doc!.activeLayerId);
+    return { parentId: loc.parent?.id ?? null, index: loc.index + 1 };
+  }
+
+  private nextName(prefix: string): string {
+    const used = new Set(this.doc!.allLayers().map((l) => l.name));
+    let n = 1;
+    while (used.has(`${prefix} ${n}`)) n++;
+    return `${prefix} ${n}`;
+  }
+
+  addLayer(): void {
+    if (!this.doc) return;
+    const { parentId, index } = this.insertionPoint();
+    this.exec(new AddLayerCommand(this.nextName('Layer'), index, parentId));
+  }
+
+  addGroup(): void {
+    if (!this.doc) return;
+    const { parentId, index } = this.insertionPoint();
+    this.exec(new AddLayerCommand(createGroupLayer(this.nextName('Group')), index, parentId, 'New Group'));
+  }
+
+  deleteLayer(id = this.doc?.activeLayerId): void {
+    const doc = this.doc;
+    if (!doc || !id) return;
+    if (doc.layer(id).locks.all) return this.notice('This layer is locked.');
+    if (doc.layers.length <= 1 && doc.locate(id).parent === null)
+      return this.notice('A document needs at least one layer.');
+    this.exec(new DeleteLayerCommand(id));
+  }
+
+  /** @deprecated use deleteLayer() */
   deleteActiveLayer(): void {
-    if (!this.doc || !this.history || this.doc.layers.length <= 1) return;
-    this.history.execute(new DeleteLayerCommand(this.doc.activeLayerId));
+    this.deleteLayer();
+  }
+
+  duplicateLayer(): void {
+    if (this.doc) this.exec(duplicateLayer(this.doc, this.doc.activeLayerId));
+  }
+
+  groupActiveLayer(): void {
+    if (this.doc) this.exec(groupLayer(this.doc, this.doc.activeLayerId));
+  }
+
+  ungroupActiveLayer(): void {
+    if (this.doc) this.exec(ungroupLayer(this.doc, this.doc.activeLayerId));
+  }
+
+  mergeDown(): void {
+    if (!this.doc) return;
+    const blocker = mergeDownBlocker(this.doc, this.doc.activeLayerId);
+    if (blocker) return this.notice(blocker);
+    this.exec(mergeDown(this.doc, this.doc.activeLayerId));
+  }
+
+  mergeVisible(): void {
+    if (!this.doc) return;
+    const cmd = mergeVisible(this.doc);
+    if (!cmd) return this.notice('Merge Visible needs at least two visible, unlocked layers.');
+    this.exec(cmd);
+  }
+
+  flattenImage(): void {
+    if (this.doc) this.exec(flattenImage(this.doc));
+  }
+
+  /** Drag and drop in the Layers panel: `index` counts positions after the layer is removed. */
+  moveLayer(id: string, parentId: string | null, index: number): void {
+    if (this.doc) this.exec(moveLayer(this.doc, id, parentId, index));
+  }
+
+  /**
+   * Drops layer `id` relative to `targetId` as shown in the Layers panel (top = higher in the stack):
+   * 'above' / 'below' the target in its group, or 'inside' a group (on top of its children).
+   */
+  dropLayer(id: string, targetId: string, where: 'above' | 'below' | 'inside'): void {
+    const doc = this.doc;
+    if (!doc || id === targetId) return;
+    const from = doc.locate(id);
+    const target = doc.locate(targetId);
+    let parentId = target.parent?.id ?? null;
+    let index = where === 'above' ? target.index + 1 : target.index;
+    if (where === 'inside' && target.layer.type === 'group') {
+      parentId = target.layer.id;
+      index = target.layer.children.length;
+    }
+    // Indices count positions after the layer is removed from its current place.
+    const sameContainer = from.siblings === (parentId === null ? doc.layers : doc.container(parentId));
+    if (sameContainer && from.index < index) index--;
+    this.moveLayer(id, parentId, index);
+  }
+
+  /** Bring forward (+1) / send backward (−1) within the group (Ctrl+] / Ctrl+[). */
+  nudgeActiveLayer(step: 1 | -1): void {
+    if (this.doc) this.exec(nudgeLayer(this.doc, this.doc.activeLayerId, step));
+  }
+
+  /**
+   * Layer properties (name, visibility, opacity, fill, blend mode, locks, pass-through). With `coalesce`,
+   * repeated calls (slider drags) become one undo step until endCoalesce().
+   */
+  setLayerProps(id: string, props: Partial<LayerProps>, { coalesce = false } = {}): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const layer = doc.layer(id);
+    const onlyAllowedWhenLocked = Object.keys(props).every(
+      (k) => k === 'visible' || k === 'locks' || k === 'name',
+    );
+    if (layer.locks.all && !onlyAllowedWhenLocked) return this.notice('This layer is locked.');
+    this.exec(new SetLayerPropsCommand(id, props), { coalesce });
   }
 
   setLayerVisible(id: string, visible: boolean): void {
-    this.history?.execute(new SetLayerPropsCommand(id, { visible }));
+    this.setLayerProps(id, { visible });
   }
 
   /** Call repeatedly while dragging, then `endCoalesce()` on release: one undo step per drag. */
   setLayerOpacity(id: string, opacity: number): void {
-    this.history?.execute(new SetLayerPropsCommand(id, { opacity }), { coalesce: true });
+    this.setLayerProps(id, { opacity }, { coalesce: true });
+  }
+
+  /** Collapsing a group is view state: saved with the project but not an undo step. */
+  toggleCollapsed(id: string): void {
+    const layer = this.doc?.layer(id);
+    if (layer?.type !== 'group') return;
+    layer.collapsed = !layer.collapsed;
+    this.changed();
+  }
+
+  /**
+   * Small preview of one layer's own pixels (FR-LAY-06), ignoring its visibility, opacity and blend mode.
+   * Cached by content key; call it lazily (the panel throttles).
+   */
+  layerThumbnail(
+    id: string,
+    maxSide: number,
+  ): { width: number; height: number; rgba: Uint8ClampedArray } | null {
+    const doc = this.doc;
+    if (!doc || !doc.has(id)) return null;
+    const layer = doc.layer(id);
+    const key = `${id}|${contentKey(layer)}|${maxSide}`;
+    const cached = this.thumbs.get(key);
+    if (cached) return cached;
+    const plain: Layer = {
+      ...layer,
+      visible: true,
+      opacity: 1,
+      fillOpacity: 1,
+      blendMode: 'normal',
+    } as Layer;
+    if (plain.type === 'group') plain.passThrough = false;
+    const thumb = flattenPreview(liveLayers([plain]), doc.width, doc.height, maxSide);
+    if (this.thumbs.size > 500) this.thumbs.clear();
+    this.thumbs.set(key, thumb);
+    return thumb;
+  }
+
+  private notice(message: string): void {
+    this.options.onNotice?.(message);
   }
 
   endCoalesce(): void {
@@ -428,7 +626,10 @@ export class Editor {
       return;
     }
     const layer = this.doc.activeLayer;
-    if (!layer.visible || this.gl.isContextLost()) return; // hidden layer / no GPU: nothing to paint on
+    if (this.gl.isContextLost()) return; // no GPU: nothing to paint with
+    if (layer.type !== 'raster') return this.notice('Select a layer to paint on (groups have no pixels).');
+    if (!layer.visible) return this.notice('This layer is hidden. Show it to paint on it.');
+    if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
     const settings: BrushSettings = { ...this.brush, mode: this.tool === 'eraser' ? 'erase' : 'paint' };
     const generator = new DabGenerator(settings);
     this.stroke = { layerId: layer.id, settings, generator, pointerId: e.pointerId };
@@ -503,18 +704,25 @@ export class Editor {
       return;
     }
     const start = performance.now();
-    const layer = doc.layer(stroke.layerId);
+    const layer = doc.raster(stroke.layerId);
+    const preserveAlpha = layer.locks.transparency;
     const before = new Map<TileKey, Tile | undefined>();
     const after = new Map<TileKey, Tile | undefined>();
     for (const key of this.strokeBuffer.keys()) {
       const [tileX, tileY] = parseTileKey(key);
       const old = layer.tiles.get(key);
-      const next = applyStroke(old, this.strokeBuffer.readCoverage(key), stroke.settings, {
-        tileX,
-        tileY,
-        docWidth: doc.width,
-        docHeight: doc.height,
-      });
+      const next = applyStroke(
+        old,
+        this.strokeBuffer.readCoverage(key),
+        stroke.settings,
+        {
+          tileX,
+          tileY,
+          docWidth: doc.width,
+          docHeight: doc.height,
+        },
+        preserveAlpha,
+      );
       if (next !== old) {
         before.set(key, old);
         after.set(key, next);
@@ -558,8 +766,14 @@ export class Editor {
       gl.clear(gl.COLOR_BUFFER_BIT);
       return;
     }
+    const strokeLayer = this.stroke ? this.doc.layer(this.stroke.layerId) : null;
     const preview = this.stroke
-      ? { buffer: this.strokeBuffer, layerId: this.stroke.layerId, settings: this.stroke.settings }
+      ? {
+          buffer: this.strokeBuffer,
+          layerId: this.stroke.layerId,
+          settings: this.stroke.settings,
+          preserveAlpha: strokeLayer?.locks.transparency ?? false,
+        }
       : undefined;
     this.compositor.render(this.doc, this.viewport, { cssWidth, cssHeight, width, height, dpr }, preview);
     // NFR-PERF-02: pointer event → frame submitted. Read by the benchmark/E2E via the Performance API.
@@ -576,4 +790,44 @@ export class Editor {
     this.strokeBuffer.clear();
     this.compositor.dispose();
   }
+}
+
+/** Identity of a layer's pixels: changes when any tile is replaced (tiles are immutable). */
+function contentKey(layer: Layer): string {
+  if (layer.type === 'group')
+    return `g(${layer.children.map((c) => `${c.visible ? '' : '!'}${c.opacity}${c.blendMode}${contentKey(c)}`).join(',')})`;
+  let sum = 0;
+  let xor = 0;
+  for (const t of layer.tiles.entries()) {
+    sum += t[1].id;
+    xor ^= t[1].id;
+  }
+  return `${layer.tiles.size}.${sum}.${xor}`;
+}
+
+function layerRows(layers: Layer[]): LayerRow[] {
+  const rows: LayerRow[] = [];
+  const visit = (list: Layer[], depth: number, parentId: string | null) => {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const l = list[i]!;
+      rows.push({
+        id: l.id,
+        type: l.type,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        fillOpacity: l.fillOpacity,
+        blendMode: l.blendMode,
+        locks: l.locks,
+        passThrough: l.type === 'group' && l.passThrough,
+        collapsed: l.type === 'group' && l.collapsed,
+        depth,
+        parentId,
+        contentKey: contentKey(l),
+      });
+      if (l.type === 'group' && !l.collapsed) visit(l.children, depth + 1, l.id);
+    }
+  };
+  visit(layers, 0, null);
+  return rows;
 }

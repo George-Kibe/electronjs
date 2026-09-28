@@ -33,7 +33,7 @@ function snapshot(doc: Document) {
       name: l.name,
       visible: l.visible,
       opacity: l.opacity,
-      tiles: [...l.tiles.entries()].map(([k, t]) => [k, t.id]).sort(),
+      tiles: l.type === 'raster' ? [...l.tiles.entries()].map(([k, t]) => [k, t.id]).sort() : [],
     })),
   };
 }
@@ -42,7 +42,7 @@ describe('commands + history', () => {
   it('paints and undoes by swapping tile references', () => {
     const doc = newDoc();
     const history = new History(doc);
-    const layer = doc.activeLayer;
+    const layer = doc.raster(doc.activeLayerId);
     const before = layer.tiles.get('0,0');
     const painted = tile(7);
     history.execute(
@@ -116,7 +116,7 @@ describe('commands + history', () => {
       new PaintTilesCommand(
         `P${v}`,
         id,
-        new Map([['1,1', doc.activeLayer.tiles.get('1,1')]]),
+        new Map([['1,1', doc.raster(doc.activeLayerId).tiles.get('1,1')]]),
         new Map([['1,1', tile(v)]]),
       );
     history.execute(paint(1));
@@ -137,7 +137,7 @@ describe('commands + history', () => {
         const history = new History(doc);
         const initial = snapshot(doc);
         for (const op of ops) {
-          const layer = doc.activeLayer;
+          const layer = doc.raster(doc.activeLayerId);
           const cmds: Command[] = [
             new AddLayerCommand('L', doc.layers.length),
             new PaintTilesCommand(

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { canvasPixel, launch, paintLine, stubSaveDialog, target } from './app';
+import { canvasPixel, launch, paintLine, stubSaveDialog, target, docCanvas } from './app';
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-e2e-files-'));
 test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -16,7 +16,7 @@ async function newDocument(win: Page, width: number, height: number): Promise<vo
 }
 
 async function canvasCentre(win: Page): Promise<[number, number]> {
-  const box = (await win.locator('canvas').boundingBox())!;
+  const box = (await docCanvas(win).boundingBox())!;
   return [box.x + box.width / 2, box.y + box.height / 2];
 }
 

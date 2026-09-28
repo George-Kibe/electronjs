@@ -2,9 +2,9 @@
 import type { EncodeReply, RendererToCodec } from '@shared/codec-protocol';
 import { CODEC_CHUNK_BYTES } from '@shared/constants';
 import type { ExportOptions } from '@shared/export-options';
-import { flatten, flattenPreview, type FlatLayer } from '../engine/doc/flatten';
+import { flatten, flattenPreview } from '../engine/doc/flatten';
 import { IepError, readIep, writeIep } from '../engine/io/iep';
-import type { DocSnapshot } from '../engine/io/snapshot';
+import { snapshotLayers, type DocSnapshot, type LayerSnapshot } from '../engine/io/snapshot';
 
 /**
  * File worker (docs/02 §2): `.iep` zip read/write, flattening for export and previews. Keeps full-canvas
@@ -30,11 +30,15 @@ export type FilesResponse =
 
 declare const self: DedicatedWorkerGlobalScope;
 
-function layersOf(doc: DocSnapshot): FlatLayer[] {
-  return doc.layers.map((l) => {
-    const tiles = new Map(l.tiles);
-    return { ...l, tile: (key) => tiles.get(key) };
-  });
+const layersOf = (doc: DocSnapshot) => snapshotLayers(doc.layers);
+
+/** Every tile buffer in the tree (transferred back to the page instead of copied). */
+function tileBuffers(layers: LayerSnapshot[], out: ArrayBuffer[] = []): ArrayBuffer[] {
+  for (const l of layers) {
+    if (l.type === 'group') tileBuffers(l.children, out);
+    else for (const [, t] of l.tiles) out.push(t.buffer as ArrayBuffer);
+  }
+  return out;
 }
 
 async function previewPng(doc: DocSnapshot): Promise<Uint8Array | undefined> {
@@ -99,8 +103,7 @@ self.onmessage = async (event: MessageEvent<{ id: number } & FilesRequest>) => {
   try {
     if (req.op === 'readIep') {
       const result = readIep(req.bytes, { maxTileBytes: req.maxTileBytes });
-      const transfer = result.doc.layers.flatMap((l) => l.tiles.map(([, t]) => t.buffer as ArrayBuffer));
-      reply({ id, ok: true, result }, [...new Set(transfer)]);
+      reply({ id, ok: true, result }, [...new Set(tileBuffers(result.doc.layers))]);
     } else if (req.op === 'writeIep') {
       const bytes = writeIep(req.doc, { appVersion: req.appVersion, previewPng: await previewPng(req.doc) });
       reply({ id, ok: true, result: bytes }, [bytes.buffer as ArrayBuffer]);

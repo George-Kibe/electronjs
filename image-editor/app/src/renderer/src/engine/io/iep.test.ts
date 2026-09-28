@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { deflateSync, strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { createRasterLayer, Document } from '../doc/document';
+import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
 import { TILE_BYTES, TileGrid } from '../tiles/tile';
 import { encodeTiles, IepError, readIep, writeIep } from './iep';
 import { fromSnapshot, toSnapshot } from './snapshot';
@@ -92,8 +92,9 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
     });
     expect([...doc.meta.exif!]).toEqual([0x4d, 0x4d, 0, 42, 1, 2, 3]);
     expect(doc.layers.length).toBe(2);
-    for (const [i, layer] of doc.layers.entries()) {
-      const src = original.layers[i]!;
+    for (const src of original.layers) {
+      if (src.type !== 'raster') continue;
+      const layer = doc.raster(src.id);
       const { tiles: _a, ...props } = layer;
       const { tiles: _b, ...srcProps } = src;
       expect(props).toEqual(srcProps);
@@ -119,9 +120,42 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
     );
     const bytes = writeIep(toSnapshot(doc), { appVersion: '0.1.0' });
     expect(bytes.byteLength).toBeLessThan(10_000);
-    expect(fromSnapshot(readIep(bytes, BUDGET).doc).layers[0]!.tiles.pixel(2559, 2559)).toEqual([
-      255, 255, 255, 255,
+    const back = fromSnapshot(readIep(bytes, BUDGET).doc);
+    expect(back.raster(back.layers[0]!.id).tiles.pixel(2559, 2559)).toEqual([255, 255, 255, 255]);
+  });
+
+  it('round-trips nested groups with their pass-through, collapsed and blend settings', () => {
+    const inner = createRasterLayer('Inner', TileGrid.filled(300, 200, [0, 0, 255, 255]), {
+      blendMode: 'screen',
+    });
+    const sub = createGroupLayer('Sub', [inner], { passThrough: false, blendMode: 'multiply', opacity: 0.5 });
+    const outer = createGroupLayer('Outer', [sub], { collapsed: true });
+    const d = new Document(300, 200, [
+      createRasterLayer('Background', TileGrid.filled(300, 200, [255, 255, 255, 255])),
+      outer,
     ]);
+    d.activeLayerId = inner.id;
+    const back = fromSnapshot(readIep(writeIep(toSnapshot(d), { appVersion: '0.1.0' }), BUDGET).doc);
+    expect(back.activeLayerId).toBe(inner.id);
+    const o = back.layer(outer.id);
+    const s = back.layer(sub.id);
+    expect(o).toMatchObject({ type: 'group', name: 'Outer', collapsed: true, passThrough: true });
+    expect(s).toMatchObject({ type: 'group', passThrough: false, blendMode: 'multiply', opacity: 0.5 });
+    expect(back.raster(inner.id).blendMode).toBe('screen');
+    expect(back.raster(inner.id).tiles.pixel(10, 10)).toEqual([0, 0, 255, 255]);
+    expect(back.locate(inner.id).parent?.id).toBe(sub.id);
+  });
+
+  it('rejects groups nested too deeply and ids repeated inside groups', () => {
+    let nested: unknown = layerEntry();
+    for (let i = 0; i < 40; i++) nested = { id: `G${i}`, type: 'group', name: 'g', children: [nested] };
+    expect(() => readIep(zip(manifest({}, [nested]), { 'layers/0/tiles.bin': oneTile() }), BUDGET)).toThrow(
+      /nested too deeply/,
+    );
+    const dup = { id: 'L1', type: 'group', name: 'g', children: [layerEntry()] };
+    expect(() => readIep(zip(manifest({}, [dup]), { 'layers/0/tiles.bin': oneTile() }), BUDGET)).toThrow(
+      /duplicate layer ids/,
+    );
   });
 
   it('preserves unknown manifest, document and layer fields on re-save (forward compatibility)', () => {
@@ -282,9 +316,9 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
     const live = fromSnapshot(doc);
     expect(live.width).toBe(300);
     expect(live.layers.map((l) => l.name)).toEqual(['Background', 'Red dot']);
-    expect(live.layers[0]!.tiles.pixel(0, 0)).toEqual([255, 255, 255, 255]);
-    expect(live.layers[1]!.tiles.pixel(150, 100)).toEqual([255, 0, 0, 255]);
-    expect(live.layers[1]!.tiles.pixel(0, 0)).toEqual([0, 0, 0, 0]);
+    expect(live.raster('bg').tiles.pixel(0, 0)).toEqual([255, 255, 255, 255]);
+    expect(live.raster('dot').tiles.pixel(150, 100)).toEqual([255, 0, 0, 255]);
+    expect(live.raster('dot').tiles.pixel(0, 0)).toEqual([0, 0, 0, 0]);
     expect(live.layers[1]!.opacity).toBe(0.5);
   });
 });
