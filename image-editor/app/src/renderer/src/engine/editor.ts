@@ -69,13 +69,23 @@ export class Editor {
     canvas.addEventListener('pointercancel', (e) => this.onPointerUp(e), { signal });
     canvas.addEventListener('pointerleave', () => this.setCursor(null), { signal });
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { signal, passive: false });
-    canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), { signal });
+    canvas.addEventListener(
+      'webglcontextlost',
+      (e) => {
+        e.preventDefault(); // ask the browser to restore the context
+        console.warn('[engine] WebGL context lost; waiting for restore');
+        this.stroke = null; // any stroke in progress cannot be committed
+        this.changed();
+      },
+      { signal },
+    );
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored(), { signal });
     this.resizeObserver = new ResizeObserver(() => {
       if (this.autoFit && this.doc) this.fitToScreen();
       else this.requestRender();
     });
     this.resizeObserver.observe(canvas);
+    console.info(`[engine] ${this.snapshot.gpu}`);
   }
 
   private initGpu(): void {
@@ -85,9 +95,10 @@ export class Editor {
 
   /** NFR-REL-02: pixels live in CPU tiles, so a lost GPU context only needs re-uploading. */
   private onContextRestored(): void {
-    this.stroke = null; // an in-progress stroke is cancelled
-    this.initGpu();
-    this.requestRender();
+    this.stroke = null;
+    this.initGpu(); // textures are rebuilt lazily from the CPU tiles
+    console.info(`[engine] WebGL context restored (${this.strokeBuffer.format})`);
+    this.changed();
   }
 
   // ---- documents -------------------------------------------------------------------------------
@@ -160,7 +171,9 @@ export class Editor {
       tool: this.tool,
       brush: this.brush,
       cursor: this.cursor,
-      gpu: `${debug ? String(this.gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : 'WebGL2'} · strokes ${this.strokeBuffer.format.toUpperCase()}`,
+      gpu: this.gl.isContextLost()
+        ? 'Graphics context lost — restoring…'
+        : `${debug ? String(this.gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : 'WebGL2'} · strokes ${this.strokeBuffer.format.toUpperCase()}`,
     };
   }
 
@@ -285,7 +298,7 @@ export class Editor {
       return;
     }
     const layer = this.doc.activeLayer;
-    if (!layer.visible) return; // painting on a hidden layer is refused (FR-LAY-02 conventions)
+    if (!layer.visible || this.gl.isContextLost()) return; // hidden layer / no GPU: nothing to paint on
     const settings: BrushSettings = { ...this.brush, mode: this.tool === 'eraser' ? 'erase' : 'paint' };
     const generator = new DabGenerator(settings);
     this.stroke = { layerId: layer.id, settings, generator, pointerId: e.pointerId };
@@ -353,6 +366,12 @@ export class Editor {
     const doc = this.doc;
     this.stroke = null;
     if (!stroke || !doc || !this.history) return;
+    if (this.gl.isContextLost()) {
+      // The coverage lives on the GPU; without a context it cannot be read. Never commit a silent no-op.
+      console.warn('[engine] stroke discarded: WebGL context lost');
+      this.strokeBuffer.clear();
+      return;
+    }
     const start = performance.now();
     const layer = doc.layer(stroke.layerId);
     const before = new Map<TileKey, Tile | undefined>();

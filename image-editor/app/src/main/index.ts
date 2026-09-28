@@ -61,7 +61,12 @@ if (!app.requestSingleInstanceLock()) {
 
   applyNavigationPolicy(app);
 
+  // GPU/renderer crashes are rare but decisive when they happen; always log them (docs/09 §4 ops notes).
+  app.on('child-process-gone', (_e, details) => logger.warn('Child process gone', details));
+  app.on('render-process-gone', (_e, _wc, details) => logger.warn('Renderer process gone', details));
+
   void app.whenReady().then(() => {
+    logger.info('GPU feature status', app.getGPUFeatureStatus());
     protocol.handle(APP_SCHEME, (request) =>
       new URL(request.url).host === APP_HOST
         ? serveAppRequest(request.url, rendererRoot)

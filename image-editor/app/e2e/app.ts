@@ -26,8 +26,15 @@ export async function launch(files: string[] = []): Promise<{ app: ElectronAppli
   } else {
     app = await electron.launch({ args: ['.', ...files], cwd: appRoot });
   }
+  // Surface main-process logs (GPU/child-process crashes, codec errors) in the test output.
+  app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[main] ${d}`));
+  app.process().stderr?.on('data', (d: Buffer) => process.stdout.write(`[main:err] ${d}`));
   const win = await app.firstWindow();
-  await win.waitForLoadState('domcontentloaded');
+  win.on('console', (m) => console.log(`[renderer ${m.type()}] ${m.text()}`));
+  win.on('crash', () => console.log('[renderer] CRASHED'));
+  // firstWindow() can resolve before the app page commits; wait for the real UI.
+  await win.waitForURL(/^(app:|http:\/\/localhost)/, { timeout: 30_000 });
+  await win.getByRole('button', { name: /Open/ }).first().waitFor({ timeout: 30_000 });
   return { app, win };
 }
 
