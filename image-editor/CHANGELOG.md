@@ -12,7 +12,9 @@ All notable changes to ImageEditor are documented here. The format follows
 - WebGL2 tile engine with GPU preview and exact CPU commit. The codec runs in an isolated process. The app
   is served from a cross-origin-isolated `app://` origin with a strict CSP.
 - Tests: engine unit and property tests, GPU conformance tests (shaders vs CPU reference), Electron E2E on
-  Linux, Windows and macOS.
+  Linux, Windows and macOS against the built and the packaged app.
+- The canvas recovers when the graphics driver resets (WebGL context loss) without losing the document or
+  history.
 
 ### Changed
 - Renamed the project from `image-resizer` to `image-editor`. Removed the legacy plain-JS resizer

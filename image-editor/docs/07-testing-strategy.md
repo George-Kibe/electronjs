@@ -63,6 +63,13 @@
 6. Batch: folder of 10 → resize + WebP → outputs verified.
 7. Undo/redo via the History panel. Snapshot and restore.
 
+**Harness note (M0):** `app://` is cross-origin isolated, so the window's first navigation swaps renderer
+processes. If that swap races Playwright's attach to the new window, the `firstWindow()` Page can stay on
+the pre-swap document. This happened in about 1 in 10 packaged launches on Linux and most on Windows. The
+page itself rendered fine. `e2e/app.ts` therefore waits for the main process to report the page loaded,
+then attaches a second CDP client that sees the real page. `launch()` returns a `close()` that disconnects
+that client before quitting. Don't replace it with `firstWindow()` or with retries.
+
 ## 5. Fixtures
 
 - `test/fixtures/images/`: small (≤ 512 px) images covering every format, alpha, ICC profiles (sRGB,

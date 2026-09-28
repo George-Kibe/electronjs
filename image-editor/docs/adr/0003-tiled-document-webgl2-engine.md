@@ -50,5 +50,11 @@ deep undo, and resilience to GPU context loss, all inside an Electron renderer.
 - **Measured (M0, SwiftShader software GL, headless Chromium, 800×600, 30 px brush):** brush latency
   p50 ≈ 11–13 ms, p95 ≈ 15–16 ms, stroke commit ≈ 17–22 ms. The CI e2e job logs the same metric per OS
   (`brush-latency`). Real-GPU numbers on the release hardware matrix are still to be recorded.
+- **M0 exit, CI e2e (30 px brush, 480×640 photo, p95):** Linux 12.2 ms, Windows 8.6–9.2 ms (both
+  SwiftShader), macOS 19.2–25.9 ms (Apple paravirtual Metal device in a VM). The macOS VM number is above
+  the 16 ms budget. That runner has no real GPU, so it does not show whether NFR-PERF-02 is met. **Plan:**
+  in M1, `pnpm bench` measures NFR-PERF-02/03 at their real sizes (200 px brush on 6000×4000; pan/zoom on
+  24 MP × 20 layers) on the release hardware matrix (docs/07 §6). If the M1 Air misses, profile the
+  per-dab draw calls first (batch dabs into one instanced draw per frame).
 - **Software fallback:** Chromium no longer falls back to SwiftShader automatically, so main sets
   `--enable-unsafe-swiftshader` (NFR-COMP-01). See docs/06 §4 for why this is acceptable here.

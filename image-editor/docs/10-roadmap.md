@@ -30,10 +30,15 @@ vertical slice. Recalibrate after M1.
       (add/delete/visibility/opacity) and open/new document.
 - [x] Spike measurements recorded in ADR-0003 follow-ups (software GL). Real-GPU numbers pending on the matrix.
 - [x] CI (`image-editor-ci.yml`): check (unit + GPU conformance in headless Chromium) and e2e (built +
-      packaged app) on Linux, Windows and macOS.
+      packaged app) on Linux, Windows and macOS. All 4 journeys green on all 6 targets (image-editor-ci
+      run 36366432344, 2026-09-28).
 
 **Exit:** on all 3 OSes you can open a JPEG, paint on a new layer at 60 fps, and undo, with the spike numbers
-meeting the NFR-PERF-02/03 budgets or a documented plan to meet them.
+meeting the NFR-PERF-02/03 budgets or a documented plan to meet them. ✅ **Met on 2026-09-28.** Brush
+latency p95 on CI runners: Linux 12.2/12.3 ms and Windows 9.2/8.6 ms (SwiftShader), macOS 25.9/19.2 ms
+(paravirtual Metal VM) (dev/packaged). The macOS VM and the full NFR-PERF-02/03 workloads (200 px brush on
+6000×4000, pan/zoom on 24 MP × 20 layers) move to the `pnpm bench` harness and the release hardware matrix in
+M1 (ADR-0003 follow-ups).
 
 ## M1 — Core editor MVP
 
