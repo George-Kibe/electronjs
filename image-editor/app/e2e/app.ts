@@ -42,7 +42,7 @@ async function lostNavigation(app: ElectronApplication, win: Page): Promise<bool
 }
 
 export async function launch(files: string[] = []): Promise<{ app: ElectronApplication; win: Page }> {
-  const maxAttempts = 3;
+  const maxAttempts = 2; // 2 × 25 s + the test body stays inside the 90 s test timeout
   for (let attempt = 1; ; attempt++) {
     const app = await start(files);
     // Surface main-process logs (GPU/child-process crashes, codec errors) in the test output.
@@ -52,20 +52,13 @@ export async function launch(files: string[] = []): Promise<{ app: ElectronAppli
     win.on('console', (m) => console.log(`[renderer ${m.type()}] ${m.text()}`));
     win.on('crash', () => console.log('[renderer] CRASHED'));
 
-    // firstWindow() can resolve before the app page commits; wait for the app's own UI.
-    const deadline = Date.now() + 30_000;
-    let lostChecks = 0;
-    for (;;) {
-      try {
-        await win.getByRole('button', { name: /Open/ }).first().waitFor({ timeout: 2_000 });
-        return { app, win };
-      } catch (err) {
-        lostChecks = (await lostNavigation(app, win)) ? lostChecks + 1 : 0;
-        if (lostChecks >= 2 || Date.now() > deadline) {
-          if (lostChecks < 2 || attempt >= maxAttempts) throw err;
-          break;
-        }
-      }
+    // firstWindow() can resolve before the app page commits, and on Windows the Page can take several
+    // seconds to catch up with the navigation; wait for the app's own UI.
+    try {
+      await win.getByRole('button', { name: /Open/ }).first().waitFor({ timeout: 25_000 });
+      return { app, win };
+    } catch (err) {
+      if (attempt >= maxAttempts || !(await lostNavigation(app, win))) throw err;
     }
     console.log(`[e2e] Playwright lost the page across the COOP/COEP process swap; relaunching (${attempt})`);
     await app.close();
