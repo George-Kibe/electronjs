@@ -21,14 +21,16 @@ vertical slice. Recalibrate after M1.
 
 - [x] Documentation set (this folder)
 - [x] Rename `image-resizer` → `image-editor`. Retire the legacy code (git history keeps it).
-- [ ] Scaffold `app/` (electron-vite React TS). `app://` protocol with COOP/COEP. Security baseline.
-      codec-host utilityProcess with sharp. IPC router.
-- [ ] **Engine spike (vertical slice):** TileGrid + TilePool → WebGL2 compositor (Normal blend, opacity) →
-      viewport pan/zoom with mips → round brush with stroke buffer → commit via async readback → `PaintTiles`
-      command → undo/redo.
-- [ ] Spike measurements: brush latency, pan/zoom fps on a 24 MP document on the release hardware matrix.
-      Record them in ADR-0003's follow-ups.
-- [ ] CI: check + gpu-conformance skeleton (1 shader vs CPU reference) + golden harness.
+- [x] Scaffold `app/` (Electron 44, electron-vite 5, React 19, TS 6). `app://` protocol with COOP/COEP
+      (`crossOriginIsolated`) and CSP. Security baseline. codec-host utilityProcess with sharp, streaming
+      pixels to the renderer over a direct MessagePort. zod-validated IPC router.
+- [x] **Engine vertical slice:** immutable sparse tiles → WebGL2 compositor (Normal blend, layer opacity,
+      mipmapped tile textures) → viewport pan/zoom → round brush and eraser with a tiled RGBA16F stroke
+      buffer → exact CPU commit → `PaintTiles` command → undo/redo/history panel. Also layers
+      (add/delete/visibility/opacity) and open/new document.
+- [x] Spike measurements recorded in ADR-0003 follow-ups (software GL). Real-GPU numbers pending on the matrix.
+- [x] CI (`image-editor-ci.yml`): check (unit + GPU conformance in headless Chromium) and e2e (built +
+      packaged app) on Linux, Windows and macOS.
 
 **Exit:** on all 3 OSes you can open a JPEG, paint on a new layer at 60 fps, and undo, with the spike numbers
 meeting the NFR-PERF-02/03 budgets or a documented plan to meet them.

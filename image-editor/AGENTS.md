@@ -13,7 +13,7 @@ image-editor/app/src/
 │   ├── engine/           # NO React. Document model, tiles, WebGL2 compositor, shaders, brush engine, history
 │   │   ├── doc/          # Document, Layer types, Selection, commands (the ONLY way to mutate a document)
 │   │   ├── tiles/        # immutable Tile, sparse TileGrid, TilePool
-│   │   ├── gpu/          # context, texture cache, programs, readback, shaders/*.glsl
+│   │   ├── gpu/          # compositor, texture cache, stroke buffer, programs, shaders/*.vert|*.frag
 │   │   ├── render/       # compositor, viewport, overlays
 │   │   ├── tools/ brush/ ops/   # tool state machines, brush engine, adjustments/filters/transforms
 │   │   ├── history/      # undo/redo, memory budget, spill to OPFS
@@ -26,13 +26,19 @@ image-editor/app/src/
 
 ## Commands (inside `image-editor/app`)
 
-`pnpm dev` · `pnpm lint` · `pnpm typecheck` · `pnpm test` · `pnpm test:golden` (update with `--update` only after visual review) · `pnpm test:e2e` · `pnpm bench` · `pnpm dist`
+`pnpm dev` · `pnpm lint` · `pnpm typecheck` · `pnpm format:check` · `pnpm test` · `pnpm test:gpu` · `pnpm test:e2e` · `pnpm pack:dir` · `pnpm dist`
+(golden-image tests and `pnpm bench` arrive in M1/M2.)
+
+- GPU tests (`*.gpu.test.ts`) run in headless Chromium via Vitest browser mode. The config uses
+  `/opt/pw-browsers` Chromium when present, and CI runs `playwright install chromium`.
+- Every shader has a CPU reference in TypeScript. When you change one, change both and keep the
+  conformance test green.
 
 ## Architecture rules
 
 1. **Engine is framework-free.** `renderer/src/engine/**` must not import React, Zustand or `ui/`. The UI
    subscribes to engine events. This keeps the engine testable headlessly.
-2. **All document mutations are Commands** (`engine/doc/commands/*`) that implement `do/undo` and report
+2. **All document mutations are Commands** (`engine/doc/commands.ts`) that implement `do/undo` and report
    the dirty tile set. No ad-hoc pixel writes from tools or UI.
 3. **Pixels live in immutable tiles** (256×256 RGBA8, straight/unpremultiplied alpha; see ADR-0003). Never allocate a full-canvas buffer on
    the UI thread. Export renders in bands (docs/02 §7.2).
@@ -42,7 +48,7 @@ image-editor/app/src/
    Main never parses image bytes.
 6. **Colour:** the working space is sRGB 8-bit. Convert on import and tag on export (docs/09). Do blend
    math in linear or gamma space exactly as the relevant ADR says. Don't change it ad hoc.
-7. Shaders live in `.glsl` files with a header comment naming the formula source (e.g. W3C Compositing spec section).
+7. Shaders live in `.vert`/`.frag` files with a header comment naming the formula source (e.g. W3C Compositing spec section).
 
 ## Sensitive areas (ask a human first)
 

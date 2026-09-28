@@ -1,0 +1,8 @@
+out
+dist
+coverage
+vendor
+test/fixtures
+pnpm-lock.yaml
+test-results
+playwright-report

@@ -12,5 +12,5 @@ shown in About → Licenses.
 | [fflate](https://github.com/101arrowz/fflate) | `.iep` zip container | MIT | |
 | [onnxruntime-web](https://onnxruntime.ai/) | On-device AI inference | MIT | |
 | AI model (background removal / subject) | Segmentation | Must be MIT/Apache-2.0/BSD | See [ADR-0006](docs/adr/0006-on-device-ai-models.md). Non-commercial models (e.g. RMBG-1.4, CC BY-NC) are **excluded**. |
-| React, Zustand, Radix UI, Tailwind CSS, Lucide | UI | MIT / ISC | |
+| React, Tailwind CSS | UI | MIT | Zustand/Radix/Lucide are planned for later milestones |
 | [utif2](https://github.com/photopea/UTIF.js) | TIFF fallback decode (if needed) | MIT | Only if sharp's TIFF path proves insufficient |

@@ -132,9 +132,12 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
 - Dabs render (instanced quads, procedural round tip or brush-tip texture) into a **stroke buffer**
   (R16F coverage). Flow accumulates per dab, and opacity caps the whole stroke (Photoshop semantics).
 - Preview: the compositor draws `layer ⊕ strokeBuffer` live, so the layer itself is untouched during the stroke.
-- **Commit on pointer-up:** a GPU pass blends the stroke into the affected layer tiles (respecting the
-  selection, lock-transparency and mask target) → async readback via PBO + `fenceSync` → new immutable CPU
-  tiles → `PaintCommand` with the old and new tile refs → history.
+- **Commit on pointer-up:** the stroke buffer's coverage tiles are read back and the new layer tiles are
+  computed **on the CPU** (`brush.ts applyStroke`) → new immutable tiles → `PaintTilesCommand` with the
+  old and new tile refs → history. GPU textures are premultiplied (for correct mipmapping), and a GPU commit
+  would round-trip low-alpha pixels the stroke never touched. The CPU path is exact and doubles as the
+  reference that the preview shader is tested against. It measured about 17–22 ms per stroke in the M0 spike.
+  An async PBO readback remains an optimisation option (ADR-0003 follow-ups).
 - Eraser = the same pipeline with a destination-out blend. Clone stamp samples a source texture with an offset.
 
 ### 5.4 Selections

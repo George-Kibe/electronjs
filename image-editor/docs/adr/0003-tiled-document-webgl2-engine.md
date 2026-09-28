@@ -38,4 +38,17 @@ deep undo, and resilience to GPU context loss, all inside an Electron renderer.
 - Readback adds latency at stroke commit (not during the stroke). Keep dirty regions tight.
 - Tile-apron handling is needed for convolution filters (sampling neighbour tiles).
 - Two implementations of each pixel operation (GPU shader + CPU reference) are needed, but they double as a test oracle.
-- **Spike results (fill in M0):** brush latency p95 = __ ms, pan/zoom p95 = __ ms on {matrix}.
+## Follow-ups (M0 spike, 2026-09-28)
+
+- **Commit on the CPU, preview on the GPU.** Tile textures are uploaded premultiplied with mipmaps, so
+  zoomed-out views filter correctly. Committing strokes on the GPU would unpremultiply every pixel of each
+  touched tile and change semi-transparent pixels the stroke never covered. The CPU commit
+  (`applyStroke`) is exact and leaves untouched pixels byte-identical. The live preview shader uses the
+  same formula, and `gpu.gpu.test.ts` checks shader vs CPU within ±2/255 (mutation-tested).
+- **Tiled stroke buffer** (RGBA16F per 256² tile) instead of one document-sized texture. It works beyond
+  `MAX_TEXTURE_SIZE` (8192 on SwiftShader) and allocates only where the brush goes.
+- **Measured (M0, SwiftShader software GL, headless Chromium, 800×600, 30 px brush):** brush latency
+  p50 ≈ 11–13 ms, p95 ≈ 15–16 ms, stroke commit ≈ 17–22 ms. The CI e2e job logs the same metric per OS
+  (`brush-latency`). Real-GPU numbers on the release hardware matrix are still to be recorded.
+- **Software fallback:** Chromium no longer falls back to SwiftShader automatically, so main sets
+  `--enable-unsafe-swiftshader` (NFR-COMP-01). See docs/06 §4 for why this is acceptable here.

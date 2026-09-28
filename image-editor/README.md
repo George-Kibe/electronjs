@@ -27,15 +27,15 @@ image-editor/
 
 ## Quick start (development)
 
-> Not scaffolded yet. These commands describe the target developer experience.
+Requires Node.js 22.12+ (24 recommended) and pnpm 10 (`corepack enable`).
 
 ```bash
 cd image-editor/app
 pnpm install
 pnpm dev              # Electron with HMR
-pnpm test             # unit + golden-image tests
-pnpm test:e2e         # Playwright E2E
-pnpm bench            # rendering/brush/filter benchmarks
+pnpm test             # unit tests (engine, codec host, main)
+pnpm test:gpu         # GPU conformance: shaders vs CPU reference in headless Chromium
+pnpm test:e2e         # Playwright E2E of the real Electron app
 pnpm dist             # local installer for the current OS
 ```
 

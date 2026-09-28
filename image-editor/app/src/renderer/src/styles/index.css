@@ -1,0 +1,45 @@
+@import 'tailwindcss';
+
+/* Design tokens (docs/03 §2). Chrome stays neutral so it never biases colour judgement. */
+@theme {
+  --color-brand: #0ca678;
+  --color-ui-bg: #1e1f22;
+  --color-ui-panel: #26282c;
+  --color-ui-raised: #2e3035;
+  --color-ui-border: #3a3d42;
+  --color-ui-text: #e3e5e8;
+  --color-ui-muted: #9ba1a8;
+  --color-danger: #ff6b6b;
+  --color-focus: #74c0fc;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-ui-bg);
+  color: var(--color-ui-text);
+  font-family: -apple-system, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', Ubuntu, sans-serif;
+  font-size: 12px;
+  user-select: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+input[type='range'] {
+  accent-color: var(--color-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

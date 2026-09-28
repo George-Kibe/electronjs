@@ -1,0 +1,40 @@
+# Packaging config (docs/08 §2). Product name/appId are placeholders until the rename (docs/01 Q1).
+appId: com.georgekibe.imageeditor
+productName: ImageEditor
+copyright: Copyright © 2026 George Kibe
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asar: true
+# sharp's native addon and the libvips shared libraries must live outside the asar archive.
+asarUnpack:
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
+fileAssociations:
+  - ext: [png, jpg, jpeg, webp, avif, gif, bmp, tif, tiff]
+    name: Image
+    role: Editor
+    rank: Alternate
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+mac:
+  category: public.app-category.graphics-design
+  hardenedRuntime: true
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+linux:
+  category: Graphics
+  target: [AppImage, deb, rpm]
+  mimeTypes: [image/png, image/jpeg, image/webp, image/avif, image/gif, image/bmp, image/tiff]
+publish:
+  provider: github

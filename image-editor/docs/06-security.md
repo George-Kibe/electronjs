@@ -68,6 +68,12 @@ with these specifics:
   (with a name allowlist). It sets COOP/COEP (for cross-origin isolation) and CSP:
   `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
   `wasm-unsafe-eval` is needed for onnxruntime-web WASM. `blob:` workers are for the ORT bundling pattern.
+- `--enable-unsafe-swiftshader` is set so machines without a usable GPU get software WebGL instead of a
+  broken canvas (NFR-COMP-01). Chromium calls it "unsafe" because SwiftShader JIT-compiles shaders from
+  untrusted websites. Our renderer only loads our own bundled code from `app://`, never remote content.
+- **IPC sender check compares scheme, host and port explicitly.** Node's `URL` reports origin `"null"` for
+  both `app://` and `file://`, so an origin comparison would accept any local file page. (Found by the M0
+  unit tests; regression-tested in `security.test.ts`.)
 - Permission handler grants only: `local-fonts` (text tool), `clipboard-read` (paste, after a user
   gesture), `clipboard-sanitized-write`. Everything else is denied (camera, mic, geolocation…).
 - Navigation and window.open are denied. Help links open in the external browser after an `https:` check.
