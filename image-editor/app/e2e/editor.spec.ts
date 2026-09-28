@@ -36,10 +36,12 @@ async function paintLine(win: Page, from: [number, number], to: [number, number]
 
 test(`[${target}] opens a phone photo upright, paints on a new layer, undoes and redoes`, async () => {
   const { app, win } = await launch([photo]);
+  win.on('console', (m) => console.log(`[renderer ${m.type()}] ${m.text()}`));
   const status = win.getByRole('status').first();
   await expect(status).toContainText('480 × 640 px'); // EXIF orientation applied (FR-DOC-09)
   await expect(win.getByRole('list', { name: 'History' })).toContainText('Open');
 
+  console.log(`[${process.platform}/${target}] GPU: ${await win.locator('footer').innerText()}`);
   await win.getByRole('button', { name: 'New layer' }).click();
   await expect(win.getByRole('option', { name: /Layer 1/ })).toHaveAttribute('aria-selected', 'true');
 

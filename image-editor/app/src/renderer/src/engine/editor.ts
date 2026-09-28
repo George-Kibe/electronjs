@@ -160,7 +160,7 @@ export class Editor {
       tool: this.tool,
       brush: this.brush,
       cursor: this.cursor,
-      gpu: debug ? String(this.gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : 'WebGL2',
+      gpu: `${debug ? String(this.gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : 'WebGL2'} · strokes ${this.strokeBuffer.format.toUpperCase()}`,
     };
   }
 

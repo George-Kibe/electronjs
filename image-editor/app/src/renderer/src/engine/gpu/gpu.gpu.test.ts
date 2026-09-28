@@ -27,10 +27,16 @@ const dabs: Dab[] = [
 ];
 
 describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
-  it.each([0, 0.5, 1])('dab shader matches accumulateDabs at hardness %s', (hardness) => {
+  it.each([
+    ['rgba16f', 0],
+    ['rgba16f', 0.5],
+    ['rgba16f', 1],
+    ['rgba8', 0.5],
+  ] as const)('dab shader (%s) matches accumulateDabs at hardness %s', (format, hardness) => {
     const gl = context(4, 4);
     const compositor = new Compositor(gl);
-    const stroke = new StrokeBuffer(gl, compositor.quad);
+    const stroke = new StrokeBuffer(gl, compositor.quad, format);
+    expect(stroke.format).toBe(format);
     stroke.hardness = hardness;
     const keys = stroke.addDabs(dabs, 600, 600);
     expect(keys.sort()).toEqual(['0,0', '0,1', '1,0', '1,1']);
@@ -41,7 +47,7 @@ describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
       const gpu = stroke.readCoverage(key);
       let maxErr = 0;
       for (let i = 0; i < cpu.length; i++) maxErr = Math.max(maxErr, Math.abs(cpu[i]! - gpu[i]!));
-      expect(maxErr, `tile ${key}`).toBeLessThan(2e-3); // half-float precision
+      expect(maxErr, `tile ${key}`).toBeLessThan(format === 'rgba8' ? 2.5 / 255 : 2e-3);
     }
   });
 
