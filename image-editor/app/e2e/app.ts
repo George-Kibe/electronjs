@@ -56,7 +56,14 @@ function start(files: string[], cdpPort: number): Promise<ElectronApplication> {
  * 1 in 10 packaged launches on Linux/xvfb and most packaged launches on Windows. So we wait until the main
  * process reports the page loaded, then attach a second CDP connection. It sees the post-swap page.
  */
-export async function launch(files: string[] = []): Promise<{ app: ElectronApplication; win: Page }> {
+export type Launched = {
+  app: ElectronApplication;
+  win: Page;
+  /** Disconnects the extra CDP client first, so no in-flight call fails while the app exits. */
+  close: () => Promise<void>;
+};
+
+export async function launch(files: string[] = []): Promise<Launched> {
   const cdpPort = await freePort();
   const app = await start(files, cdpPort);
   // Surface main-process logs (GPU/child-process crashes, codec errors) in the test output.
@@ -82,8 +89,18 @@ export async function launch(files: string[] = []): Promise<{ app: ElectronAppli
   if (!win) throw new Error('App window not found over CDP');
   win.on('console', (m) => console.log(`[renderer ${m.type()}] ${m.text()}`));
   win.on('crash', () => console.log('[renderer] CRASHED'));
-  await win.getByRole('button', { name: /Open/ }).first().waitFor({ timeout: 30_000 });
-  return { app, win };
+  const close = async () => {
+    win.removeAllListeners();
+    await browser.close().catch(() => undefined); // connectOverCDP: disconnects, leaves the app running
+    await app.close();
+  };
+  try {
+    await win.getByRole('button', { name: /Open/ }).first().waitFor({ timeout: 30_000 });
+  } catch (err) {
+    await close();
+    throw err;
+  }
+  return { app, win, close };
 }
 
 export async function snapshot(win: Page, name: string): Promise<void> {

@@ -35,7 +35,7 @@ async function paintLine(win: Page, from: [number, number], to: [number, number]
 }
 
 test(`[${target}] opens a phone photo upright, paints on a new layer, undoes and redoes`, async () => {
-  const { app, win } = await launch([photo]);
+  const { win, close } = await launch([photo]);
   const status = win.getByRole('status').first();
   await expect(status).toContainText('480 × 640 px'); // EXIF orientation applied (FR-DOC-09)
   await expect(win.getByRole('list', { name: 'History' })).toContainText('Open');
@@ -80,11 +80,11 @@ test(`[${target}] opens a phone photo upright, paints on a new layer, undoes and
     `[${process.platform}/${target}] brush latency p95 ${p95.toFixed(1)} ms over ${latencies.length} frames — ${gpu}`,
   );
   expect(latencies.length).toBeGreaterThan(5);
-  await app.close();
+  await close();
 });
 
 test(`[${target}] erases to transparency (checkerboard shows through)`, async () => {
-  const { app, win } = await launch();
+  const { win, close } = await launch();
   await win.getByRole('spinbutton').nth(0).fill('400');
   await win.getByRole('spinbutton').nth(1).fill('300');
   await win.getByRole('button', { name: 'Create' }).click();
@@ -98,17 +98,17 @@ test(`[${target}] erases to transparency (checkerboard shows through)`, async ()
   // Checkerboard cells are light grey (204) or white — no longer pure white everywhere along the stroke.
   const samples = await Promise.all([-24, -12, 0, 12, 24].map((dx) => canvasPixel(win, cx + dx, cy)));
   expect(samples.some(([r]) => r < 230)).toBe(true);
-  await app.close();
+  await close();
 });
 
 test(`[${target}] explains when a file is not an image`, async () => {
-  const { app, win } = await launch([junk]);
+  const { win, close } = await launch([junk]);
   await expect(win.getByRole('alert')).toContainText('not a supported image');
-  await app.close();
+  await close();
 });
 
 test(`[${target}] runs cross-origin isolated with the security baseline`, async () => {
-  const { app, win } = await launch();
+  const { app, win, close } = await launch();
   const env = await win.evaluate(async () => {
     const g = globalThis as Record<string, unknown>;
     let networkBlocked = false;
@@ -147,5 +147,5 @@ test(`[${target}] runs cross-origin isolated with the security baseline`, async 
   await win.waitForTimeout(500);
   expect(win.url()).toBe(before);
   expect(app.windows()).toHaveLength(1);
-  await app.close();
+  await close();
 });
