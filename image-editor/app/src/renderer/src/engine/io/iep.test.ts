@@ -315,7 +315,8 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
         ),
         { numRuns: 300 },
       );
-    });
+      // ~1 s locally, over 5 s on Windows CI runners: keep all 300 cases, allow the time.
+    }, 20_000);
   });
 
   it('loads the committed v1 golden fixture (must load forever, docs/05 §2.3)', () => {
