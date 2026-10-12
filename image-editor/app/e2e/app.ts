@@ -6,7 +6,7 @@ import {
   type Page,
 } from '@playwright/test';
 import { createServer, type AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -69,7 +69,9 @@ export type Launched = {
 
 /** A fresh, empty profile folder (pass it to several launches to test persistence). */
 export function newProfile(): string {
-  return mkdtempSync(join(tmpdir(), 'ie-profile-'));
+  // realpath: on macOS the temp folder is behind a symlink (/var → /private/var), and Electron reports
+  // the resolved path.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'ie-profile-')));
 }
 
 export async function launch(files: string[] = [], userDataDir = newProfile()): Promise<Launched> {
