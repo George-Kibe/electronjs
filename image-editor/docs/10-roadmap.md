@@ -56,7 +56,7 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       visible, flatten; opacity and fill; Normal + 8 blend modes (Darken, Multiply, Lighten, Screen, Overlay,
       Soft Light, Hard Light, Difference — the most used; the other 9 of FR-LAY-03 arrive in M2 and render as
       Normal until then); live thumbnails. "Rasterize" applies to text/shape layers and arrives with them (M3).
-- [ ] Slice 3 — painting: brush options (tip presets Round/Chalk/Charcoal/Sponge, size, hardness, opacity,
+- [x] Slice 3 — painting: brush options (tip presets Round/Chalk/Charcoal/Sponge, size, hardness, opacity,
       flow, spacing, pulled-string smoothing, pen pressure → size/opacity) (FR-PNT-01); pencil, and the eraser
       in brush or pencil mode, painting the background colour on transparency-locked layers (FR-PNT-02);
       eyedropper with point/3×3/5×5 and current/all layers, Alt from the brush or pencil (FR-PNT-06); colour
@@ -64,7 +64,8 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       Move tool with auto-select (layer/group), align to the canvas, arrow-key nudges, the position lock and
       Ctrl as a temporary Move tool; pixels moved off the canvas are kept (FR-TRF-07). **Distribute** needs
       several selected layers, so it arrives with multi-selection (FR-LAY-08, M2). Swatches are stored per
-      user in local storage until Preferences (slice 6).
+      user in local storage until Preferences (slice 6). E2E green on Linux, Windows and macOS (dev and
+      packaged; image-editor-ci run 38247201219, 2026-10-12).
 - [ ] Slice 4 — transforms: crop, image/canvas size, rotate/flip
 - [ ] Slice 5 — navigation and history: zoom range, pixel grid, scrollbars, status bar, history budget, snapshots
 - [ ] Slice 6 — app shell: tabs, recent files, clipboard, autosave recovery, preferences, themes, updates, welcome
