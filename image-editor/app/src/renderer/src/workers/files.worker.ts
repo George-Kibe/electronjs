@@ -14,6 +14,8 @@ import { snapshotLayers, type DocSnapshot, type LayerSnapshot } from '../engine/
 export type FilesRequest =
   | { op: 'readIep'; bytes: Uint8Array; maxTileBytes: number }
   | { op: 'writeIep'; doc: DocSnapshot; appVersion: string }
+  /** Recent-files thumbnail (FR-GEN-08): a small PNG of the composite. */
+  | { op: 'thumbnail'; doc: DocSnapshot; maxSide: number }
   | {
       op: 'export';
       doc: DocSnapshot;
@@ -41,9 +43,9 @@ function tileBuffers(layers: LayerSnapshot[], out: ArrayBuffer[] = []): ArrayBuf
   return out;
 }
 
-async function previewPng(doc: DocSnapshot): Promise<Uint8Array | undefined> {
+async function previewPng(doc: DocSnapshot, maxSide = 1024): Promise<Uint8Array | undefined> {
   if (typeof OffscreenCanvas === 'undefined') return undefined;
-  const { width, height, rgba } = flattenPreview(layersOf(doc), doc.width, doc.height, 1024);
+  const { width, height, rgba } = flattenPreview(layersOf(doc), doc.width, doc.height, maxSide);
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d');
   if (!ctx) return undefined;
@@ -107,6 +109,9 @@ self.onmessage = async (event: MessageEvent<{ id: number } & FilesRequest>) => {
     } else if (req.op === 'writeIep') {
       const bytes = writeIep(req.doc, { appVersion: req.appVersion, previewPng: await previewPng(req.doc) });
       reply({ id, ok: true, result: bytes }, [bytes.buffer as ArrayBuffer]);
+    } else if (req.op === 'thumbnail') {
+      const png = await previewPng(req.doc, req.maxSide);
+      reply({ id, ok: true, result: png ?? null }, png ? [png.buffer as ArrayBuffer] : []);
     } else if (req.op === 'export') {
       const rgba = flattened(req.doc, req.version, progress);
       progress(0.5);

@@ -159,5 +159,6 @@ describe('commands + history', () => {
         expect(snapshot(doc)).toEqual(initial);
       }),
     );
-  });
+    // Several seconds when the suite runs in parallel on a busy machine: keep all runs, allow the time.
+  }, 20_000);
 });

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { writeAtomic } from '../services/atomic-write';
 import { FileRefRegistry } from '../services/file-refs';
+import { RecentFiles } from '../services/recent-files';
 import { SettingsStore } from '../services/settings-store';
 import { createHandlers, type HandlerDeps } from './handlers';
 
@@ -35,6 +36,8 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
       totalMemoryBytes: 16 * 1024 ** 3,
     },
     settings: new SettingsStore({ path: join(dir, `settings-${crypto.randomUUID()}.json`), writeAtomic }),
+    recent: new RecentFiles({ dir: mkdtempSync(join(dir, 'recent-')), writeAtomic }),
+    addOsRecent: vi.fn(),
     launchPaths,
     defaultDir: dir,
     setDocumentEdited: vi.fn(),
@@ -45,6 +48,29 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
 }
 
 describe('IPC handlers', () => {
+  it('records recent files by ref and reopens them by id, dropping files that are gone', async () => {
+    const { handlers, deps, event } = setup();
+    const ref = (await handlers['dialog.openImage'](undefined, event))!;
+    await handlers['recent.add']({ ref: { id: ref.id } }, event);
+    expect(deps.addOsRecent).toHaveBeenCalledWith(image);
+    const [item] = await handlers['recent.list'](undefined, event);
+    expect(item).toMatchObject({ displayName: 'photo.jpg', exists: true, thumbnail: null });
+    expect((await handlers['recent.open']({ id: item!.id }, event)).displayName).toBe('photo.jpg');
+    await expect(handlers['recent.open']({ id: '0123456789abcdef' }, event)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    const gone = join(dir, 'gone.png');
+    writeFileSync(gone, 'x');
+    const goneRef = deps.refs.register(gone);
+    await handlers['recent.add']({ ref: { id: goneRef.id } }, event);
+    rmSync(gone);
+    const goneId = (await handlers['recent.list'](undefined, event))[0]!.id;
+    await expect(handlers['recent.open']({ id: goneId }, event)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await handlers['recent.list'](undefined, event)).map((i) => i.displayName)).toEqual([
+      'photo.jpg',
+    ]);
+  });
+
   it('reads and updates settings; a failed save is reported, invalid values are rejected', async () => {
     const { handlers, event } = setup();
     expect((await handlers['settings.get'](undefined, event)).general.theme).toBe('dark');

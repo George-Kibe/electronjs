@@ -29,8 +29,9 @@ import { SwatchesPanel } from './components/SwatchesPanel';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
-import { useFileActions } from './useFileActions';
+import { useFileActions, type NewDocumentSpec } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
+import { useRecent } from './useRecent';
 import { useSettings } from './useSettings';
 import { useSwatches } from './useSwatches';
 
@@ -104,6 +105,23 @@ export function App() {
 
   const prefs = useSettings(editor, totalMemoryBytes);
   const files = useFileActions(editor);
+  const recent = useRecent();
+  // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
+  const presets = prefs.settings.files.documentPresets;
+  const newDocumentForm = {
+    onCreate: (spec: NewDocumentSpec) => {
+      setNewOpen(false);
+      void files.newDocument(spec);
+    },
+    saved: presets,
+    onSavePreset: (p: (typeof presets)[number]) =>
+      void prefs.update({
+        files: { documentPresets: [...presets.filter((x) => x.name !== p.name), p].slice(-30) },
+      }),
+    onDeletePreset: (name: string) =>
+      void prefs.update({ files: { documentPresets: presets.filter((x) => x.name !== name) } }),
+    backgroundColor: snap?.colors.background ?? ([255, 255, 255] as [number, number, number]),
+  };
   const { openRef } = files;
 
   // Files passed on the command line / via file association (FR-DOC-02).
@@ -130,6 +148,8 @@ export function App() {
     [files],
   );
   useShortcuts(editor, actions);
+
+  useEffect(() => events.onOpenRecent((id) => void files.openRecent(id)), [files]);
 
   // Native menu (docs/04 §2.5).
   useEffect(
@@ -287,7 +307,16 @@ export function App() {
           {snap?.doc && editor && (
             <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
           )}
-          {!hasDoc && <Welcome onNew={(w, h) => void files.newDocument(w, h)} onOpen={actions.open} />}
+          {!hasDoc && (
+            <Welcome
+              onOpen={actions.open}
+              recent={recent}
+              onOpenRecent={(id) => void files.openRecent(id)}
+              onRemoveRecent={(id) => void api.recent.remove(id).catch(files.reportError)}
+              onClearRecent={() => void api.recent.clear().catch(files.reportError)}
+              newDocument={newDocumentForm}
+            />
+          )}
         </div>
         {snap && hasDoc && (
           <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">
@@ -407,15 +436,7 @@ export function App() {
           onClose={() => setPreferencesOpen(false)}
         />
       )}
-      {newOpen && (
-        <NewDocumentDialog
-          onCancel={() => setNewOpen(false)}
-          onCreate={(w, h) => {
-            setNewOpen(false);
-            void files.newDocument(w, h);
-          }}
-        />
-      )}
+      {newOpen && <NewDocumentDialog onCancel={() => setNewOpen(false)} {...newDocumentForm} />}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { extname, join } from 'node:path';
 import { FORMAT_INFO } from '@shared/export-options';
 import { MAX_FILE_BYTES } from '@shared/ipc-contract';
 import type { FileRefRegistry } from '../services/file-refs';
+import type { RecentFiles } from '../services/recent-files';
 import type { SettingsStore } from '../services/settings-store';
 import { HandlerError, type Handlers } from './router';
 
@@ -15,6 +16,9 @@ export type HandlerDeps = {
   writeAtomic(path: string, data: Uint8Array): Promise<void>;
   appInfo: { productName: string; version: string; platform: string; arch: string; totalMemoryBytes: number };
   settings: Pick<SettingsStore, 'get' | 'update'>;
+  recent: Pick<RecentFiles, 'list' | 'add' | 'resolve' | 'remove' | 'clear'>;
+  /** OS recent documents (macOS Dock menu, Windows jump list). */
+  addOsRecent(path: string): void;
   launchPaths: string[];
   /** Folder shown by the first save dialog (Pictures); later dialogs reuse the last folder. */
   defaultDir: string;
@@ -128,6 +132,29 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     'codec.decode': (ref, event) => ({ requestId: deps.codec.decode(resolveOrThrow(ref), event.sender) }),
 
     'codec.encode': (_req, event) => ({ requestId: deps.codec.encode(event.sender) }),
+
+    'recent.list': () => deps.recent.list(),
+
+    'recent.add': async ({ ref, thumbnail }) => {
+      const path = resolveOrThrow(ref);
+      await deps.recent.add(path, thumbnail);
+      deps.addOsRecent(path);
+    },
+
+    'recent.open': async ({ id }) => {
+      const path = deps.recent.resolve(id);
+      if (!path) throw new HandlerError('NOT_FOUND', 'That file is no longer in the recent list.');
+      try {
+        return deps.refs.register(path);
+      } catch {
+        await deps.recent.remove(id);
+        throw new HandlerError('NOT_FOUND', 'That file was moved or deleted. It was removed from the list.');
+      }
+    },
+
+    'recent.remove': ({ id }) => deps.recent.remove(id),
+
+    'recent.clear': () => deps.recent.clear(),
 
     'settings.get': () => deps.settings.get(),
 

@@ -29,6 +29,13 @@ export const api: ImageEditorApi = {
     decode: (ref) => unwrap(bridge.codec.decode(ref)),
     encode: () => unwrap(bridge.codec.encode()),
   },
+  recent: {
+    list: () => unwrap(bridge.recent.list()),
+    add: (ref, thumbnail) => unwrap(bridge.recent.add(ref, thumbnail)),
+    open: (id) => unwrap(bridge.recent.open(id)),
+    remove: (id) => unwrap(bridge.recent.remove(id)),
+    clear: () => unwrap(bridge.recent.clear()),
+  },
   settings: {
     get: () => unwrap(bridge.settings.get()),
     update: (patch) => unwrap(bridge.settings.update(patch)),

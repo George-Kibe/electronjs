@@ -41,6 +41,13 @@ const api: ImageEditorBridge = {
     decode: (ref) => call('codec.decode', { id: ref.id }),
     encode: () => call('codec.encode'),
   },
+  recent: {
+    list: () => call('recent.list'),
+    add: (ref, thumbnail) => call('recent.add', { ref: { id: ref.id }, thumbnail }),
+    open: (id) => call('recent.open', { id }),
+    remove: (id) => call('recent.remove', { id }),
+    clear: () => call('recent.clear'),
+  },
   settings: {
     get: () => call('settings.get'),
     update: (patch) => call('settings.update', patch),
@@ -50,6 +57,11 @@ const api: ImageEditorBridge = {
     onMenuCommand: (cb) =>
       on('menu.command', (_e, id) => {
         if (isMenuCommand(id)) cb(id as MenuCommandId);
+      }),
+    onRecentChanged: (cb) => on('recent.changed', () => cb()),
+    onOpenRecent: (cb) =>
+      on('menu.openRecent', (_e, id) => {
+        if (typeof id === 'string') cb(id);
       }),
     // Main validated these settings before sending; the renderer re-validates in lib/settings.ts.
     onSettingsChanged: (cb) => on('settings.changed', (_e, settings) => cb(settings as Settings)),

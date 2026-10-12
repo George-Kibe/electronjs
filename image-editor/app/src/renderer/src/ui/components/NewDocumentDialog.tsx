@@ -1,14 +1,12 @@
+import type { ComponentProps } from 'react';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import { NewDocumentForm } from './NewDocumentForm';
 
-export function NewDocumentDialog({
-  onCreate,
-  onCancel,
-}: {
-  onCreate: (w: number, h: number) => void;
-  onCancel: () => void;
-}) {
+type FormProps = Omit<ComponentProps<typeof NewDocumentForm>, 'children'>;
+
+/** File › New (Ctrl+N): the same form as the Welcome screen, in a dialog (FR-DOC-01). */
+export function NewDocumentDialog({ onCancel, ...form }: FormProps & { onCancel: () => void }) {
   return (
     <Modal
       title="New document"
@@ -19,7 +17,7 @@ export function NewDocumentDialog({
         </Button>
       }
     >
-      <NewDocumentForm onCreate={onCreate}>
+      <NewDocumentForm {...form}>
         {(valid) => (
           <Button type="submit" variant="primary" disabled={!valid} className="self-end">
             Create

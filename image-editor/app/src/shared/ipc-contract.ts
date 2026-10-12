@@ -14,6 +14,20 @@ const Bytes = z.custom<Uint8Array>(
 
 const RefId = FileRef.pick({ id: true });
 
+/** Recent-file entry ids are opaque hashes (main keeps the paths). */
+const RecentId = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/) });
+/** A 256 px PNG thumbnail from the file worker; main only checks size and signature. */
+const Thumbnail = z.custom<Uint8Array>((b) => b instanceof Uint8Array && b.byteLength <= 512 * 1024);
+export const RecentItem = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  displayDir: z.string(),
+  openedAt: z.number(),
+  exists: z.boolean(),
+  thumbnail: Thumbnail.nullable(),
+});
+export type RecentItem = z.infer<typeof RecentItem>;
+
 /** Renderer ↔ main request/response channels (docs/04 §1). Validated on the main side. */
 export const ipcContract = {
   'app.getInfo': { request: z.void(), response: AppInfo },
@@ -44,6 +58,14 @@ export const ipcContract = {
   'codec.decode': { request: RefId, response: z.object({ requestId: z.uuid() }) },
   /** Opens an encode session; pixels go to the codec host over the MessagePort from 'codec.port'. */
   'codec.encode': { request: z.void(), response: z.object({ requestId: z.uuid() }) },
+  /** Recent files, newest first (FR-DOC-02, FR-GEN-08). */
+  'recent.list': { request: z.void(), response: z.array(RecentItem) },
+  /** Records an opened or saved file (by ref), with an optional thumbnail. */
+  'recent.add': { request: z.object({ ref: RefId, thumbnail: Thumbnail.optional() }), response: z.void() },
+  /** A ref for a recent entry; NOT_FOUND (and the entry is removed) if the file is gone. */
+  'recent.open': { request: RecentId, response: FileRef },
+  'recent.remove': { request: RecentId, response: z.void() },
+  'recent.clear': { request: z.void(), response: z.void() },
   /** User settings (FR-GEN-04, docs/05 §3). */
   'settings.get': { request: z.void(), response: Settings },
   /** Validated patch; the saved settings come back and every window gets 'settings.changed'. */
@@ -61,6 +83,10 @@ export interface ImageEditorEvents {
   /** The user tried to close the window with unsaved changes. Call app.closeWindow() to proceed. */
   onCloseRequested(cb: () => void): () => void;
   onMenuCommand(cb: (id: MenuCommandId) => void): () => void;
+  /** The recent-files list changed. */
+  onRecentChanged(cb: () => void): () => void;
+  /** File › Open Recent › an entry was chosen in the native menu. */
+  onOpenRecent(cb: (id: string) => void): () => void;
   /** Settings changed (from this or another window). */
   onSettingsChanged(cb: (settings: Settings) => void): () => void;
 }
@@ -85,6 +111,13 @@ export interface ImageEditorApi {
   codec: {
     decode(ref: Pick<FileRef, 'id'>): Promise<ResponseOf<'codec.decode'>>;
     encode(): Promise<ResponseOf<'codec.encode'>>;
+  };
+  recent: {
+    list(): Promise<RecentItem[]>;
+    add(ref: Pick<FileRef, 'id'>, thumbnail?: Uint8Array): Promise<void>;
+    open(id: string): Promise<FileRef>;
+    remove(id: string): Promise<void>;
+    clear(): Promise<void>;
   };
   settings: {
     get(): Promise<Settings>;
