@@ -7,9 +7,17 @@ import type { MenuCommandId } from '@shared/menu';
  * Accelerators are shown but not registered (`registerAccelerator: false`): the renderer's keymap handles
  * the keys, so a shortcut never fires twice. Standard roles (quit, text editing, window) stay native.
  */
+/** File › Open Recent: entries (newest first) and the actions main performs for them. */
+export type RecentMenu = {
+  items: Array<{ id: string; label: string }>;
+  open(id: string): void;
+  clear(): void;
+};
+
 export function menuTemplate(
   platform: NodeJS.Platform,
   send: (id: MenuCommandId) => void,
+  recent: RecentMenu = { items: [], open: () => undefined, clear: () => undefined },
 ): MenuItemConstructorOptions[] {
   const cmd = (label: string, id: MenuCommandId, accelerator?: string): MenuItemConstructorOptions => ({
     label,
@@ -41,6 +49,17 @@ export function menuTemplate(
       submenu: [
         cmd('New…', 'file.new', 'CmdOrCtrl+N'),
         cmd('Open…', 'file.open', 'CmdOrCtrl+O'),
+        {
+          label: 'Open Recent',
+          submenu: [
+            ...recent.items.map((r): MenuItemConstructorOptions => ({
+              label: r.label,
+              click: () => recent.open(r.id),
+            })),
+            ...(recent.items.length ? [{ type: 'separator' } as MenuItemConstructorOptions] : []),
+            { label: 'Clear Recent', enabled: recent.items.length > 0, click: () => recent.clear() },
+          ],
+        },
         { type: 'separator' },
         cmd('Save', 'file.save', 'CmdOrCtrl+S'),
         cmd('Save As…', 'file.saveAs', 'CmdOrCtrl+Shift+S'),

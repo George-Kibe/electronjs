@@ -62,6 +62,11 @@ export function writeProject(doc: DocSnapshot, appVersion: string): Promise<Uint
   return request({ op: 'writeIep', doc, appVersion });
 }
 
+/** A 256 px PNG of the composite for the recent-files list, or null if it cannot be made here. */
+export function thumbnailPng(doc: DocSnapshot): Promise<Uint8Array | null> {
+  return request({ op: 'thumbnail', doc, maxSide: 256 });
+}
+
 /** Flattens and encodes in the worker + codec host; returns the file bytes (not yet written). */
 export async function encodeExport(
   doc: DocSnapshot,

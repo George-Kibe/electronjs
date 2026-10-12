@@ -5,7 +5,7 @@ import type { FileRef } from '@shared/schemas';
 import type { Editor } from '../engine/editor';
 import { api, errorMessage, events } from '../lib/api';
 import { decodeImage } from '../lib/codec';
-import { encodeExport, readProject, writeProject } from '../lib/files';
+import { encodeExport, readProject, thumbnailPng, writeProject } from '../lib/files';
 import type { UnsavedChoice } from './components/UnsavedDialog';
 
 const LAST_EXPORT_KEY = 'export.last';
@@ -33,6 +33,14 @@ const baseName = (name: string) => name.replace(/\.[^.]+$/, '') || 'Untitled';
 const isProjectFile = (ref: FileRef) => /\.iep$/i.test(ref.displayName);
 
 export type FileActions = ReturnType<typeof useFileActions>;
+
+/** New document (FR-DOC-01): size, resolution metadata and background (straight RGBA). */
+export type NewDocumentSpec = {
+  width: number;
+  height: number;
+  ppi: number;
+  background: [number, number, number, number];
+};
 
 /**
  * Open / save / export / revert and the unsaved-changes guard (FR-DOC-02/04/05/06/11). Pixels and project
@@ -67,6 +75,19 @@ export function useFileActions(editor: Editor | null) {
     }
   }, []);
 
+  /** Adds the file to Open Recent with a thumbnail, in the background (never fails the open or save). */
+  const remember = useCallback(
+    (ref: FileRef) => {
+      const snapshot = editor?.getDocSnapshot();
+      if (!snapshot) return;
+      void thumbnailPng(snapshot)
+        .catch(() => null)
+        .then((png) => api.recent.add(ref, png ?? undefined))
+        .catch(() => undefined);
+    },
+    [editor],
+  );
+
   const writeTo = useCallback(
     async (ref: FileRef): Promise<boolean> => {
       if (!editor) return false;
@@ -79,9 +100,10 @@ export function useFileActions(editor: Editor | null) {
         editor.markSaved(ref, token);
         return true;
       });
+      if (ok) remember(ref);
       return ok === true;
     },
-    [editor, run],
+    [editor, run, remember],
   );
 
   const saveAs = useCallback(async (): Promise<boolean> => {
@@ -132,9 +154,10 @@ export function useFileActions(editor: Editor | null) {
           );
           setNotice(null);
         }
+        remember(ref);
       });
     },
-    [editor, run],
+    [editor, run, remember],
   );
 
   const openRef = useCallback(
@@ -149,9 +172,19 @@ export function useFileActions(editor: Editor | null) {
     if (ref) await openRef(ref);
   }, [run, openRef]);
 
+  /** File › Open Recent (menu or Welcome screen). */
+  const openRecent = useCallback(
+    async (id: string) => {
+      const ref = await run('', () => api.recent.open(id));
+      if (ref) await openRef(ref);
+    },
+    [run, openRef],
+  );
+
   const newDocument = useCallback(
-    async (width: number, height: number) => {
-      if (editor && (await confirmDiscard())) editor.newDocument(width, height);
+    async (spec: NewDocumentSpec) => {
+      if (editor && (await confirmDiscard()))
+        editor.newDocument(spec.width, spec.height, spec.background, spec.ppi);
     },
     [editor, confirmDiscard],
   );
@@ -231,6 +264,7 @@ export function useFileActions(editor: Editor | null) {
       quickExport,
       openRef,
       openDialog,
+      openRecent,
       newDocument,
       save,
       saveAs,
@@ -248,6 +282,7 @@ export function useFileActions(editor: Editor | null) {
       quickExport,
       openRef,
       openDialog,
+      openRecent,
       newDocument,
       save,
       saveAs,

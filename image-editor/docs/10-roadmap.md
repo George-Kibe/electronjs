@@ -85,7 +85,9 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
   - [x] 6.1 Preferences (Ctrl+, / ⌘,): theme light/dark/system, interface scale, canvas surround, painting
         cursor, history steps, memory budget (automatic = a quarter of RAM, 1–8 GB), GPU off (FR-GEN-02/04).
         Settings store in main (docs/05 §3). E2E launches now use a fresh profile each.
-  - [ ] 6.2 Recent files and the Welcome screen (FR-GEN-08, FR-DOC-02)
+  - [ ] 6.2 Recent files (Welcome grid with thumbnails, File › Open Recent, OS recent documents) and the
+        full New document form with presets, saved presets, resolution and background (FR-GEN-08,
+        FR-DOC-01/02)
   - [ ] 6.3 Clipboard: paste as new document/layer, copy merged (FR-DOC-02/12)
   - [ ] 6.4 Autosave recovery (FR-DOC-10)
   - [ ] 6.5 Document tabs (FR-DOC-03)

@@ -75,6 +75,7 @@ interface Api {
 | `file.readBytes(ref)` | Bytes of a chosen file (≤ 2 GiB), parsed in the file worker |
 | `file.writeAtomic(ref, bytes)` | Temp + fsync + rename; only save-dialog refs or an opened `.iep` (else `FORBIDDEN`) |
 | `codec.decode(ref)`, `codec.encode()` | Open a codec session; the MessagePort arrives via `codec.port` |
+| `recent.list()`, `recent.add({ ref, thumbnail? })`, `recent.open({ id })`, `recent.remove`, `recent.clear` | Recent files kept by main (`recent.json` + 256 px thumbnails); ids are opaque hashes, the renderer never sees paths; `recent.open` returns a fresh ref or `NOT_FOUND` (and drops the entry) if the file is gone. Events `recent.changed`, `menu.openRecent` |
 | `settings.get()`, `settings.update(patch)` | User settings (docs/05 §3). The patch is validated field by field; every window then gets `settings.changed` |
 
 Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks. Menu

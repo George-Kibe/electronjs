@@ -31,6 +31,18 @@ export const PerformanceSettings = z.looseObject({
 export const FilesSettings = z.looseObject({
   /** Recovery snapshot interval (FR-DOC-10); 0 turns autosave off. */
   autosaveMinutes: z.number().int().min(0).max(60).default(2),
+  /** New document presets saved by the user (FR-DOC-01). */
+  documentPresets: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(60),
+        width: z.number().int().min(1).max(20_000),
+        height: z.number().int().min(1).max(20_000),
+        ppi: z.number().min(1).max(10_000),
+      }),
+    )
+    .max(30)
+    .default([]),
 });
 
 export const PrivacySettings = z.looseObject({

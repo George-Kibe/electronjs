@@ -399,11 +399,13 @@ export class Editor {
     width: number,
     height: number,
     background: [number, number, number, number] = [255, 255, 255, 255],
+    ppi = 72,
   ): void {
     const doc = new Document(
       width,
       height,
       createRasterLayer('Background', TileGrid.filled(width, height, background)),
+      { ppi },
     );
     this.open(doc);
   }

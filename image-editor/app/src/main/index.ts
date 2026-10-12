@@ -15,6 +15,7 @@ import { CodecHost } from './services/codec-host';
 import { FileRefRegistry } from './services/file-refs';
 import { launchPaths } from './services/launch-args';
 import { logger } from './services/logger';
+import { RecentFiles } from './services/recent-files';
 import { SettingsStore } from './services/settings-store';
 
 const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -109,6 +110,29 @@ if (!app.requestSingleInstanceLock()) {
     );
     app.on('will-quit', () => codec.stop());
 
+    const recent = new RecentFiles({
+      dir: app.getPath('userData'),
+      writeAtomic,
+      onWarning: (message, err) => logger.warn(message, err),
+    });
+    const buildMenu = () =>
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          menuTemplate(process.platform, (id) => mainWindow?.webContents.send('menu.command', id), {
+            items: recent.menuItems(),
+            open: (id) => mainWindow?.webContents.send('menu.openRecent', id),
+            clear: () => {
+              app.clearRecentDocuments();
+              void recent.clear();
+            },
+          }),
+        ),
+      );
+    recent.onChange(() => {
+      buildMenu();
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('recent.changed');
+    });
+
     registerIpc(
       ipcMain,
       createHandlers({
@@ -131,17 +155,15 @@ if (!app.requestSingleInstanceLock()) {
           totalMemoryBytes: totalmem(),
         },
         settings,
+        recent,
+        addOsRecent: (path) => app.addRecentDocument(path),
         launchPaths: launchPaths(process.argv, app.isPackaged),
       }),
       makeSenderCheck(() => (isDev ? devServerUrl! : APP_ORIGIN)),
       (channel, err) => logger.error(`IPC ${channel} failed`, err),
     );
 
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        menuTemplate(process.platform, (id) => mainWindow?.webContents.send('menu.command', id)),
-      ),
-    );
+    buildMenu();
     applyAppearance(settings.get(), []);
     settings.onChange((s) => {
       applyAppearance(s);
