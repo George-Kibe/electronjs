@@ -8,6 +8,8 @@ export type ShortcutActions = {
   saveAs(): void;
   exportAs(): void;
   quickExport(): void;
+  imageSize(): void;
+  canvasSize(): void;
 };
 
 /**
@@ -36,6 +38,9 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         // e.code for the Alt combinations: on macOS, Alt changes e.key to another character.
         if (mod && e.altKey && e.shiftKey && e.code === 'KeyW') return run(() => actions.exportAs());
         if (mod && e.altKey && e.shiftKey && e.code === 'Quote') return run(() => actions.quickExport());
+        // Image Size / Canvas Size: Ctrl+Alt+I / Ctrl+Alt+C (e.code: Alt changes e.key on macOS).
+        if (mod && e.altKey && !e.shiftKey && e.code === 'KeyI') return run(() => actions.imageSize());
+        if (mod && e.altKey && !e.shiftKey && e.code === 'KeyC') return run(() => actions.canvasSize());
         if (mod && key === 'o') return run(() => actions.open());
         if (mod && key === 's') return run(() => (e.shiftKey ? actions.saveAs() : actions.save()));
         if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());
@@ -78,6 +83,9 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (e.shiftKey && key === 'b') return run(() => editor.selectBrushTool(true));
         if (e.shiftKey) return false;
         if (key === 'v') return run(() => editor.setTool('move'));
+        if (key === 'c') return run(() => editor.setTool('crop'));
+        if (tool === 'crop' && e.key === 'Enter') return run(() => editor.commitCrop());
+        if (tool === 'crop' && e.key === 'Escape') return run(() => editor.resetCrop());
         if (key === 'b') return run(() => editor.selectBrushTool());
         if (key === 'e') return run(() => editor.setTool('eraser'));
         if (key === 'i') return run(() => editor.setTool('eyedropper'));

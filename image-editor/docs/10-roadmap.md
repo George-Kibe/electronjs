@@ -66,7 +66,13 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       several selected layers, so it arrives with multi-selection (FR-LAY-08, M2). Swatches are stored per
       user in local storage until Preferences (slice 6). E2E green on Linux, Windows and macOS (dev and
       packaged; image-editor-ci run 38247201219, 2026-10-12).
-- [ ] Slice 4 — transforms: crop, image/canvas size, rotate/flip
+- [x] Slice 4 — transforms: Crop tool (C) with ratio presets, numeric X/Y/W/H, rule-of-thirds while
+      dragging, Straighten (draw a line: rotate + crop to the largest clean rectangle, one undo step) and
+      "Delete cropped pixels" (FR-TRF-01); Image Size with bicubic/bilinear/nearest/Lanczos and constrained
+      proportions, Canvas Size with a 3×3 anchor (FR-TRF-02); rotate 90°/180° (bit-exact) and arbitrary
+      angles (bicubic, the canvas grows), flip horizontal/vertical (FR-TRF-03); Image menu and Ctrl+Alt+I /
+      Ctrl+Alt+C. Resampling runs on the CPU in the ops worker; the GPU path of docs/02 §5.6 is a later
+      optimisation. E2E green on Linux, Windows and macOS (image-editor-ci run 38276056672, 2026-10-12).
 - [ ] Slice 5 — navigation and history: zoom range, pixel grid, scrollbars, status bar, history budget, snapshots
 - [ ] Slice 6 — app shell: tabs, recent files, clipboard, autosave recovery, preferences, themes, updates, welcome
 

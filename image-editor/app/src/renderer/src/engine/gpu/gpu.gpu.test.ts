@@ -441,3 +441,62 @@ describe('painting and moving: GPU vs CPU (FR-PNT-01/02, FR-TRF-07)', () => {
     expect(compositePixel(liveLayers(doc.layers), 300 - 37 + 10, 30)).toEqual([255, 0, 0, 255]);
   });
 });
+
+describe('editor canvas geometry (FR-TRF-01..03)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+
+  it('Image Size runs as a job, blocks edits meanwhile, and is one undo step', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const editor = new Editor(editorCanvas(), {
+      runOps: async (job, onProgress) => {
+        onProgress(0.5);
+        await gate;
+        const { runOpsJob } = await import('../ops/jobs');
+        return runOpsJob(job);
+      },
+    });
+    editor.newDocument(120, 80);
+    const pending = editor.resizeImage(60, 40, 'bicubic');
+    expect(editor.getSnapshot().job).toEqual({ label: 'Image Size', progress: 0.5 });
+    editor.addLayer(); // refused while the job runs
+    expect(editor.getSnapshot().layers).toHaveLength(1);
+    release();
+    await pending;
+    const snap = editor.getSnapshot();
+    expect(snap.job).toBeNull();
+    expect(snap.doc).toMatchObject({ width: 60, height: 40 });
+    expect(snap.history.entries.map((e) => e.label)).toEqual(['Image Size']);
+    editor.undo();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 120, height: 80 });
+    editor.dispose();
+  });
+
+  it('crop, rotate and straighten change the canvas size and undo exactly', async () => {
+    const editor = new Editor(editorCanvas());
+    editor.newDocument(200, 100);
+    editor.setTool('crop');
+    expect(editor.getSnapshot().crop?.rect).toEqual({ x: 0, y: 0, width: 200, height: 100 });
+    editor.setCropRatio('1:1');
+    expect(editor.getSnapshot().crop?.rect).toEqual({ x: 50, y: 0, width: 100, height: 100 });
+    editor.commitCrop();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 100, height: 100 });
+    editor.rotateCanvas(1);
+    await editor.straighten(10, true);
+    const size = editor.getSnapshot().doc!;
+    expect(size.width).toBeLessThan(100);
+    expect(editor.getSnapshot().history.entries.map((e) => e.label)).toEqual([
+      'Crop',
+      'Rotate 90° Clockwise',
+      'Straighten',
+    ]);
+    editor.goToHistory(-1);
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 200, height: 100 });
+    editor.dispose();
+  });
+});

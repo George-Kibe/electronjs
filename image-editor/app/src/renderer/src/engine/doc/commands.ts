@@ -209,6 +209,14 @@ export type TreeEdit = {
   activeLayerId: string;
   /** Bytes of tiles created by this edit (merges); they are owned by history. */
   newTileBytes?: number;
+  /** New canvas size and guides (crop, image/canvas size, rotate canvas). */
+  canvas?: CanvasGeometry;
+};
+
+export type CanvasGeometry = {
+  width: number;
+  height: number;
+  guides: { horizontal: number[]; vertical: number[] };
 };
 
 /**
@@ -217,7 +225,7 @@ export type TreeEdit = {
  * they are exact inverses and cost O(layers), never O(pixels).
  */
 export class TreeCommand implements Command {
-  private before: { root: Layer[]; active: string } | null = null;
+  private before: { root: Layer[]; active: string; canvas: CanvasGeometry } | null = null;
   private after: TreeEdit | null = null;
 
   constructor(
@@ -225,23 +233,33 @@ export class TreeCommand implements Command {
     private readonly build: (doc: Document) => TreeEdit,
   ) {}
 
-  private install(doc: Document, root: Layer[], active: string): DirtySet {
+  private install(doc: Document, root: Layer[], active: string, canvas?: CanvasGeometry): DirtySet {
     doc.layers.splice(0, doc.layers.length, ...root);
     doc.activeLayerId = active;
+    if (canvas) {
+      doc.width = canvas.width;
+      doc.height = canvas.height;
+      doc.meta.guides = canvas.guides;
+    }
     return { layerIds: [], tiles: 'all' };
   }
 
   do(doc: Document): DirtySet {
     if (!this.after) {
-      this.before = { root: [...doc.layers], active: doc.activeLayerId };
+      this.before = {
+        root: [...doc.layers],
+        active: doc.activeLayerId,
+        canvas: { width: doc.width, height: doc.height, guides: doc.meta.guides },
+      };
       this.after = this.build(doc);
       if (this.after.root.length === 0) throw new Error('A document needs at least one layer');
     }
-    return this.install(doc, this.after.root, this.after.activeLayerId);
+    return this.install(doc, this.after.root, this.after.activeLayerId, this.after.canvas);
   }
 
   undo(doc: Document): DirtySet {
-    return this.install(doc, this.before!.root, this.before!.active);
+    const b = this.before!;
+    return this.install(doc, b.root, b.active, this.after?.canvas ? b.canvas : undefined);
   }
 
   sizeBytes(): number {
