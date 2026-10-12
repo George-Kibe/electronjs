@@ -21,6 +21,19 @@ All notable changes to ImageEditor are documented here. The format follows
   flatten, rename by double-click, and layer thumbnails.
 - Blend modes Darken, Multiply, Lighten, Screen, Overlay, Soft Light, Hard Light and Difference; fill
   opacity; layer locks (lock all, lock pixels, lock transparent pixels).
+- Brush options: spacing, smoothing, pen pressure for size and opacity, and textured tips (Chalk, Charcoal,
+  Sponge). Each painting tool keeps its own settings; "Reset tool" restores them.
+- Pencil (Shift+B): hard-edged, down to single pixels. The eraser has a pencil mode, and paints the
+  background colour on layers with locked transparency.
+- Eyedropper (I): point, 3×3 or 5×5 average, from the current layer or all layers. Hold Alt with the brush or
+  pencil to pick a colour; Alt+click with the eyedropper sets the background colour.
+- Foreground and background colours with a colour picker (HSB, RGB and hex), swap (X), default black and
+  white (D), recently used colours and a Swatches panel.
+- Move tool (V): drag a layer or a whole group, auto-select the layer under the pointer, nudge with the arrow
+  keys (Shift for 10 px), align to the canvas (Layer › Align to Canvas), and hold Ctrl/⌘ with a painting
+  tool to move. Pixels moved off the canvas are kept, so moving them back restores them. The position lock
+  is enforced.
+- The brush shows its outline at the actual size on the canvas. Opacity presets with 1…0 while painting.
 - M0 app (`app/`): open images (PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF) with EXIF orientation and ICC → sRGB
   conversion, or create a new document. Brush and eraser with size, hardness, opacity, flow and colour.
   Layers (add, delete, show/hide, opacity), undo/redo with a History panel, pan/zoom, Photoshop-style shortcuts.

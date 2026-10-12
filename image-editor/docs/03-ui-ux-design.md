@@ -165,6 +165,8 @@ Defaults follow Photoshop where applicable. Ctrl = ⌘ on macOS, Alt = ⌥.
 | New layer / Duplicate (layer via copy) / Group / Merge down | Ctrl+Shift+N / Ctrl+J / Ctrl+G / Ctrl+E |
 | Levels / Curves / Hue-Sat / Invert | Ctrl+L / Ctrl+M / Ctrl+U / Ctrl+I |
 | Image size / Canvas size | Ctrl+Alt+I / Ctrl+Alt+C |
+| Tools: Move / Brush ↔ Pencil / Eraser / Eyedropper / Hand / Zoom | V / B (Shift+B switches) / E / I / H / Z |
+| Nudge the layer with the Move tool (Shift = 10 px) | Arrow keys |
 | Brush size − / + / Hardness − / + | [ / ] / Shift+[ / Shift+] |
 | Opacity presets for painting tools | 1…0 (10 %…100 %) |
 | Default colours / Swap | D / X |

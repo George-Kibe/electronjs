@@ -13,6 +13,21 @@ export const IEP_LIMITS = {
   maxManifestBytes: 16 * 1024 * 1024,
 } as const;
 
+/**
+ * Tiles a raster layer may hold, in tile coordinates [tx0, tx1) × [ty0, ty1). Pixels can lie outside the
+ * canvas (moved there with the Move tool, FR-TRF-07, and kept so moving back restores them), up to one
+ * canvas width/height beyond each edge. The Move tool discards pixels beyond that, and the reader rejects them.
+ */
+export function tileRange(
+  width: number,
+  height: number,
+  tileSize = 256,
+): { tx0: number; ty0: number; tx1: number; ty1: number } {
+  const cols = Math.ceil(width / tileSize);
+  const rows = Math.ceil(height / tileSize);
+  return { tx0: -cols, ty0: -rows, tx1: 2 * cols, ty1: 2 * rows };
+}
+
 const unit = z.number().min(0).max(1);
 const side = z.number().int().min(1).max(MAX_DOCUMENT_SIDE);
 

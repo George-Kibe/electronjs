@@ -1,4 +1,12 @@
-import { applyStroke, DabGenerator, DEFAULT_BRUSH, type BrushSettings, type Dab } from './brush/brush';
+import {
+  applyStroke,
+  DabGenerator,
+  DEFAULT_BRUSH,
+  PulledString,
+  type BrushPoint,
+  type BrushSettings,
+  type Dab,
+} from './brush/brush';
 import {
   AddLayerCommand,
   DeleteLayerCommand,
@@ -28,6 +36,15 @@ import {
   nudgeLayer,
   ungroupLayer,
 } from './doc/layer-ops';
+import { sampleColor, type RGB, type SampleSize, type SampleSource } from './doc/sample';
+import {
+  alignOffset,
+  layerAt,
+  moveBlocker,
+  movedRasters,
+  translateLayer,
+  type AlignEdge,
+} from './doc/translate';
 import { fromSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
 import { Compositor } from './gpu/compositor';
 import { StrokeBuffer } from './gpu/stroke-buffer';
@@ -35,7 +52,63 @@ import { History, type HistoryEntry } from './history/history';
 import { Viewport } from './render/viewport';
 import { parseTileKey, TileGrid, type Tile, type TileKey } from './tiles/tile';
 
-export type Tool = 'brush' | 'eraser' | 'hand' | 'zoom';
+export type Tool = 'move' | 'brush' | 'pencil' | 'eraser' | 'eyedropper' | 'hand' | 'zoom';
+export type PaintTool = 'brush' | 'pencil' | 'eraser';
+export const isPaintTool = (t: Tool): t is PaintTool => t === 'brush' || t === 'pencil' || t === 'eraser';
+
+/** Per-tool brush options (FR-PNT-01/02). Colour comes from the foreground/background colours. */
+export type BrushOptions = Pick<
+  BrushSettings,
+  | 'size'
+  | 'hardness'
+  | 'opacity'
+  | 'flow'
+  | 'spacing'
+  | 'smoothing'
+  | 'pressureSize'
+  | 'pressureOpacity'
+  | 'tip'
+>;
+
+export type ToolOptions = {
+  brush: BrushOptions;
+  pencil: BrushOptions;
+  /** `pencil`: the eraser uses an aliased pencil tip (FR-PNT-02). */
+  eraser: BrushOptions & { pencil: boolean };
+  eyedropper: { size: SampleSize; source: SampleSource };
+  move: { autoSelect: boolean; autoSelectMode: 'layer' | 'group' };
+};
+
+const brushDefaults = (o: Partial<BrushOptions> = {}): BrushOptions => ({
+  size: DEFAULT_BRUSH.size,
+  hardness: DEFAULT_BRUSH.hardness,
+  opacity: DEFAULT_BRUSH.opacity,
+  flow: DEFAULT_BRUSH.flow,
+  spacing: DEFAULT_BRUSH.spacing,
+  smoothing: DEFAULT_BRUSH.smoothing,
+  pressureSize: DEFAULT_BRUSH.pressureSize,
+  pressureOpacity: DEFAULT_BRUSH.pressureOpacity,
+  tip: DEFAULT_BRUSH.tip,
+  ...o,
+});
+
+export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
+  brush: brushDefaults({ smoothing: 0.1 }),
+  pencil: brushDefaults({ size: 1, hardness: 1, spacing: 0.25 }),
+  eraser: { ...brushDefaults(), pencil: false },
+  eyedropper: { size: 1, source: 'all' },
+  move: { autoSelect: false, autoSelectMode: 'layer' },
+};
+
+/** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
+export type Colors = { foreground: RGB; background: RGB; recent: RGB[] };
+export const DEFAULT_COLORS: Colors = { foreground: [0, 0, 0], background: [255, 255, 255], recent: [] };
+const MAX_RECENT = 10;
+
+/** Smoothing 100 % is a 60 screen-px string (scaled to document px by the zoom at stroke start). */
+const SMOOTHING_SCREEN_PX = 60;
+/** Arrow-key nudges this close together become one undo step (docs/02 §6). */
+const NUDGE_COALESCE_MS = 500;
 
 /** Where the open document lives on disk (a FileRef from main; the engine never sees paths). */
 export type DocumentFile = { id: string; displayName: string; displayDir: string };
@@ -61,7 +134,10 @@ export type EditorSnapshot = {
   history: { entries: HistoryEntry[]; position: number; canUndo: boolean; canRedo: boolean };
   zoom: number;
   tool: Tool;
-  brush: BrushSettings;
+  /** The tool a click would use now: Alt (eyedropper) and Ctrl/⌘ (move) switch temporarily (docs/03 §4). */
+  activeTool: Tool;
+  options: ToolOptions;
+  colors: Colors;
   cursor: { x: number; y: number } | null;
   gpu: string;
 };
@@ -83,7 +159,25 @@ export type LayerRow = {
   contentKey: string;
 };
 
-type ActiveStroke = { layerId: string; settings: BrushSettings; generator: DabGenerator; pointerId: number };
+type ActiveStroke = {
+  layerId: string;
+  tool: PaintTool;
+  settings: BrushSettings;
+  generator: DabGenerator;
+  smoother: PulledString;
+  /** Last pointer position, for the catch-up at the end of a smoothed stroke. */
+  last: BrushPoint;
+  pointerId: number;
+};
+
+type ActiveMove = {
+  layerId: string;
+  rasterIds: ReadonlySet<string>;
+  start: { x: number; y: number };
+  dx: number;
+  dy: number;
+  pointerId: number;
+};
 
 /** Everything needed to continue editing on a fresh canvas (CPU state only; GPU state is rebuilt). */
 export type EditorState = {
@@ -97,7 +191,8 @@ export type EditorState = {
   };
   view: { zoom: number; panX: number; panY: number; autoFit: boolean };
   tool: Tool;
-  brush: BrushSettings;
+  options: ToolOptions;
+  colors: Colors;
 };
 
 export type EditorOptions = {
@@ -127,10 +222,17 @@ export class Editor {
   private version = 0;
   readonly viewport = new Viewport();
   private tool: Tool = 'brush';
-  private brush: BrushSettings = { ...DEFAULT_BRUSH };
+  /** Brush or pencil, whichever was used last (B selects it, docs/03 §4). */
+  private lastBrushTool: 'brush' | 'pencil' = 'brush';
+  private toolOptions: ToolOptions = structuredClone(DEFAULT_TOOL_OPTIONS);
+  private colors: Colors = structuredClone(DEFAULT_COLORS);
   private stroke: ActiveStroke | null = null;
+  private moving: ActiveMove | null = null;
+  private sampling: { pointerId: number; target: 'foreground' | 'background' } | null = null;
   private pan: { x: number; y: number; pointerId: number } | null = null;
   private spaceHeld = false;
+  private modifiers = { alt: false, ctrl: false };
+  private lastNudge = 0;
   /** Keep the document fitted on resize until the user zooms or pans (FR-NAV-01). */
   private autoFit = true;
   private cursor: { x: number; y: number } | null = null;
@@ -273,7 +375,8 @@ export class Editor {
       file: this.file,
       view: { zoom, panX, panY, autoFit: this.autoFit },
       tool: this.tool,
-      brush: this.brush,
+      options: this.toolOptions,
+      colors: this.colors,
     };
   }
 
@@ -286,7 +389,8 @@ export class Editor {
     Object.assign(this.viewport, { zoom: state.view.zoom, panX: state.view.panX, panY: state.view.panY });
     this.autoFit = state.view.autoFit;
     this.tool = state.tool;
-    this.brush = state.brush;
+    this.toolOptions = state.options;
+    this.colors = state.colors;
     this.version++;
     this.changed();
   }
@@ -296,6 +400,7 @@ export class Editor {
     file: Omit<EditorState['file'], 'savedTop'> = { ref: null, isProject: false, readOnlyReason: null },
   ): void {
     this.stroke = null;
+    this.moving = null;
     this.strokeBuffer.clear();
     this.doc = doc;
     this.history = new History(doc, { maxSteps: 100, maxBytes: 2 * 1024 ** 3 }, () => this.onHistoryChange());
@@ -350,7 +455,9 @@ export class Editor {
       },
       zoom: this.viewport.zoom,
       tool: this.tool,
-      brush: this.brush,
+      activeTool: this.effectiveTool(this.modifiers),
+      options: this.toolOptions,
+      colors: this.colors,
       cursor: this.cursor,
       gpu: this.gl.isContextLost()
         ? 'Graphics context lost — restoring…'
@@ -366,20 +473,25 @@ export class Editor {
 
   // ---- commands --------------------------------------------------------------------------------
 
+  /** A pointer gesture is changing the document (undo and other commands wait until it ends). */
+  private get busy(): boolean {
+    return this.stroke !== null || this.moving !== null;
+  }
+
   undo(): void {
-    if (!this.stroke) this.history?.undo();
+    if (!this.busy) this.history?.undo();
   }
 
   redo(): void {
-    if (!this.stroke) this.history?.redo();
+    if (!this.busy) this.history?.redo();
   }
 
   goToHistory(index: number): void {
-    this.history?.goTo(index);
+    if (!this.busy) this.history?.goTo(index);
   }
 
   private exec(cmd: Parameters<History['execute']>[0] | null, opts?: { coalesce?: boolean }): void {
-    if (cmd && this.history && !this.stroke) this.history.execute(cmd, opts);
+    if (cmd && this.history && !this.busy) this.history.execute(cmd, opts);
   }
 
   /** Where a new layer goes: above the active layer, in the same group. */
@@ -559,20 +671,117 @@ export class Editor {
 
   setTool(tool: Tool): void {
     this.tool = tool;
+    if (tool === 'brush' || tool === 'pencil') this.lastBrushTool = tool;
     this.changed();
   }
 
-  setBrush(patch: Partial<BrushSettings>): void {
-    this.brush = {
-      ...this.brush,
-      ...patch,
-      size: Math.min(2500, Math.max(1, patch.size ?? this.brush.size)),
-    };
+  /** B: the brush or pencil, whichever was used last; Shift+B switches between them (docs/03 §4). */
+  selectBrushTool(cycle = false): void {
+    if (this.tool !== 'brush' && this.tool !== 'pencil') this.setTool(this.lastBrushTool);
+    else if (cycle) this.setTool(this.tool === 'brush' ? 'pencil' : 'brush');
+  }
+
+  setToolOptions<T extends keyof ToolOptions>(tool: T, patch: Partial<ToolOptions[T]>): void {
+    const next = { ...this.toolOptions[tool], ...patch };
+    if ('size' in next) next.size = Math.min(2500, Math.max(1, Math.round(next.size)));
+    this.toolOptions = { ...this.toolOptions, [tool]: next };
     this.changed();
+  }
+
+  /** "Reset tool" in the options bar (docs/03 §3). */
+  resetToolOptions(tool: keyof ToolOptions): void {
+    this.toolOptions = { ...this.toolOptions, [tool]: structuredClone(DEFAULT_TOOL_OPTIONS[tool]) };
+    this.changed();
+  }
+
+  /** The paint tool whose options the brush shortcuts ([ ], Shift+[ ], digits) change. */
+  private get paintTool(): PaintTool {
+    return isPaintTool(this.tool) ? this.tool : this.lastBrushTool;
+  }
+
+  /** Changes the options of the current paint tool (or the last brush tool). */
+  setBrush(patch: Partial<BrushOptions>): void {
+    this.setToolOptions(this.paintTool, patch);
+  }
+
+  get brushOptions(): BrushOptions {
+    return this.toolOptions[this.paintTool];
+  }
+
+  // ---- colours (FR-PNT-07) ----------------------------------------------------------------------
+
+  setForeground(color: RGB): void {
+    this.colors = { ...this.colors, foreground: [...color] };
+    this.changed();
+  }
+
+  setBackground(color: RGB): void {
+    this.colors = { ...this.colors, background: [...color] };
+    this.changed();
+  }
+
+  /** X */
+  swapColors(): void {
+    this.colors = { ...this.colors, foreground: this.colors.background, background: this.colors.foreground };
+    this.changed();
+  }
+
+  /** D: black foreground, white background. */
+  resetColors(): void {
+    this.colors = { ...this.colors, foreground: [0, 0, 0], background: [255, 255, 255] };
+    this.changed();
+  }
+
+  private addRecent(color: RGB): void {
+    const same = (c: RGB) => c[0] === color[0] && c[1] === color[1] && c[2] === color[2];
+    if (this.colors.recent[0] && same(this.colors.recent[0])) return;
+    this.colors = {
+      ...this.colors,
+      recent: [[...color] as RGB, ...this.colors.recent.filter((c) => !same(c))].slice(0, MAX_RECENT),
+    };
+  }
+
+  // ---- move tool (FR-TRF-07) ---------------------------------------------------------------------
+
+  /** Arrow keys with the Move tool: moves the active layer; nudges in quick succession are one undo step. */
+  nudge(dx: number, dy: number): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const blocker = moveBlocker(doc, doc.activeLayerId);
+    if (blocker) return this.notice(blocker);
+    const now = performance.now();
+    if (now - this.lastNudge > NUDGE_COALESCE_MS) this.history?.endCoalesce();
+    this.lastNudge = now;
+    this.exec(translateLayer(doc, doc.activeLayerId, dx, dy, 'Nudge'), { coalesce: true });
+  }
+
+  /** Aligns the active layer's content with the canvas (Layer › Align). */
+  align(edge: AlignEdge): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const blocker = moveBlocker(doc, doc.activeLayerId);
+    if (blocker) return this.notice(blocker);
+    const [dx, dy] = alignOffset(doc, doc.activeLayerId, edge);
+    this.exec(translateLayer(doc, doc.activeLayerId, dx, dy, 'Align'));
   }
 
   setSpaceHeld(held: boolean): void {
     this.spaceHeld = held;
+  }
+
+  /** Modifier keys, for the temporary tools shown by the cursor (the click itself reads the event). */
+  setModifiers(mods: { alt: boolean; ctrl: boolean }): void {
+    if (mods.alt === this.modifiers.alt && mods.ctrl === this.modifiers.ctrl) return;
+    this.modifiers = { ...mods };
+    this.changed();
+  }
+
+  /** Alt turns the brush and pencil into the eyedropper; Ctrl/⌘ turns painting tools into Move (docs/03 §4). */
+  private effectiveTool(mods: { alt: boolean; ctrl: boolean }): Tool {
+    const t = this.tool;
+    if (mods.ctrl && (isPaintTool(t) || t === 'eyedropper')) return 'move';
+    if (mods.alt && (t === 'brush' || t === 'pencil')) return 'eyedropper';
+    return t;
   }
 
   // ---- view ------------------------------------------------------------------------------------
@@ -618,24 +827,97 @@ export class Editor {
       return;
     }
     if (e.button !== 0) return;
-    if (this.tool === 'zoom') {
+    const ctrl = e.ctrlKey || e.metaKey;
+    const tool = this.effectiveTool({ alt: e.altKey, ctrl });
+    if (tool === 'zoom') {
       const rect = this.canvas.getBoundingClientRect();
       this.viewport.zoomAt(e.altKey ? 0.5 : 2, e.clientX - rect.left, e.clientY - rect.top);
       this.autoFit = false;
       this.changed();
       return;
     }
+    if (tool === 'move') return this.beginMove(e, this.tool === 'move' && ctrl);
+    if (tool === 'eyedropper') {
+      this.sampling = {
+        pointerId: e.pointerId,
+        target: this.tool === 'eyedropper' && e.altKey ? 'background' : 'foreground',
+      };
+      this.sample(e);
+      return;
+    }
+    if (!isPaintTool(tool)) return;
     const layer = this.doc.activeLayer;
     if (this.gl.isContextLost()) return; // no GPU: nothing to paint with
     if (layer.type !== 'raster') return this.notice('Select a layer to paint on (groups have no pixels).');
     if (!layer.visible) return this.notice('This layer is hidden. Show it to paint on it.');
     if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
-    const settings: BrushSettings = { ...this.brush, mode: this.tool === 'eraser' ? 'erase' : 'paint' };
+    const settings = this.strokeSettings(tool, layer.locks.transparency);
     const generator = new DabGenerator(settings);
-    this.stroke = { layerId: layer.id, settings, generator, pointerId: e.pointerId };
+    const smoother = new PulledString((settings.smoothing * SMOOTHING_SCREEN_PX) / this.viewport.zoom);
+    const start = this.docPoint(e);
+    this.stroke = {
+      layerId: layer.id,
+      tool,
+      settings,
+      generator,
+      smoother,
+      last: start,
+      pointerId: e.pointerId,
+    };
     this.strokeBuffer.clear();
     this.strokeBuffer.hardness = settings.hardness;
-    this.addDabs(generator.begin(this.docPoint(e)), e.timeStamp);
+    this.strokeBuffer.aliased = settings.aliased;
+    this.addDabs(generator.begin(smoother.begin(start)), e.timeStamp);
+  }
+
+  /**
+   * What a stroke with `tool` paints. The eraser on a layer with locked transparency paints the background
+   * colour instead (FR-PNT-02, as on Photoshop's Background layer).
+   */
+  private strokeSettings(tool: PaintTool, transparencyLocked: boolean): BrushSettings {
+    const o = this.toolOptions;
+    const { foreground, background } = this.colors;
+    if (tool === 'eraser') {
+      const { pencil, ...rest } = o.eraser;
+      return {
+        ...rest,
+        aliased: pencil,
+        mode: transparencyLocked ? 'paint' : 'erase',
+        color: transparencyLocked ? background : foreground,
+      };
+    }
+    return { ...o[tool], aliased: tool === 'pencil', mode: 'paint', color: foreground };
+  }
+
+  private beginMove(e: PointerEvent, toggleAutoSelect: boolean): void {
+    const doc = this.doc!;
+    const p = this.docPoint(e);
+    const { autoSelect, autoSelectMode } = this.toolOptions.move;
+    if (autoSelect !== toggleAutoSelect) {
+      const hit = layerAt(doc, p.x, p.y, autoSelectMode);
+      if (hit && hit !== doc.activeLayerId) this.setActiveLayer(hit);
+    }
+    const id = doc.activeLayerId;
+    const blocker = moveBlocker(doc, id);
+    if (blocker) return this.notice(blocker);
+    this.moving = {
+      layerId: id,
+      rasterIds: new Set(movedRasters(doc, id).map((l) => l.id)),
+      start: { x: p.x, y: p.y },
+      dx: 0,
+      dy: 0,
+      pointerId: e.pointerId,
+    };
+  }
+
+  private sample(e: PointerEvent): void {
+    if (!this.doc || !this.sampling) return;
+    const p = this.docPoint(e);
+    const { size, source } = this.toolOptions.eyedropper;
+    const color = sampleColor(this.doc, p.x, p.y, size, source);
+    if (!color) return;
+    if (this.sampling.target === 'background') this.setBackground(color);
+    else this.setForeground(color);
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -647,11 +929,31 @@ export class Editor {
       this.requestRender();
       return;
     }
-    if (!this.stroke || e.pointerId !== this.stroke.pointerId) return;
+    if (this.moving && e.pointerId === this.moving.pointerId) {
+      const p = this.docPoint(e);
+      let dx = Math.round(p.x - this.moving.start.x);
+      let dy = Math.round(p.y - this.moving.start.y);
+      if (e.shiftKey) {
+        // Shift constrains the move to horizontal or vertical.
+        if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+        else dx = 0;
+      }
+      if (dx !== this.moving.dx || dy !== this.moving.dy) {
+        this.moving = { ...this.moving, dx, dy };
+        this.requestRender(e.timeStamp);
+      }
+      return;
+    }
+    if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
+    const stroke = this.stroke;
+    if (!stroke || e.pointerId !== stroke.pointerId) return;
     const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     const dabs: Dab[] = [];
-    for (const ev of events.length ? events : [e])
-      dabs.push(...this.stroke.generator.moveTo(this.docPoint(ev)));
+    for (const ev of events.length ? events : [e]) {
+      stroke.last = this.docPoint(ev);
+      const p = stroke.smoother.move(stroke.last);
+      if (p) dabs.push(...stroke.generator.moveTo(p));
+    }
     this.addDabs(dabs, e.timeStamp);
   }
 
@@ -660,7 +962,18 @@ export class Editor {
       this.pan = null;
       this.changed();
     }
-    if (this.stroke && e.pointerId === this.stroke.pointerId) this.commitStroke();
+    if (this.sampling && e.pointerId === this.sampling.pointerId) this.sampling = null;
+    if (this.moving && e.pointerId === this.moving.pointerId) {
+      const { layerId, dx, dy } = this.moving;
+      this.moving = null;
+      if (this.doc && (dx !== 0 || dy !== 0)) this.exec(translateLayer(this.doc, layerId, dx, dy));
+      else this.requestRender();
+    }
+    if (this.stroke && e.pointerId === this.stroke.pointerId) {
+      // Catch up with the pointer so a smoothed stroke ends where it was released.
+      this.addDabs(this.stroke.generator.moveTo(this.stroke.last), e.timeStamp);
+      this.commitStroke();
+    }
   }
 
   private onWheel(e: WheelEvent): void {
@@ -730,9 +1043,9 @@ export class Editor {
     }
     this.strokeBuffer.clear();
     if (after.size > 0) {
-      this.history.execute(
-        new PaintTilesCommand(stroke.settings.mode === 'erase' ? 'Eraser' : 'Brush', layer.id, before, after),
-      );
+      if (stroke.tool !== 'eraser') this.addRecent(stroke.settings.color);
+      const label = { brush: 'Brush', pencil: 'Pencil', eraser: 'Eraser' }[stroke.tool];
+      this.history.execute(new PaintTilesCommand(label, layer.id, before, after));
     } else {
       this.requestRender();
     }
@@ -775,7 +1088,16 @@ export class Editor {
           preserveAlpha: strokeLayer?.locks.transparency ?? false,
         }
       : undefined;
-    this.compositor.render(this.doc, this.viewport, { cssWidth, cssHeight, width, height, dpr }, preview);
+    const move = this.moving
+      ? { layerIds: this.moving.rasterIds, dx: this.moving.dx, dy: this.moving.dy }
+      : undefined;
+    this.compositor.render(
+      this.doc,
+      this.viewport,
+      { cssWidth, cssHeight, width, height, dpr },
+      preview,
+      move,
+    );
     // NFR-PERF-02: pointer event → frame submitted. Read by the benchmark/E2E via the Performance API.
     const now = performance.now();
     for (const t of this.pendingInputTimes.splice(0))

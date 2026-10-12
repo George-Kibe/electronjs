@@ -79,6 +79,11 @@ interface TileGrid { channels: 1 | 4; entries: Map<TileKey, TileEntry>; bounds()
 Tiles are immutable and reference-counted by the TilePool (live document + history), which frees them at
 refcount 0. Uniform tiles cost about 16 bytes.
 
+Tile coordinates may be negative or beyond the canvas: pixels moved off the canvas with the Move tool
+(FR-TRF-07) are kept, so moving them back restores them. They are never drawn or exported (export and
+Flatten crop to the canvas) and Merge keeps them. A layer may hold tiles up to one canvas width/height beyond
+each edge (`tileRange()` in `shared/iep-schema.ts`); pixels moved further out are discarded.
+
 ## 2. `.iep` project format (v1)
 
 A ZIP container ([ADR-0007](adr/0007-native-project-format-iep.md)), with `mimetype` as the first entry,
@@ -146,8 +151,9 @@ even when the fonts are missing. On load, if the fonts are available, text re-ra
 
 ### 2.4 Safety limits on load
 
-Max 20,000 × 20,000 document, 1,000 layers, 10,000 tiles per layer, and a total uncompressed tile size
-checked against the memory budget **before** inflating. Zip entries with `..` or absolute names are
+Max 20,000 × 20,000 document, 1,000 layers, 10,000 tiles per layer, tiles only within `tileRange()` (the
+canvas plus one canvas of margin, §1.1), and a total uncompressed tile size checked against the memory budget
+**before** inflating. Zip entries with `..` or absolute names are
 rejected. A declared uncompressed size mismatch aborts the load (zip-bomb guard).
 
 ## 3. Settings (electron-store, zod-validated, migrated)

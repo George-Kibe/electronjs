@@ -51,12 +51,20 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       estimate and before/after preview, all 7 formats, resize on export (FR-DOC-05); Quick Export PNG
       (FR-DOC-06); metadata policy for JPEG/PNG (FR-DOC-09); unsaved-changes guard on close/quit/open/new
       and Revert (FR-DOC-11); BMP open (built-in codec); native File/Edit/View menu.
-- [ ] Slice 2 — layers: groups (pass-through and isolated), duplicate, rename, reorder by drag, show/hide,
+- [x] Slice 2 — layers: groups (pass-through and isolated), duplicate, rename, reorder by drag, show/hide,
       locks (all/pixels/transparency; position is enforced by the Move tool in slice 3), merge down, merge
       visible, flatten; opacity and fill; Normal + 8 blend modes (Darken, Multiply, Lighten, Screen, Overlay,
       Soft Light, Hard Light, Difference — the most used; the other 9 of FR-LAY-03 arrive in M2 and render as
       Normal until then); live thumbnails. "Rasterize" applies to text/shape layers and arrives with them (M3).
-- [ ] Slice 3 — painting: brush options and pressure, pencil, eyedropper, colour picker, move tool
+- [ ] Slice 3 — painting: brush options (tip presets Round/Chalk/Charcoal/Sponge, size, hardness, opacity,
+      flow, spacing, pulled-string smoothing, pen pressure → size/opacity) (FR-PNT-01); pencil, and the eraser
+      in brush or pencil mode, painting the background colour on transparency-locked layers (FR-PNT-02);
+      eyedropper with point/3×3/5×5 and current/all layers, Alt from the brush or pencil (FR-PNT-06); colour
+      picker (HSB/RGB/hex), foreground/background swatches, X, D, recent colours, Swatches panel (FR-PNT-07);
+      Move tool with auto-select (layer/group), align to the canvas, arrow-key nudges, the position lock and
+      Ctrl as a temporary Move tool; pixels moved off the canvas are kept (FR-TRF-07). **Distribute** needs
+      several selected layers, so it arrives with multi-selection (FR-LAY-08, M2). Swatches are stored per
+      user in local storage until Preferences (slice 6).
 - [ ] Slice 4 — transforms: crop, image/canvas size, rotate/flip
 - [ ] Slice 5 — navigation and history: zoom range, pixel grid, scrollbars, status bar, history budget, snapshots
 - [ ] Slice 6 — app shell: tabs, recent files, clipboard, autosave recovery, preferences, themes, updates, welcome

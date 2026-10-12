@@ -1,4 +1,5 @@
 import { createTile, TILE_BYTES, TILE_SIZE, type Tile } from '../tiles/tile';
+import { GRAIN_SIZE, tipGrain, type BrushTip } from './tips';
 
 export type BrushMode = 'paint' | 'erase';
 
@@ -13,11 +14,18 @@ export type BrushSettings = {
   flow: number;
   /** Dab spacing as a fraction of the diameter. */
   spacing: number;
+  /** 0..1: how far the brush trails the pointer (pulled string), see PulledString. */
+  smoothing: number;
   /** Straight sRGB, 0..255. */
   color: [number, number, number];
   mode: BrushMode;
   /** Pen pressure scales the diameter (FR-PNT-01). */
   pressureSize: boolean;
+  /** Pen pressure scales each dab's strength (FR-PNT-01). */
+  pressureOpacity: boolean;
+  /** Pencil (FR-PNT-02): whole pixels only, no anti-aliasing; hardness and tip are ignored. */
+  aliased: boolean;
+  tip: BrushTip;
 };
 
 export const DEFAULT_BRUSH: BrushSettings = {
@@ -26,9 +34,13 @@ export const DEFAULT_BRUSH: BrushSettings = {
   opacity: 1,
   flow: 1,
   spacing: 0.1,
+  smoothing: 0,
   color: [0, 0, 0],
   mode: 'paint',
   pressureSize: true,
+  pressureOpacity: false,
+  aliased: false,
+  tip: 'round',
 };
 
 export type Dab = { x: number; y: number; radius: number; alpha: number };
@@ -36,7 +48,7 @@ export type BrushPoint = { x: number; y: number; pressure: number };
 
 /**
  * Coverage of a round dab at distance `d` from its centre (sampled at pixel centres). The GLSL version in
- * gpu/shaders/dab.frag must stay identical (checked by brush.gpu.test.ts).
+ * gpu/shaders/dab.frag must stay identical (checked by gpu.gpu.test.ts).
  */
 export function dabCoverage(d: number, radius: number, hardness: number): number {
   const feather = Math.max(0.5, radius * (1 - hardness));
@@ -56,13 +68,17 @@ export class DabGenerator {
   constructor(private readonly settings: BrushSettings) {}
 
   private dab(p: BrushPoint): Dab {
-    const scale = this.settings.pressureSize ? Math.max(0.05, p.pressure) : 1;
-    return {
-      x: p.x,
-      y: p.y,
-      radius: Math.max(0.5, (this.settings.size * scale) / 2),
-      alpha: this.settings.flow,
-    };
+    const s = this.settings;
+    const scale = s.pressureSize ? Math.max(0.05, p.pressure) : 1;
+    const alpha = s.flow * (s.pressureOpacity ? Math.max(0, Math.min(1, p.pressure)) : 1);
+    if (s.aliased) {
+      // Whole-pixel diameter, centred so the dab covers whole pixels: odd sizes on a pixel centre, even
+      // sizes on a pixel corner. Then no pixel centre lies exactly on the edge (see pencilCoverage).
+      const diameter = Math.max(1, Math.round(s.size * scale));
+      const snap = diameter % 2 === 1 ? (v: number) => Math.floor(v) + 0.5 : Math.round;
+      return { x: snap(p.x), y: snap(p.y), radius: diameter / 2, alpha };
+    }
+    return { x: p.x, y: p.y, radius: Math.max(0.5, (s.size * scale) / 2), alpha };
   }
 
   private step(p: BrushPoint): number {
@@ -104,6 +120,44 @@ export class DabGenerator {
   }
 }
 
+/**
+ * Pencil coverage: 1 for pixel centres strictly inside the dab, else 0. Compares squared distances so the
+ * CPU and dab.frag agree exactly (snapped centres never put a pixel centre on the edge).
+ */
+export function pencilCoverage(dx: number, dy: number, radius: number): number {
+  return dx * dx + dy * dy < radius * radius ? 1 : 0;
+}
+
+/**
+ * Pulled-string smoothing (FR-PNT-01): the brush stays still until the pointer is more than `length` away,
+ * then follows it at that distance. Independent of event rate. The caller finishes a stroke by moving the
+ * brush to the last pointer position ("catch up"), so strokes still end where the pointer was released.
+ */
+export class PulledString {
+  private pos: BrushPoint | null = null;
+
+  constructor(private readonly length: number) {}
+
+  begin(p: BrushPoint): BrushPoint {
+    this.pos = p;
+    return p;
+  }
+
+  /** The new brush position, or null while the pointer is within the string's length. */
+  move(p: BrushPoint): BrushPoint | null {
+    const from = this.pos;
+    if (!from) return this.begin(p);
+    if (this.length <= 0) return (this.pos = p);
+    const dx = p.x - from.x;
+    const dy = p.y - from.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= this.length) return null;
+    const t = (dist - this.length) / dist;
+    this.pos = { x: from.x + dx * t, y: from.y + dy * t, pressure: p.pressure };
+    return this.pos;
+  }
+}
+
 /** Accumulates dabs into a coverage buffer: s' = s + c·flow·(1 − s) (CPU reference of the GPU stroke buffer). */
 export function accumulateDabs(
   coverage: Float32Array,
@@ -111,6 +165,7 @@ export function accumulateDabs(
   tileY: number,
   dabs: readonly Dab[],
   hardness: number,
+  aliased = false,
 ): void {
   const ox = tileX * TILE_SIZE;
   const oy = tileY * TILE_SIZE;
@@ -121,9 +176,12 @@ export function accumulateDabs(
     const y1 = Math.min(TILE_SIZE, Math.ceil(dab.y + dab.radius - oy));
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
+        const dx = ox + x + 0.5 - dab.x;
+        const dy = oy + y + 0.5 - dab.y;
         const c =
-          dabCoverage(Math.hypot(ox + x + 0.5 - dab.x, oy + y + 0.5 - dab.y), dab.radius, hardness) *
-          dab.alpha;
+          (aliased
+            ? pencilCoverage(dx, dy, dab.radius)
+            : dabCoverage(Math.hypot(dx, dy), dab.radius, hardness)) * dab.alpha;
         if (c <= 0) continue;
         const i = y * TILE_SIZE + x;
         coverage[i] = c + coverage[i]! * (1 - c);
@@ -139,7 +197,7 @@ export function accumulateDabs(
 export function applyStroke(
   before: Tile | undefined,
   coverage: Float32Array,
-  settings: Pick<BrushSettings, 'color' | 'opacity' | 'mode'>,
+  settings: Pick<BrushSettings, 'color' | 'opacity' | 'mode'> & { tip?: BrushTip; aliased?: boolean },
   bounds: { tileX: number; tileY: number; docWidth: number; docHeight: number },
   /** Transparency lock (FR-LAY-02): paint recolours existing pixels only; the eraser does nothing. */
   preserveAlpha = false,
@@ -149,11 +207,14 @@ export function applyStroke(
   const w = Math.min(TILE_SIZE, bounds.docWidth - bounds.tileX * TILE_SIZE);
   const h = Math.min(TILE_SIZE, bounds.docHeight - bounds.tileY * TILE_SIZE);
   const [cr, cg, cb] = settings.color;
+  // Grain is sampled at document pixels; tile origins are multiples of GRAIN_SIZE (see tips.ts).
+  const grain = settings.aliased ? null : tipGrain(settings.tip ?? 'round');
   let changed = false;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * TILE_SIZE + x;
-      const as = coverage[i]! * settings.opacity;
+      const g = grain ? grain[(y % GRAIN_SIZE) * GRAIN_SIZE + (x % GRAIN_SIZE)]! / 255 : 1;
+      const as = coverage[i]! * settings.opacity * g;
       if (as <= 0) continue;
       changed = true;
       const p = i * 4;

@@ -8,6 +8,7 @@ import {
   IEP_VERSION,
   Manifest,
   RasterLayerEntry,
+  tileRange,
 } from '@shared/iep-schema';
 import { TILE_BYTES, TILE_SIZE, parseTileKey, tileKey, type TileKey } from '../tiles/tile';
 import type { DocSnapshot, LayerSnapshot } from './snapshot';
@@ -92,14 +93,14 @@ export function encodeTiles(tiles: ReadonlyArray<[TileKey, Uint8Array]>): Uint8A
 type TileIndex = { tx: number; ty: number; kind: number; offset: number; length: number };
 
 /** Parses entry headers without inflating anything, so limits can be checked first. */
-function indexTiles(bin: Uint8Array, cols: number, rows: number): TileIndex[] {
+function indexTiles(bin: Uint8Array, range: ReturnType<typeof tileRange>): TileIndex[] {
   if (bin.byteLength < HEADER_BYTES || MAGIC.some((m, i) => bin[i] !== m))
     throw new IepError('A layer in this project is damaged (bad tile header).');
   const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
   if (dv.getUint16(4, true) !== 1 || dv.getUint8(6) !== 4 || dv.getUint16(8, true) !== TILE_SIZE)
     throw new IepError('A layer in this project uses an unsupported tile format.');
   const count = dv.getUint32(10, true);
-  if (count > IEP_LIMITS.maxTilesPerLayer || count > cols * rows)
+  if (count > IEP_LIMITS.maxTilesPerLayer || count > (range.tx1 - range.tx0) * (range.ty1 - range.ty0))
     throw new IepError('A layer in this project has too many tiles.');
   const out: TileIndex[] = [];
   const seen = new Set<string>();
@@ -111,8 +112,8 @@ function indexTiles(bin: Uint8Array, cols: number, rows: number): TileIndex[] {
     const kind = dv.getUint8(at + 8);
     const length = dv.getUint32(at + 9, true);
     at += ENTRY_HEADER_BYTES;
-    if (tx < 0 || ty < 0 || tx >= cols || ty >= rows)
-      throw new IepError('A layer in this project has tiles outside the canvas.');
+    if (tx < range.tx0 || ty < range.ty0 || tx >= range.tx1 || ty >= range.ty1)
+      throw new IepError('A layer in this project has tiles too far outside the canvas.');
     if (kind !== KIND_DATA && kind !== KIND_UNIFORM)
       throw new IepError('A layer in this project is damaged.');
     if ((kind === KIND_UNIFORM && length !== 4) || at + length > bin.byteLength)
@@ -265,8 +266,7 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
     reasons.push('This project was saved by a newer version of ImageEditor.');
 
   const { width, height } = manifest.document;
-  const cols = Math.ceil(width / TILE_SIZE);
-  const rows = Math.ceil(height / TILE_SIZE);
+  const range = tileRange(width, height, TILE_SIZE);
 
   // Validate the whole tree and index every tile before inflating anything (bomb guard).
   type Plan =
@@ -299,7 +299,7 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
       if (!layer.success) throw new IepError('This project has an invalid layer.');
       const bin = entries[layer.data.tiles];
       if (!bin) throw new IepError(`Layer “${layer.data.name}” is missing its pixels.`);
-      const index = indexTiles(bin, cols, rows);
+      const index = indexTiles(bin, range);
       tileCount += index.length;
       out.push({ kind: 'raster', entry: layer.data, bin, index });
     }

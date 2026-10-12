@@ -76,9 +76,10 @@ describe('CloseGuard (FR-DOC-11)', () => {
 describe('menu', () => {
   it('sends every command, shows accelerators without registering them', () => {
     const sent: string[] = [];
-    const items = menuTemplate('linux', (id) => sent.push(id)).flatMap((m) =>
-      Array.isArray(m.submenu) ? m.submenu : [],
-    );
+    type Item = ReturnType<typeof menuTemplate>[number];
+    const walk = (list: Item[]): Item[] =>
+      list.flatMap((m) => (Array.isArray(m.submenu) ? [m, ...walk(m.submenu)] : [m]));
+    const items = walk(menuTemplate('linux', (id) => sent.push(id)));
     for (const item of items) (item.click as (() => void) | undefined)?.();
     expect(new Set(sent)).toEqual(new Set(MENU_COMMANDS));
     for (const item of items.filter((i) => i.accelerator && !i.role))

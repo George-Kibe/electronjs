@@ -24,6 +24,8 @@ export class StrokeBuffer {
   private readonly vao: WebGLVertexArrayObject;
   private readonly instances: WebGLBuffer;
   hardness = 1;
+  /** Pencil dabs (see brush.ts pencilCoverage). */
+  aliased = false;
   /** Chosen by a startup self-test (see probe()). */
   readonly format: StrokeFormat;
 
@@ -61,10 +63,11 @@ export class StrokeBuffer {
     if (format === 'rgba16f' && !this.gl.getExtension('EXT_color_buffer_float')) return false;
     (this as { format: StrokeFormat }).format = format;
     try {
-      const saved = this.hardness;
+      const saved = [this.hardness, this.aliased] as const;
       this.hardness = 0.5;
+      this.aliased = false;
       this.addDabs(PROBE_DABS, TILE_SIZE, TILE_SIZE);
-      this.hardness = saved;
+      [this.hardness, this.aliased] = saved;
       const gpu = this.readCoverage('0,0');
       const cpu = new Float32Array(TILE_SIZE * TILE_SIZE);
       accumulateDabs(cpu, 0, 0, PROBE_DABS, 0.5);
@@ -143,6 +146,7 @@ export class StrokeBuffer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform1f(this.program.uniform('u_hardness'), this.hardness);
+    gl.uniform1i(this.program.uniform('u_aliased'), this.aliased ? 1 : 0);
     gl.viewport(0, 0, TILE_SIZE, TILE_SIZE);
     for (const [key, data] of byTile) {
       const [tx, ty] = parseTileKey(key);
