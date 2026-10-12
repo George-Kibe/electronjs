@@ -441,3 +441,99 @@ describe('painting and moving: GPU vs CPU (FR-PNT-01/02, FR-TRF-07)', () => {
     expect(compositePixel(liveLayers(doc.layers), 300 - 37 + 10, 30)).toEqual([255, 0, 0, 255]);
   });
 });
+
+describe('editor canvas geometry (FR-TRF-01..03)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+
+  it('Image Size runs as a job, blocks edits meanwhile, and is one undo step', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const editor = new Editor(editorCanvas(), {
+      runOps: async (job, onProgress) => {
+        onProgress(0.5);
+        await gate;
+        const { runOpsJob } = await import('../ops/jobs');
+        return runOpsJob(job);
+      },
+    });
+    editor.newDocument(120, 80);
+    const pending = editor.resizeImage(60, 40, 'bicubic');
+    expect(editor.getSnapshot().job).toEqual({ label: 'Image Size', progress: 0.5 });
+    editor.addLayer(); // refused while the job runs
+    expect(editor.getSnapshot().layers).toHaveLength(1);
+    release();
+    await pending;
+    const snap = editor.getSnapshot();
+    expect(snap.job).toBeNull();
+    expect(snap.doc).toMatchObject({ width: 60, height: 40 });
+    expect(snap.history.entries.map((e) => e.label)).toEqual(['Image Size']);
+    editor.undo();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 120, height: 80 });
+    editor.dispose();
+  });
+
+  it('crop, rotate and straighten change the canvas size and undo exactly', async () => {
+    const editor = new Editor(editorCanvas());
+    editor.newDocument(200, 100);
+    editor.setTool('crop');
+    expect(editor.getSnapshot().crop?.rect).toEqual({ x: 0, y: 0, width: 200, height: 100 });
+    editor.setCropRatio('1:1');
+    expect(editor.getSnapshot().crop?.rect).toEqual({ x: 50, y: 0, width: 100, height: 100 });
+    editor.commitCrop();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 100, height: 100 });
+    editor.rotateCanvas(1);
+    await editor.straighten(10, true);
+    const size = editor.getSnapshot().doc!;
+    expect(size.width).toBeLessThan(100);
+    expect(editor.getSnapshot().history.entries.map((e) => e.label)).toEqual([
+      'Crop',
+      'Rotate 90° Clockwise',
+      'Straighten',
+    ]);
+    editor.goToHistory(-1);
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 200, height: 100 });
+    editor.dispose();
+  });
+});
+
+describe('pixel grid (FR-NAV-01)', () => {
+  function renderWhite(zoom: number, pixelGrid: boolean): Uint8Array {
+    const w = 64;
+    const gl = context(w, w);
+    const compositor = new Compositor(gl);
+    const doc = new Document(16, 16, createRasterLayer('bg', TileGrid.filled(16, 16, [255, 255, 255, 255])));
+    const viewport = new Viewport();
+    viewport.zoom = zoom;
+    compositor.render(
+      doc,
+      viewport,
+      { cssWidth: w, cssHeight: w, width: w, height: w, dpr: 1 },
+      undefined,
+      undefined,
+      {
+        pixelGrid,
+      },
+    );
+    const px = new Uint8Array(w * w * 4);
+    gl.readPixels(0, 0, w, w, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  }
+  const red = (px: Uint8Array, x: number, y: number) => px[((64 - 1 - y) * 64 + x) * 4]!;
+
+  it('draws a line on every pixel boundary at 800 %, and leaves pixel interiors alone', () => {
+    const px = renderWhite(8, true);
+    for (const x of [0, 8, 16, 40]) expect(red(px, x, 3), `x ${x}`).toBeLessThan(220);
+    for (const x of [1, 4, 7, 12, 45]) expect(red(px, x, 3), `x ${x}`).toBe(255);
+    expect(red(px, 3, 24)).toBeLessThan(220); // horizontal line at y = 3 doc px
+  });
+
+  it('is hidden below 800 % and when turned off', () => {
+    for (const px of [renderWhite(4, true), renderWhite(8, false)])
+      for (const x of [0, 8, 16]) expect(red(px, x, 3)).toBe(255);
+  });
+});

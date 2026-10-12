@@ -33,6 +33,18 @@ All notable changes to ImageEditor are documented here. The format follows
   keys (Shift for 10 px), align to the canvas (Layer › Align to Canvas), and hold Ctrl/⌘ with a painting
   tool to move. Pixels moved off the canvas are kept, so moving them back restores them. The position lock
   is enforced.
+- Crop tool (C): drag the box or its handles, ratio presets (1:1, 4:5, 16:9…), exact X/Y/W/H fields, a
+  rule-of-thirds grid while dragging, Straighten (draw along the horizon) and "Delete cropped pixels" (off
+  keeps the hidden pixels). Enter crops, Esc resets the box.
+- Image › Image Size (Ctrl+Alt+I) with bicubic, bilinear, nearest-neighbour or Lanczos resampling, and Canvas
+  Size (Ctrl+Alt+C) with an anchor. Image › Image Rotation: 180°, 90° either way, any angle, and flip
+  horizontal/vertical. Large images are processed in the background with progress.
+- Zoom In/Out step through standard levels (1 %–6400 %), and the zoom can be typed in the status bar. A pixel
+  grid appears from 800 % (View › Pixel Grid). Scrollbars pan the canvas.
+- The status bar shows the colour under the pointer, memory use (amber when nearly full) and the progress
+  of long operations.
+- History snapshots: keep a state with the camera button and return to it later; the document as opened
+  is always available. Ctrl+Alt+Z steps backward.
 - The brush shows its outline at the actual size on the canvas. Opacity presets with 1…0 while painting.
 - M0 app (`app/`): open images (PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF) with EXIF orientation and ICC → sRGB
   conversion, or create a new document. Brush and eraser with size, hardness, opacity, flow and colour.
@@ -43,6 +55,10 @@ All notable changes to ImageEditor are documented here. The format follows
   Linux, Windows and macOS against the built and the packaged app.
 - The canvas recovers when the graphics driver resets (WebGL context loss) without losing the document or
   history.
+
+### Fixed
+- Dialog fields no longer lose focus while you type.
+- On displays with fractional scaling, the canvas could grow beyond the window and hide the document.
 
 ### Changed
 - Renamed the project from `image-resizer` to `image-editor`. Removed the legacy plain-JS resizer

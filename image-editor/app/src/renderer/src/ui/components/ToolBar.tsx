@@ -8,6 +8,7 @@ type ToolInfo = { id: Tool; label: string; key: string; icon: string };
 /** Tool groups (docs/03 §4). Groups with more than one tool open a flyout on right-click or long-press. */
 const GROUPS: ToolInfo[][] = [
   [{ id: 'move', label: 'Move', key: 'V', icon: '✥' }],
+  [{ id: 'crop', label: 'Crop', key: 'C', icon: '⛶' }],
   [
     { id: 'brush', label: 'Brush', key: 'B', icon: '🖌' },
     { id: 'pencil', label: 'Pencil', key: 'B', icon: '✎' },

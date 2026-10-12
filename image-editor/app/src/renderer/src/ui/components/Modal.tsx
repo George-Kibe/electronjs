@@ -12,6 +12,12 @@ type Props = {
 export function Modal({ title, onCancel, children, footer, width = 'w-[420px]' }: Props) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
+  // Hosts usually pass a new onCancel on every render; keep the latest without re-running the effect,
+  // which would move focus back to the first field while the user types.
+  const cancel = useRef(onCancel);
+  useEffect(() => {
+    cancel.current = onCancel;
+  }, [onCancel]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -26,7 +32,7 @@ export function Modal({ title, onCancel, children, footer, width = 'w-[420px]' }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onCancel();
+        cancel.current();
       } else if (e.key === 'Tab') {
         const items = focusables();
         if (items.length === 0) return;
@@ -47,7 +53,7 @@ export function Modal({ title, onCancel, children, footer, width = 'w-[420px]' }
       node?.removeEventListener('keydown', onKey);
       previous?.focus?.();
     };
-  }, [onCancel]);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

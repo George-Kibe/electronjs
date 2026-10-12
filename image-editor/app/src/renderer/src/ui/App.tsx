@@ -10,14 +10,20 @@ import {
 import type { MenuCommandId } from '@shared/menu';
 import { Editor, isPaintTool, type EditorSnapshot, type EditorState, type Tool } from '../engine/editor';
 import { api, errorMessage, events } from '../lib/api';
+import { runOps } from '../lib/ops';
+import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { BrushCursor } from './components/BrushCursor';
 import { Button } from './components/Button';
 import { ColorPickerDialog } from './components/ColorPickerDialog';
+import { CropOverlay } from './components/CropOverlay';
+import { CanvasSizeDialog, ImageSizeDialog, RotateDialog } from './components/ImageDialogs';
 import { ExportDialog } from './components/ExportDialog';
 import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
+import { Scrollbars } from './components/Scrollbars';
+import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
@@ -41,6 +47,7 @@ export function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [engineNotice, setEngineNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<'foreground' | 'background' | null>(null);
+  const [imageDialog, setImageDialog] = useState<'imageSize' | 'canvasSize' | 'rotate' | null>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
   const swatches = useSwatches();
   // Bumping the key replaces the <canvas> (and its WebGL context) after an unrecoverable context loss;
@@ -54,6 +61,7 @@ export function App() {
     try {
       const instance: Editor = new Editor(canvas, {
         onNotice: setEngineNotice,
+        runOps,
         onUnrecoverableContextLoss: () => {
           carryOver.current = instance.exportState();
           setCanvasKey((k) => k + 1);
@@ -104,6 +112,8 @@ export function App() {
       saveAs: () => void files.saveAs(),
       exportAs: files.openExport,
       quickExport: () => void files.quickExport(),
+      imageSize: () => setImageDialog('imageSize'),
+      canvasSize: () => setImageDialog('canvasSize'),
     }),
     [files],
   );
@@ -140,8 +150,17 @@ export function App() {
           'layer.alignTop': () => editor?.align('top'),
           'layer.alignVCenter': () => editor?.align('vcenter'),
           'layer.alignBottom': () => editor?.align('bottom'),
-          'view.zoomIn': () => editor?.zoomBy(2),
-          'view.zoomOut': () => editor?.zoomBy(0.5),
+          'image.imageSize': () => setImageDialog('imageSize'),
+          'image.canvasSize': () => setImageDialog('canvasSize'),
+          'image.rotate180': () => editor?.rotateCanvas(2),
+          'image.rotate90cw': () => editor?.rotateCanvas(1),
+          'image.rotate90ccw': () => editor?.rotateCanvas(3),
+          'image.rotateArbitrary': () => setImageDialog('rotate'),
+          'image.flipHorizontal': () => editor?.flipCanvas('horizontal'),
+          'image.flipVertical': () => editor?.flipCanvas('vertical'),
+          'view.zoomIn': () => editor?.zoomStep(1),
+          'view.zoomOut': () => editor?.zoomStep(-1),
+          'view.pixelGrid': () => editor?.togglePixelGrid(),
           'view.fit': () => editor?.fitToScreen(),
           'view.actualSize': () => editor?.zoomTo(1),
         };
@@ -179,6 +198,8 @@ export function App() {
   const brushPx = snap && isPaintTool(active) ? snap.options[active].size * snap.zoom : 0;
   const outline = brushPx >= 4 ? brushPx : 0;
   const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
+  // The crop tool shows the handle under the pointer (resize arrows, move).
+  const cropCursor = active === 'crop' && snap?.crop?.hover ? HANDLE_CURSORS[snap.crop.hover] : undefined;
   const toast = files.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -215,6 +236,13 @@ export function App() {
           onOptions={(tool, patch) => editor.setToolOptions(tool, patch)}
           onResetTool={(tool) => editor.resetToolOptions(tool)}
           onAlign={(edge) => editor.align(edge)}
+          crop={snap.crop}
+          onCrop={{
+            rect: (r) => editor.setCropRect(r),
+            ratio: (r) => editor.setCropRatio(r),
+            commit: () => editor.commitCrop(),
+            reset: () => editor.resetCrop(),
+          }}
           onFit={() => editor.fitToScreen()}
           onActualSize={() => editor.zoomTo(1)}
         />
@@ -236,10 +264,15 @@ export function App() {
             ref={attachCanvas}
             aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
             role="img"
-            className={`block h-full w-full ${cursorClass}`}
-            style={{ touchAction: 'none' }}
+            // Absolutely positioned: the canvas's own pixel size (CSS size × DPR) must never feed back into layout.
+            className={`absolute inset-0 block h-full w-full ${cursorClass}`}
+            style={{ touchAction: 'none', cursor: cropCursor }}
           />
           {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
+          {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
+          {snap?.doc && editor && (
+            <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
+          )}
           {!hasDoc && <Welcome onNew={(w, h) => void files.newDocument(w, h)} onOpen={actions.open} />}
         </div>
         {snap && hasDoc && (
@@ -256,6 +289,9 @@ export function App() {
               history={snap.history}
               initialLabel={snap.file.ref ? 'Open' : 'New'}
               onGoTo={(i) => editor?.goToHistory(i)}
+              onSnapshot={() => editor?.takeSnapshot()}
+              onRestore={(id) => editor?.restoreSnapshot(id)}
+              onDeleteSnapshot={(id) => editor?.deleteSnapshot(id)}
             />
           </aside>
         )}
@@ -266,13 +302,7 @@ export function App() {
       >
         {snap?.doc ? (
           <>
-            <span>{Math.round(snap.zoom * 1000) / 10} %</span>
-            <span>
-              {snap.doc.width} × {snap.doc.height} px · sRGB
-              {snap.doc.sourceProfile ? ` (converted from ${snap.doc.sourceProfile})` : ''}
-            </span>
-            <span>{snap.cursor ? `X ${snap.cursor.x}  Y ${snap.cursor.y}` : ''}</span>
-            <span className="ml-auto truncate">{snap.gpu}</span>
+            <StatusBar snap={snap} onZoom={(z) => editor?.zoomTo(z)} />
           </>
         ) : (
           <span>{files.busy ?? 'Ready'}</span>
@@ -321,6 +351,35 @@ export function App() {
             if (picking === 'foreground') editor.setForeground(c);
             else editor.setBackground(c);
             setPicking(null);
+          }}
+        />
+      )}
+      {imageDialog === 'imageSize' && snap?.doc && editor && (
+        <ImageSizeDialog
+          current={snap.doc}
+          onCancel={() => setImageDialog(null)}
+          onApply={(size, filter) => {
+            setImageDialog(null);
+            void editor.resizeImage(size.width, size.height, filter);
+          }}
+        />
+      )}
+      {imageDialog === 'canvasSize' && snap?.doc && editor && (
+        <CanvasSizeDialog
+          current={snap.doc}
+          onCancel={() => setImageDialog(null)}
+          onApply={(size, anchor) => {
+            setImageDialog(null);
+            editor.resizeCanvas(size.width, size.height, anchor);
+          }}
+        />
+      )}
+      {imageDialog === 'rotate' && editor && (
+        <RotateDialog
+          onCancel={() => setImageDialog(null)}
+          onApply={(degrees) => {
+            setImageDialog(null);
+            void editor.rotateArbitrary(degrees);
           }}
         />
       )}

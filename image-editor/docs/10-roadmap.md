@@ -66,8 +66,21 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       several selected layers, so it arrives with multi-selection (FR-LAY-08, M2). Swatches are stored per
       user in local storage until Preferences (slice 6). E2E green on Linux, Windows and macOS (dev and
       packaged; image-editor-ci run 38247201219, 2026-10-12).
-- [ ] Slice 4 — transforms: crop, image/canvas size, rotate/flip
-- [ ] Slice 5 — navigation and history: zoom range, pixel grid, scrollbars, status bar, history budget, snapshots
+- [x] Slice 4 — transforms: Crop tool (C) with ratio presets, numeric X/Y/W/H, rule-of-thirds while
+      dragging, Straighten (draw a line: rotate + crop to the largest clean rectangle, one undo step) and
+      "Delete cropped pixels" (FR-TRF-01); Image Size with bicubic/bilinear/nearest/Lanczos and constrained
+      proportions, Canvas Size with a 3×3 anchor (FR-TRF-02); rotate 90°/180° (bit-exact) and arbitrary
+      angles (bicubic, the canvas grows), flip horizontal/vertical (FR-TRF-03); Image menu and Ctrl+Alt+I /
+      Ctrl+Alt+C. Resampling runs on the CPU in the ops worker; the GPU path of docs/02 §5.6 is a later
+      optimisation. E2E green on Linux, Windows and macOS (image-editor-ci run 38276056672, 2026-10-12).
+- [x] Slice 5 — navigation and history: zoom 1–6400 % with Photoshop's Zoom In/Out steps and a typed zoom in
+      the status bar, pixel grid at ≥ 800 % (View › Pixel Grid) (FR-NAV-01); scrollbars (FR-NAV-02); status
+      bar with colour under the cursor, a memory meter (amber at 80 %) and job progress (FR-NAV-06); history
+      limit 20–1000 steps in the engine (its control arrives with Preferences, slice 6), Ctrl+Alt+Z step
+      backward (FR-HIS-01); snapshots, including an automatic one of the document as opened; restoring is an
+      undoable step; snapshots last for the session and are not saved in `.iep` (FR-HIS-02). T-HIS-01 covers
+      every command kind. E2E green on Linux, Windows and macOS (image-editor-ci run 38310262376,
+      2026-10-13).
 - [ ] Slice 6 — app shell: tabs, recent files, clipboard, autosave recovery, preferences, themes, updates, welcome
 
 **Exit:** journeys 1–2 (minus adjustments) pass E2E on 3 OSes. T-HIS-01, T-GPU-01, T-IO-01..04, T-REC-01

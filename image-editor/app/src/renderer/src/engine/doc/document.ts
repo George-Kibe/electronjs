@@ -186,8 +186,9 @@ export class Document {
   readonly meta: DocumentMeta;
 
   constructor(
-    readonly width: number,
-    readonly height: number,
+    /** Canvas size in px. Changed only by commands (crop, image/canvas size, rotate: TreeCommand). */
+    public width: number,
+    public height: number,
     layers: Layer | Layer[],
     meta: Partial<DocumentMeta> = {},
   ) {

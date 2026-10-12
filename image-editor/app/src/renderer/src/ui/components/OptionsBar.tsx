@@ -1,5 +1,7 @@
 import { BRUSH_TIPS, TIP_LABELS, type BrushTip } from '../../engine/brush/tips';
+import type { CropRect } from '../../engine/doc/geometry';
 import type { AlignEdge } from '../../engine/doc/translate';
+import { CROP_RATIOS, RATIO_LABELS, type CropRatio } from '../../engine/tools/crop';
 import { isPaintTool, type BrushOptions, type Tool, type ToolOptions } from '../../engine/editor';
 import { Button } from './Button';
 
@@ -10,12 +12,20 @@ type Props = {
   onOptions: <T extends keyof ToolOptions>(tool: T, patch: Partial<ToolOptions[T]>) => void;
   onResetTool: (tool: keyof ToolOptions) => void;
   onAlign: (edge: AlignEdge) => void;
+  crop: { rect: CropRect } | null;
+  onCrop: {
+    rect: (r: CropRect) => void;
+    ratio: (r: CropRatio) => void;
+    commit: () => void;
+    reset: () => void;
+  };
   onFit: () => void;
   onActualSize: () => void;
 };
 
 const TOOL_NAMES: Record<Tool, string> = {
   move: 'Move',
+  crop: 'Crop',
   brush: 'Brush',
   pencil: 'Pencil',
   eraser: 'Eraser',
@@ -201,6 +211,70 @@ const ALIGN: Array<[AlignEdge, string, string]> = [
   ['bottom', '⤓', 'Align bottom edges'],
 ];
 
+const CROP_FIELDS: Array<[label: string, name: string, key: keyof CropRect]> = [
+  ['X', 'Crop X', 'x'],
+  ['Y', 'Crop Y', 'y'],
+  ['W', 'Crop width', 'width'],
+  ['H', 'Crop height', 'height'],
+];
+
+/** Crop tool options (FR-TRF-01): ratio presets, numeric entry, delete cropped pixels, straighten. */
+function CropOptions({
+  options,
+  crop,
+  onOptions,
+  onCrop,
+}: Pick<Props, 'options' | 'crop' | 'onOptions' | 'onCrop'>) {
+  const r = crop?.rect;
+  return (
+    <>
+      <Select<CropRatio>
+        label="Ratio"
+        value={options.crop.ratio}
+        options={CROP_RATIOS.map((c) => [c, RATIO_LABELS[c]] as const)}
+        onChange={onCrop.ratio}
+      />
+      {r &&
+        CROP_FIELDS.map(([label, name, key]) => (
+          <label key={key} className="flex items-center gap-1">
+            <span className="text-ui-muted">{label}</span>
+            <input
+              type="number"
+              aria-label={name}
+              min={key === 'width' || key === 'height' ? 1 : 0}
+              value={Math.round(r[key])}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) onCrop.rect({ ...r, [key]: v });
+              }}
+              className="bg-ui-bg border-ui-border w-16 rounded border px-1 py-0.5 tabular-nums"
+            />
+          </label>
+        ))}
+      <Toggle
+        label="📐 Straighten"
+        title="Straighten: draw a line along the horizon (or a vertical)"
+        checked={options.crop.straighten}
+        onChange={(straighten) => onOptions('crop', { straighten })}
+      />
+      <label className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={options.crop.deletePixels}
+          onChange={(e) => onOptions('crop', { deletePixels: e.target.checked })}
+        />
+        <span>Delete cropped pixels</span>
+      </label>
+      <Button title="Reset the crop box (Esc)" onClick={onCrop.reset}>
+        ✕ Reset
+      </Button>
+      <Button variant="primary" title="Crop (Enter)" onClick={onCrop.commit}>
+        ✓ Crop
+      </Button>
+    </>
+  );
+}
+
 export function OptionsBar({
   tool,
   options,
@@ -208,6 +282,8 @@ export function OptionsBar({
   onOptions,
   onResetTool,
   onAlign,
+  crop,
+  onCrop,
   onFit,
   onActualSize,
 }: Props) {
@@ -220,6 +296,7 @@ export function OptionsBar({
     >
       <span className="font-semibold">{TOOL_NAMES[tool]}</span>
       {isPaintTool(tool) && <PaintOptions tool={tool} options={options} onOptions={onOptions} />}
+      {tool === 'crop' && <CropOptions options={options} crop={crop} onOptions={onOptions} onCrop={onCrop} />}
       {tool === 'eyedropper' && (
         <>
           <Select

@@ -30,10 +30,19 @@ export const MENU_COMMANDS = [
   'layer.alignTop',
   'layer.alignVCenter',
   'layer.alignBottom',
+  'image.imageSize',
+  'image.canvasSize',
+  'image.rotate180',
+  'image.rotate90cw',
+  'image.rotate90ccw',
+  'image.rotateArbitrary',
+  'image.flipHorizontal',
+  'image.flipVertical',
   'view.zoomIn',
   'view.zoomOut',
   'view.fit',
   'view.actualSize',
+  'view.pixelGrid',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 
