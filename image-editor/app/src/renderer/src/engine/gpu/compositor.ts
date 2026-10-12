@@ -41,7 +41,8 @@ type DrawContext = {
 type Size = { cssWidth: number; cssHeight: number; width: number; height: number; dpr: number };
 type Target = { texture: WebGLTexture; framebuffer: WebGLFramebuffer };
 
-const SURROUND = [0x3a / 255, 0x3a / 255, 0x3a / 255, 1] as const;
+/** Neutral grey around the canvas (FR-GEN-02); the editor sets it from the theme or Preferences. */
+export const DEFAULT_SURROUND: [number, number, number] = [0x3a, 0x3a, 0x3a];
 const withBlend = (source: string) => source.replace('//#include blend', blendGlsl);
 
 /**
@@ -58,6 +59,8 @@ export class Compositor {
   readonly textures: TextureCache;
   /** Format of the screen-space buffers; set from the stroke buffer's self-test (same capability). */
   targetFormat: StrokeFormat = 'rgba8';
+  /** Colour around the canvas, sRGB 0..255. */
+  surround: [number, number, number] = DEFAULT_SURROUND;
   private readonly layerProgram: Program;
   private readonly groupProgram: Program;
   private readonly checkerProgram: Program;
@@ -183,7 +186,7 @@ export class Compositor {
     // Present: surround, checkerboard under the document, then the composite (premultiplied source-over).
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
-    gl.clearColor(...SURROUND);
+    gl.clearColor(this.surround[0] / 255, this.surround[1] / 255, this.surround[2] / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.checkerProgram.program);
     gl.uniformMatrix3fv(this.checkerProgram.uniform('u_docToClip'), false, docToClip);

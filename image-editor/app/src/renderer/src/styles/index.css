@@ -13,6 +13,18 @@
   --color-focus: #74c0fc;
 }
 
+/* Light theme (FR-GEN-02): same tokens, light values. The canvas surround stays neutral grey. */
+:root[data-theme='light'] {
+  --color-ui-bg: #e8e8ea;
+  --color-ui-panel: #f6f6f7;
+  --color-ui-raised: #e2e3e6;
+  --color-ui-border: #c9cbd0;
+  --color-ui-text: #1e1f22;
+  --color-ui-muted: #5c6168;
+  --color-danger: #c92a2a;
+  --color-focus: #1c7ed6;
+}
+
 html,
 body,
 #root {

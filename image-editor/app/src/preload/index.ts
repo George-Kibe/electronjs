@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import { CODEC_PORT_MESSAGE } from '../shared/constants';
 import type { Channel, ImageEditorBridge, IpcResult, RequestOf, ResponseOf } from '../shared/ipc-contract';
 import { isMenuCommand, type MenuCommandId } from '../shared/menu';
+import type { Settings } from '../shared/settings';
 
 /** Returns the `{ ok, data | error }` envelope as-is (thrown errors lose their code across contextBridge). */
 function call<C extends Channel>(channel: C, request?: RequestOf<C>): Promise<IpcResult<ResponseOf<C>>> {
@@ -40,12 +41,18 @@ const api: ImageEditorBridge = {
     decode: (ref) => call('codec.decode', { id: ref.id }),
     encode: () => call('codec.encode'),
   },
+  settings: {
+    get: () => call('settings.get'),
+    update: (patch) => call('settings.update', patch),
+  },
   events: {
     onCloseRequested: (cb) => on('app.closeRequested', () => cb()),
     onMenuCommand: (cb) =>
       on('menu.command', (_e, id) => {
         if (isMenuCommand(id)) cb(id as MenuCommandId);
       }),
+    // Main validated these settings before sending; the renderer re-validates in lib/settings.ts.
+    onSettingsChanged: (cb) => on('settings.changed', (_e, settings) => cb(settings as Settings)),
   },
 };
 

@@ -120,7 +120,7 @@ test(`[${target}] runs cross-origin isolated with the security baseline`, async 
     sharedArrayBuffer: 'function',
     require: 'undefined',
     process: 'undefined',
-    apiKeys: ['app', 'codec', 'dialog', 'events', 'file', 'files'],
+    apiKeys: ['app', 'codec', 'dialog', 'events', 'file', 'files', 'settings'],
     networkBlocked: true,
     webgl2: true,
   });

@@ -6,7 +6,8 @@ import {
   type Page,
 } from '@playwright/test';
 import { createServer, type AddressInfo } from 'node:net';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
 
@@ -35,16 +36,18 @@ async function freePort(): Promise<number> {
   });
 }
 
-function start(files: string[], cdpPort: number): Promise<ElectronApplication> {
+function start(files: string[], cdpPort: number, userDataDir: string): Promise<ElectronApplication> {
   // Our port comes after Playwright's own --remote-debugging-port=0, and Chromium uses the last one.
-  const debug = `--remote-debugging-port=${cdpPort}`;
+  // Each launch gets its own profile, so settings and recent files never leak between tests (or into the
+  // developer's real profile).
+  const debug = [`--remote-debugging-port=${cdpPort}`, `--user-data-dir=${userDataDir}`];
   if (target === 'packaged') {
     const executablePath = packagedExecutable();
     if (!existsSync(executablePath))
       throw new Error(`Packaged app missing: ${executablePath}. Run pnpm pack:dir`);
-    return electron.launch({ executablePath, args: [debug, ...files] });
+    return electron.launch({ executablePath, args: [...debug, ...files] });
   }
-  return electron.launch({ args: [debug, '.', ...files], cwd: appRoot });
+  return electron.launch({ args: [...debug, '.', ...files], cwd: appRoot });
 }
 
 /**
@@ -64,9 +67,14 @@ export type Launched = {
   close: () => Promise<void>;
 };
 
-export async function launch(files: string[] = []): Promise<Launched> {
+/** A fresh, empty profile folder (pass it to several launches to test persistence). */
+export function newProfile(): string {
+  return mkdtempSync(join(tmpdir(), 'ie-profile-'));
+}
+
+export async function launch(files: string[] = [], userDataDir = newProfile()): Promise<Launched> {
   const cdpPort = await freePort();
-  const app = await start(files, cdpPort);
+  const app = await start(files, cdpPort, userDataDir);
   // Surface main-process logs (GPU/child-process crashes, codec errors) in the test output.
   app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[main] ${d}`));
   app.process().stderr?.on('data', (d: Buffer) => process.stdout.write(`[main:err] ${d}`));

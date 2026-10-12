@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ExportFormat } from './export-options';
 import type { MenuCommandId } from './menu';
 import { AppInfo, FileRef, type IpcError } from './schemas';
+import { Settings, SettingsPatch } from './settings';
 
 /** Largest project or export the app reads or writes in one piece (bytes). */
 export const MAX_FILE_BYTES = 2 * 1024 ** 3;
@@ -43,6 +44,10 @@ export const ipcContract = {
   'codec.decode': { request: RefId, response: z.object({ requestId: z.uuid() }) },
   /** Opens an encode session; pixels go to the codec host over the MessagePort from 'codec.port'. */
   'codec.encode': { request: z.void(), response: z.object({ requestId: z.uuid() }) },
+  /** User settings (FR-GEN-04, docs/05 §3). */
+  'settings.get': { request: z.void(), response: Settings },
+  /** Validated patch; the saved settings come back and every window gets 'settings.changed'. */
+  'settings.update': { request: SettingsPatch, response: Settings },
 } as const;
 
 export type IpcContract = typeof ipcContract;
@@ -56,6 +61,8 @@ export interface ImageEditorEvents {
   /** The user tried to close the window with unsaved changes. Call app.closeWindow() to proceed. */
   onCloseRequested(cb: () => void): () => void;
   onMenuCommand(cb: (id: MenuCommandId) => void): () => void;
+  /** Settings changed (from this or another window). */
+  onSettingsChanged(cb: (settings: Settings) => void): () => void;
 }
 
 /** Unwrapped API used by renderer code (renderer/src/lib/api.ts). */
@@ -78,6 +85,10 @@ export interface ImageEditorApi {
   codec: {
     decode(ref: Pick<FileRef, 'id'>): Promise<ResponseOf<'codec.decode'>>;
     encode(): Promise<ResponseOf<'codec.encode'>>;
+  };
+  settings: {
+    get(): Promise<Settings>;
+    update(patch: RequestOf<'settings.update'>): Promise<Settings>;
   };
 }
 

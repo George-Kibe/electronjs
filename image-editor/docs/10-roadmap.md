@@ -81,7 +81,16 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       undoable step; snapshots last for the session and are not saved in `.iep` (FR-HIS-02). T-HIS-01 covers
       every command kind. E2E green on Linux, Windows and macOS (image-editor-ci run 38310262376,
       2026-10-13).
-- [ ] Slice 6 — app shell: tabs, recent files, clipboard, autosave recovery, preferences, themes, updates, welcome
+- [ ] Slice 6 — app shell, in parts:
+  - [x] 6.1 Preferences (Ctrl+, / ⌘,): theme light/dark/system, interface scale, canvas surround, painting
+        cursor, history steps, memory budget (automatic = a quarter of RAM, 1–8 GB), GPU off (FR-GEN-02/04).
+        Settings store in main (docs/05 §3). E2E launches now use a fresh profile each.
+  - [ ] 6.2 Recent files and the Welcome screen (FR-GEN-08, FR-DOC-02)
+  - [ ] 6.3 Clipboard: paste as new document/layer, copy merged (FR-DOC-02/12)
+  - [ ] 6.4 Autosave recovery (FR-DOC-10)
+  - [ ] 6.5 Document tabs (FR-DOC-03)
+  - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
+  - [ ] 6.7 Collapsible panels and workspaces (FR-GEN-01)
 
 **Exit:** journeys 1–2 (minus adjustments) pass E2E on 3 OSes. T-HIS-01, T-GPU-01, T-IO-01..04, T-REC-01
 green. Signed installers with auto-update. 10 testers use it for a week with no data loss.

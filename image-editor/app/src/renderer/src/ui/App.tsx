@@ -22,6 +22,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
+import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
@@ -30,6 +31,7 @@ import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
 import { useFileActions } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
+import { useSettings } from './useSettings';
 import { useSwatches } from './useSwatches';
 
 const noSubscribe = () => () => undefined;
@@ -50,6 +52,14 @@ export function App() {
   const [imageDialog, setImageDialog] = useState<'imageSize' | 'canvasSize' | 'rotate' | null>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
   const swatches = useSwatches();
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [totalMemoryBytes, setTotalMemoryBytes] = useState(8 * 1024 ** 3);
+  useEffect(() => {
+    api.app.getInfo().then(
+      (info) => setTotalMemoryBytes(info.totalMemoryBytes),
+      () => undefined,
+    );
+  }, []);
   // Bumping the key replaces the <canvas> (and its WebGL context) after an unrecoverable context loss;
   // the new Editor adopts the old one's document and history.
   const [canvasKey, setCanvasKey] = useState(0);
@@ -92,6 +102,7 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [engineNotice]);
 
+  const prefs = useSettings(editor, totalMemoryBytes);
   const files = useFileActions(editor);
   const { openRef } = files;
 
@@ -112,6 +123,7 @@ export function App() {
       saveAs: () => void files.saveAs(),
       exportAs: files.openExport,
       quickExport: () => void files.quickExport(),
+      preferences: () => setPreferencesOpen(true),
       imageSize: () => setImageDialog('imageSize'),
       canvasSize: () => setImageDialog('canvasSize'),
     }),
@@ -131,6 +143,7 @@ export function App() {
           'file.exportAs': actions.exportAs,
           'file.quickExport': actions.quickExport,
           'file.revert': () => void files.revert(),
+          'app.preferences': () => setPreferencesOpen(true),
           'edit.undo': () => editor?.undo(),
           'edit.redo': () => editor?.redo(),
           'layer.new': () => editor?.addLayer(),
@@ -196,11 +209,12 @@ export function App() {
   // Painting tools show the brush outline; below 4 screen px a crosshair is clearer (docs/03 §4).
   const active = snap?.activeTool ?? 'brush';
   const brushPx = snap && isPaintTool(active) ? snap.options[active].size * snap.zoom : 0;
-  const outline = brushPx >= 4 ? brushPx : 0;
+  // Preferences › Painting cursor: "precise" always shows the crosshair.
+  const outline = brushPx >= 4 && prefs.settings.general.brushCursor === 'outline' ? brushPx : 0;
   const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
   // The crop tool shows the handle under the pointer (resize arrows, move).
   const cropCursor = active === 'crop' && snap?.crop?.hover ? HANDLE_CURSORS[snap.crop.hover] : undefined;
-  const toast = files.error ?? files.busy ?? engineNotice ?? files.notice;
+  const toast = files.error ?? prefs.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <header className="bg-ui-panel border-ui-border flex h-9 items-center gap-1 border-b px-2">
@@ -310,7 +324,7 @@ export function App() {
       </footer>
       {toast && (
         <div
-          role={files.error ? 'alert' : 'status'}
+          role={files.error || prefs.error ? 'alert' : 'status'}
           className={`bg-ui-panel fixed bottom-10 left-1/2 z-40 -translate-x-1/2 rounded border px-4 py-2 shadow-lg ${files.error ? 'border-danger text-danger' : 'border-ui-border'}`}
         >
           {toast}
@@ -321,9 +335,11 @@ export function App() {
               onClick={
                 files.error
                   ? files.dismissError
-                  : engineNotice
-                    ? () => setEngineNotice(null)
-                    : files.dismissNotice
+                  : prefs.error
+                    ? prefs.dismissError
+                    : engineNotice
+                      ? () => setEngineNotice(null)
+                      : files.dismissNotice
               }
             >
               ✕
@@ -381,6 +397,14 @@ export function App() {
             setImageDialog(null);
             void editor.rotateArbitrary(degrees);
           }}
+        />
+      )}
+      {preferencesOpen && (
+        <PreferencesDialog
+          settings={prefs.settings}
+          totalMemoryBytes={totalMemoryBytes}
+          onChange={(patch) => void prefs.update(patch)}
+          onClose={() => setPreferencesOpen(false)}
         />
       )}
       {newOpen && (

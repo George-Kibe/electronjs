@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { writeAtomic } from '../services/atomic-write';
 import { FileRefRegistry } from '../services/file-refs';
+import { SettingsStore } from '../services/settings-store';
 import { createHandlers, type HandlerDeps } from './handlers';
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-handlers-'));
@@ -26,7 +27,14 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
     window: () => null,
     codec,
     writeAtomic,
-    appInfo: { productName: 'ImageEditor', version: '0.1.0', platform: 'linux', arch: 'x64' },
+    appInfo: {
+      productName: 'ImageEditor',
+      version: '0.1.0',
+      platform: 'linux',
+      arch: 'x64',
+      totalMemoryBytes: 16 * 1024 ** 3,
+    },
+    settings: new SettingsStore({ path: join(dir, `settings-${crypto.randomUUID()}.json`), writeAtomic }),
     launchPaths,
     defaultDir: dir,
     setDocumentEdited: vi.fn(),
@@ -37,6 +45,20 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
 }
 
 describe('IPC handlers', () => {
+  it('reads and updates settings; a failed save is reported, invalid values are rejected', async () => {
+    const { handlers, event } = setup();
+    expect((await handlers['settings.get'](undefined, event)).general.theme).toBe('dark');
+    expect((await handlers['settings.update']({ general: { theme: 'light' } }, event)).general.theme).toBe(
+      'light',
+    );
+    const failing = setup({
+      settings: { get: vi.fn(), update: vi.fn(async () => Promise.reject(new Error('EACCES'))) },
+    });
+    await expect(failing.handlers['settings.update']({}, event)).rejects.toMatchObject({
+      code: 'WRITE_FAILED',
+    });
+  });
+
   it('hands out command-line files once and skips directories', async () => {
     const { handlers, event } = setup({}, [image, dir]);
     expect((await handlers['app.getLaunchFiles'](undefined, event)).map((r) => r.displayName)).toEqual([

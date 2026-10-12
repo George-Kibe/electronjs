@@ -1,5 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, session } from 'electron';
+import { totalmem } from 'node:os';
 import { join } from 'node:path';
+import type { Settings } from '@shared/settings';
 import { APP_HOST, APP_ORIGIN, APP_SCHEME, PRODUCT_NAME } from '@shared/constants';
 import { CloseGuard } from './close-guard';
 import { createHandlers } from './ipc/handlers';
@@ -13,6 +15,7 @@ import { CodecHost } from './services/codec-host';
 import { FileRefRegistry } from './services/file-refs';
 import { launchPaths } from './services/launch-args';
 import { logger } from './services/logger';
+import { SettingsStore } from './services/settings-store';
 
 const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
 const isDev = !app.isPackaged && devServerUrl !== undefined;
@@ -22,6 +25,20 @@ const rendererRoot = join(import.meta.dirname, '../renderer');
 // failing. "Unsafe" refers to running untrusted web content on SwiftShader; this renderer only runs our
 // own bundled code from app:// and never loads remote content (docs/06 §4).
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
+// Settings load before `ready`: "GPU off" must be applied now (FR-GEN-04). userData honours --user-data-dir.
+const settings = new SettingsStore({
+  path: join(app.getPath('userData'), 'settings.json'),
+  writeAtomic,
+  onWarning: (message, err) => logger.warn(message, err),
+});
+if (settings.get().performance.gpu === 'off') app.disableHardwareAcceleration();
+
+/** Native theme (menus, dialogs, title bar) and the interface scale follow the settings (FR-GEN-02). */
+function applyAppearance(s: Settings, windows = BrowserWindow.getAllWindows()): void {
+  nativeTheme.themeSource = s.general.theme;
+  for (const w of windows) w.webContents.setZoomFactor(s.general.interfaceScale);
+}
 
 // Must run before `ready`: app:// is a standard, secure origin (docs/02 §2).
 protocol.registerSchemesAsPrivileged([
@@ -41,11 +58,12 @@ function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 560,
     title: PRODUCT_NAME,
-    backgroundColor: '#1e1f22',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1f22' : '#f3f3f4',
     show: false,
     webPreferences: secureWebPreferences(join(import.meta.dirname, '../preload/index.cjs')),
   });
   win.once('ready-to-show', () => win.show());
+  win.webContents.on('did-finish-load', () => applyAppearance(settings.get(), [win]));
   guard = new CloseGuard(() => win.webContents.send('app.closeRequested'), {
     close: () => win.close(),
     quit: () => app.quit(),
@@ -110,7 +128,9 @@ if (!app.requestSingleInstanceLock()) {
           version: app.getVersion(),
           platform: process.platform,
           arch: process.arch,
+          totalMemoryBytes: totalmem(),
         },
+        settings,
         launchPaths: launchPaths(process.argv, app.isPackaged),
       }),
       makeSenderCheck(() => (isDev ? devServerUrl! : APP_ORIGIN)),
@@ -122,6 +142,11 @@ if (!app.requestSingleInstanceLock()) {
         menuTemplate(process.platform, (id) => mainWindow?.webContents.send('menu.command', id)),
       ),
     );
+    applyAppearance(settings.get(), []);
+    settings.onChange((s) => {
+      applyAppearance(s);
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('settings.changed', s);
+    });
     mainWindow = createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();

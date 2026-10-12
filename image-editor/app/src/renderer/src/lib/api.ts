@@ -29,6 +29,10 @@ export const api: ImageEditorApi = {
     decode: (ref) => unwrap(bridge.codec.decode(ref)),
     encode: () => unwrap(bridge.codec.encode()),
   },
+  settings: {
+    get: () => unwrap(bridge.settings.get()),
+    update: (patch) => unwrap(bridge.settings.update(patch)),
+  },
 };
 
 export const events: ImageEditorEvents = bridge.events;

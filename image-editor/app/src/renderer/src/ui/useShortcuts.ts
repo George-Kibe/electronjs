@@ -8,6 +8,7 @@ export type ShortcutActions = {
   saveAs(): void;
   exportAs(): void;
   quickExport(): void;
+  preferences(): void;
   imageSize(): void;
   canvasSize(): void;
 };
@@ -44,6 +45,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         // Image Size / Canvas Size: Ctrl+Alt+I / Ctrl+Alt+C (e.code: Alt changes e.key on macOS).
         if (mod && e.altKey && !e.shiftKey && e.code === 'KeyI') return run(() => actions.imageSize());
         if (mod && e.altKey && !e.shiftKey && e.code === 'KeyC') return run(() => actions.canvasSize());
+        if (mod && e.key === ',') return run(() => actions.preferences());
         if (mod && key === 'o') return run(() => actions.open());
         if (mod && key === 's') return run(() => (e.shiftKey ? actions.saveAs() : actions.save()));
         if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());
