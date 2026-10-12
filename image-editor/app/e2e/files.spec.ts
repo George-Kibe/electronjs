@@ -120,10 +120,15 @@ test(`[${target}] asks to save unsaved changes when the window is closed (FR-DOC
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
 
   await closeWindow();
+  // The click closes the window, sometimes before Playwright sees the click complete ("Target … closed").
+  // Only that error is expected; the poll below checks that the window really closed.
   await win
     .getByRole('dialog', { name: 'Save changes?' })
     .getByRole('button', { name: 'Don’t Save' })
-    .click();
+    .click()
+    .catch((err: unknown) => {
+      if (!/has been closed/.test(String(err))) throw err;
+    });
   // The window closes (on Windows/Linux the app then quits, so evaluate may fail: that counts as closed).
   await expect
     .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length).catch(() => 0))
