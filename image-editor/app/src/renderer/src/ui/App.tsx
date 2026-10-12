@@ -8,27 +8,41 @@ import {
   type DragEvent,
 } from 'react';
 import type { MenuCommandId } from '@shared/menu';
-import { Editor, type EditorSnapshot, type EditorState } from '../engine/editor';
+import { Editor, isPaintTool, type EditorSnapshot, type EditorState, type Tool } from '../engine/editor';
 import { api, errorMessage, events } from '../lib/api';
+import { BrushCursor } from './components/BrushCursor';
 import { Button } from './components/Button';
+import { ColorPickerDialog } from './components/ColorPickerDialog';
 import { ExportDialog } from './components/ExportDialog';
 import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
+import { SwatchesPanel } from './components/SwatchesPanel';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
 import { useFileActions } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
+import { useSwatches } from './useSwatches';
 
 const noSubscribe = () => () => undefined;
+
+const CURSORS: Partial<Record<Tool, string>> = {
+  move: 'cursor-move',
+  hand: 'cursor-grab',
+  zoom: 'cursor-zoom-in',
+  eyedropper: 'cursor-crosshair',
+};
 
 export function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [engineNotice, setEngineNotice] = useState<string | null>(null);
+  const [picking, setPicking] = useState<'foreground' | 'background' | null>(null);
+  const canvasHost = useRef<HTMLDivElement>(null);
+  const swatches = useSwatches();
   // Bumping the key replaces the <canvas> (and its WebGL context) after an unrecoverable context loss;
   // the new Editor adopts the old one's document and history.
   const [canvasKey, setCanvasKey] = useState(0);
@@ -120,6 +134,12 @@ export function App() {
           'layer.mergeDown': () => editor?.mergeDown(),
           'layer.mergeVisible': () => editor?.mergeVisible(),
           'layer.flatten': () => editor?.flattenImage(),
+          'layer.alignLeft': () => editor?.align('left'),
+          'layer.alignHCenter': () => editor?.align('hcenter'),
+          'layer.alignRight': () => editor?.align('right'),
+          'layer.alignTop': () => editor?.align('top'),
+          'layer.alignVCenter': () => editor?.align('vcenter'),
+          'layer.alignBottom': () => editor?.align('bottom'),
           'view.zoomIn': () => editor?.zoomBy(2),
           'view.zoomOut': () => editor?.zoomBy(0.5),
           'view.fit': () => editor?.fitToScreen(),
@@ -154,6 +174,11 @@ export function App() {
   }
 
   const hasDoc = Boolean(snap?.doc);
+  // Painting tools show the brush outline; below 4 screen px a crosshair is clearer (docs/03 §4).
+  const active = snap?.activeTool ?? 'brush';
+  const brushPx = snap && isPaintTool(active) ? snap.options[active].size * snap.zoom : 0;
+  const outline = brushPx >= 4 ? brushPx : 0;
+  const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
   const toast = files.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -182,32 +207,51 @@ export function App() {
           {snap?.file.dirty ? <span aria-label="unsaved changes"> •</span> : null}
         </span>
       </header>
-      {snap && hasDoc && (
+      {snap && hasDoc && editor && (
         <OptionsBar
           tool={snap.tool}
-          brush={snap.brush}
+          options={snap.options}
           zoom={snap.zoom}
-          onBrush={(patch) => editor?.setBrush(patch)}
-          onFit={() => editor?.fitToScreen()}
-          onActualSize={() => editor?.zoomTo(1)}
+          onOptions={(tool, patch) => editor.setToolOptions(tool, patch)}
+          onResetTool={(tool) => editor.resetToolOptions(tool)}
+          onAlign={(edge) => editor.align(edge)}
+          onFit={() => editor.fitToScreen()}
+          onActualSize={() => editor.zoomTo(1)}
         />
       )}
       <div className="flex min-h-0 flex-1">
-        {snap && hasDoc && <ToolBar tool={snap.tool} onSelect={(t) => editor?.setTool(t)} />}
-        <div className="relative min-w-0 flex-1">
+        {snap && hasDoc && editor && (
+          <ToolBar
+            tool={snap.tool}
+            colors={snap.colors}
+            onSelect={(t) => editor.setTool(t)}
+            onEditColor={setPicking}
+            onSwap={() => editor.swapColors()}
+            onReset={() => editor.resetColors()}
+          />
+        )}
+        <div ref={canvasHost} className="relative min-w-0 flex-1 overflow-hidden">
           <canvas
             key={canvasKey}
             ref={attachCanvas}
             aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
             role="img"
-            className={`block h-full w-full ${snap?.tool === 'hand' ? 'cursor-grab' : 'cursor-crosshair'}`}
+            className={`block h-full w-full ${cursorClass}`}
             style={{ touchAction: 'none' }}
           />
+          {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
           {!hasDoc && <Welcome onNew={(w, h) => void files.newDocument(w, h)} onOpen={actions.open} />}
         </div>
         {snap && hasDoc && (
           <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">
             {editor && <LayersPanel editor={editor} snap={snap} />}
+            <SwatchesPanel
+              recent={snap.colors.recent}
+              saved={swatches}
+              foreground={snap.colors.foreground}
+              onForeground={(c) => editor?.setForeground(c)}
+              onBackground={(c) => editor?.setBackground(c)}
+            />
             <HistoryPanel
               history={snap.history}
               initialLabel={snap.file.ref ? 'Open' : 'New'}
@@ -264,6 +308,20 @@ export function App() {
           initial={files.exportInitial}
           onExport={(o) => void files.exportWith(o)}
           onCancel={files.closeExport}
+        />
+      )}
+      {picking && snap && editor && (
+        <ColorPickerDialog
+          title={picking === 'foreground' ? 'Foreground colour' : 'Background colour'}
+          initial={snap.colors[picking]}
+          recent={snap.colors.recent}
+          onAddSwatch={swatches.add}
+          onCancel={() => setPicking(null)}
+          onOk={(c) => {
+            if (picking === 'foreground') editor.setForeground(c);
+            else editor.setBackground(c);
+            setPicking(null);
+          }}
         />
       )}
       {newOpen && (

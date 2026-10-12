@@ -83,6 +83,19 @@ export function menuTemplate(
         cmd('Merge Down', 'layer.mergeDown', 'CmdOrCtrl+E'),
         cmd('Merge Visible', 'layer.mergeVisible', 'CmdOrCtrl+Shift+E'),
         cmd('Flatten Image', 'layer.flatten'),
+        { type: 'separator' },
+        {
+          label: 'Align to Canvas',
+          submenu: [
+            cmd('Left Edges', 'layer.alignLeft'),
+            cmd('Horizontal Centers', 'layer.alignHCenter'),
+            cmd('Right Edges', 'layer.alignRight'),
+            { type: 'separator' },
+            cmd('Top Edges', 'layer.alignTop'),
+            cmd('Vertical Centers', 'layer.alignVCenter'),
+            cmd('Bottom Edges', 'layer.alignBottom'),
+          ],
+        },
       ],
     },
     {

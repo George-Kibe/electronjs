@@ -1,4 +1,5 @@
 import type { BrushSettings } from '../brush/brush';
+import { GRAIN_SIZE, tipGrain, type BrushTip } from '../brush/tips';
 import { blendModeIndex } from '../doc/blend';
 import type { Document, Layer } from '../doc/document';
 import type { Viewport } from '../render/viewport';
@@ -20,6 +21,20 @@ export type StrokePreview = {
   settings: BrushSettings;
   /** Transparency lock: the preview keeps each pixel's alpha (FR-LAY-02). */
   preserveAlpha: boolean;
+};
+
+/** Move tool drag in progress (FR-TRF-07): these raster layers are drawn shifted by whole pixels. */
+export type MovePreview = { layerIds: ReadonlySet<string>; dx: number; dy: number };
+
+type DrawContext = {
+  docToClip: Float32Array;
+  visible: TileKey[];
+  /** Visible part of the canvas, in document px. */
+  rect: { x0: number; y0: number; x1: number; y1: number };
+  viewport: Viewport;
+  size: Size;
+  stroke?: StrokePreview;
+  move?: MovePreview;
 };
 
 type Size = { cssWidth: number; cssHeight: number; width: number; height: number; dpr: number };
@@ -45,6 +60,8 @@ export class Compositor {
   private readonly layerProgram: Program;
   private readonly groupProgram: Program;
   private readonly checkerProgram: Program;
+  private readonly presentProgram: Program;
+  private readonly grains = new Map<BrushTip, WebGLTexture>();
   private readonly vao: WebGLVertexArrayObject;
   private readonly linearSampler: WebGLSampler;
   private readonly nearestSampler: WebGLSampler;
@@ -59,6 +76,9 @@ export class Compositor {
     this.layerProgram = createProgram(gl, tileVert, withBlend(layerFrag));
     this.groupProgram = createProgram(gl, screenVert, withBlend(groupFrag));
     this.checkerProgram = createProgram(gl, quadVert, checkerFrag);
+    // The final composite is drawn as a document-rect quad, so pixels kept outside the canvas (moved layers)
+    // never show, with exactly the same edge as the checkerboard.
+    this.presentProgram = createProgram(gl, quadVert, withBlend(groupFrag));
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -132,7 +152,7 @@ export class Compositor {
   // ---- rendering -------------------------------------------------------------------------------
 
   /** Draws the document into the canvas (default framebuffer) of size (width × height) device pixels. */
-  render(doc: Document, viewport: Viewport, size: Size, stroke?: StrokePreview): void {
+  render(doc: Document, viewport: Viewport, size: Size, stroke?: StrokePreview, move?: MovePreview): void {
     const gl = this.gl;
     this.resizePool(size.width, size.height);
     gl.viewport(0, 0, size.width, size.height);
@@ -141,7 +161,14 @@ export class Compositor {
 
     const main = this.acquire();
     const visible = this.visibleTiles(doc, viewport, size);
-    this.drawLayers(doc.layers, main, { docToClip, visible, viewport, size, stroke });
+    const r = viewport.visibleDocRect(size.cssWidth, size.cssHeight);
+    const rect = {
+      x0: Math.max(0, r.x0),
+      y0: Math.max(0, r.y0),
+      x1: Math.min(doc.width, r.x1),
+      y1: Math.min(doc.height, r.y1),
+    };
+    this.drawLayers(doc.layers, main, { docToClip, visible, rect, viewport, size, stroke, move });
 
     // Present: surround, checkerboard under the document, then the composite (premultiplied source-over).
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -153,24 +180,26 @@ export class Compositor {
     gl.uniform4f(this.checkerProgram.uniform('u_rect'), 0, 0, doc.width, doc.height);
     gl.uniform1f(this.checkerProgram.uniform('u_cell'), 8 * size.dpr);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-    this.drawBuffer(main, 1, 0);
+    const present = this.presentProgram;
+    gl.useProgram(present.program);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniformMatrix3fv(present.uniform('u_docToClip'), false, docToClip);
+    gl.uniform4f(present.uniform('u_rect'), 0, 0, doc.width, doc.height);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, main.texture);
+    gl.uniform1i(present.uniform('u_src'), 0);
+    gl.uniform1i(present.uniform('u_backdrop'), 2);
+    gl.uniform1f(present.uniform('u_opacity'), 1);
+    gl.uniform1i(present.uniform('u_blendMode'), 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
     this.release(main);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(null);
   }
 
-  private drawLayers(
-    layers: readonly Layer[],
-    target: Target,
-    ctx: {
-      docToClip: Float32Array;
-      visible: TileKey[];
-      viewport: Viewport;
-      size: Size;
-      stroke?: StrokePreview;
-    },
-  ): void {
+  private drawLayers(layers: readonly Layer[], target: Target, ctx: DrawContext): void {
     for (const layer of layers) {
       if (!layer.visible) continue;
       if (layer.type === 'group') {
@@ -205,7 +234,7 @@ export class Compositor {
     opacity: number,
     mode: number,
     backdrop: Target | null,
-    ctx: { docToClip: Float32Array; visible: TileKey[]; viewport: Viewport; size: Size },
+    ctx: DrawContext,
     preview: StrokePreview | undefined,
   ): void {
     const gl = this.gl;
@@ -233,13 +262,22 @@ export class Compositor {
       gl.uniform1f(p.uniform('u_brushOpacity'), preview.settings.opacity);
       gl.uniform1i(p.uniform('u_mode'), preview.settings.mode === 'erase' ? 1 : 0);
       gl.uniform1i(p.uniform('u_preserveAlpha'), preview.preserveAlpha ? 1 : 0);
+      const grain = preview.settings.aliased ? null : this.grainTexture(preview.settings.tip);
+      gl.uniform1i(p.uniform('u_hasGrain'), grain ? 1 : 0);
+      gl.uniform1i(p.uniform('u_grain'), 3);
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, grain);
+    } else {
+      gl.uniform1i(p.uniform('u_hasGrain'), 0);
     }
-    for (const key of ctx.visible) {
+    const moving = ctx.move?.layerIds.has(layer.id) ? ctx.move : undefined;
+    const [ox, oy] = moving ? [moving.dx, moving.dy] : [0, 0];
+    for (const key of moving ? this.movedTiles(layer, moving, ctx.rect) : ctx.visible) {
       const tile = layer.tiles.get(key);
       const strokeTex = preview?.buffer.texture(key);
       if (!tile && !strokeTex) continue;
       const [tx, ty] = parseTileKey(key);
-      gl.uniform2f(p.uniform('u_tileOrigin'), tx * TILE_SIZE, ty * TILE_SIZE);
+      gl.uniform2f(p.uniform('u_tileOrigin'), tx * TILE_SIZE + ox, ty * TILE_SIZE + oy);
       gl.uniform1i(p.uniform('u_hasTile'), tile ? 1 : 0);
       gl.uniform1i(p.uniform('u_hasStroke'), strokeTex ? 1 : 0);
       gl.activeTexture(gl.TEXTURE0);
@@ -273,6 +311,41 @@ export class Compositor {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
+  /** Keys of the layer's tiles that land in the visible canvas `rect` once shifted by the move offset. */
+  private movedTiles(
+    layer: Extract<Layer, { type: 'raster' }>,
+    move: MovePreview,
+    rect: DrawContext['rect'],
+  ) {
+    const keys: TileKey[] = [];
+    for (const key of layer.tiles.keys()) {
+      const [tx, ty] = parseTileKey(key);
+      const x = tx * TILE_SIZE + move.dx;
+      const y = ty * TILE_SIZE + move.dy;
+      if (x < rect.x1 && x + TILE_SIZE > rect.x0 && y < rect.y1 && y + TILE_SIZE > rect.y0) keys.push(key);
+    }
+    return keys;
+  }
+
+  /** R8 grain map of a textured brush tip (null for round), uploaded once. */
+  private grainTexture(tip: BrushTip): WebGLTexture | null {
+    const data = tipGrain(tip);
+    if (!data) return null;
+    let tex = this.grains.get(tip);
+    if (tex) return tex;
+    const gl = this.gl;
+    tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, GRAIN_SIZE, GRAIN_SIZE);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, GRAIN_SIZE, GRAIN_SIZE, gl.RED, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this.grains.set(tip, tex);
+    return tex;
+  }
+
   /** Tile keys inside both the document and the visible viewport. */
   private visibleTiles(
     doc: Document,
@@ -300,6 +373,8 @@ export class Compositor {
   }
 
   dispose(): void {
+    for (const tex of this.grains.values()) this.gl.deleteTexture(tex);
+    this.grains.clear();
     this.disposePool();
     this.textures.dispose();
   }

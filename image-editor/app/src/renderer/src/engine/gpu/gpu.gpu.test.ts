@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { accumulateDabs, applyStroke, DEFAULT_BRUSH, type BrushSettings, type Dab } from '../brush/brush';
+import {
+  accumulateDabs,
+  applyStroke,
+  DabGenerator,
+  DEFAULT_BRUSH,
+  type BrushSettings,
+  type Dab,
+} from '../brush/brush';
 import { IMPLEMENTED_BLEND_MODES } from '../doc/blend';
 import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
 import { compositePixel, liveLayers } from '../doc/flatten';
+import { translateLayer } from '../doc/translate';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
-import { TILE_SIZE, TileGrid } from '../tiles/tile';
+import { createTile, TILE_SIZE, TileGrid } from '../tiles/tile';
 import { Compositor } from './compositor';
 import { StrokeBuffer } from './stroke-buffer';
 
@@ -310,5 +318,126 @@ describe('WebGL context loss (NFR-REL-02)', () => {
     await vi.waitFor(() => expect(editor.getSnapshot().gpu).toMatch(/strokes RGBA/));
     expect(onUnrecoverableContextLoss).not.toHaveBeenCalled();
     editor.dispose();
+  });
+});
+
+describe('painting and moving: GPU vs CPU (FR-PNT-01/02, FR-TRF-07)', () => {
+  it('pencil dabs are whole pixels and match pencilCoverage exactly', () => {
+    const gl = context(4, 4);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    stroke.aliased = true;
+    const gen = new DabGenerator({ ...DEFAULT_BRUSH, aliased: true, pressureSize: true, size: 6, flow: 0.5 });
+    const pencilDabs = [
+      ...gen.begin({ x: 20.2, y: 30.7, pressure: 1 }),
+      ...gen.moveTo({ x: 270.9, y: 60.1, pressure: 0.3 }), // crosses into the next tile, tapering
+    ];
+    for (const key of stroke.addDabs(pencilDabs, 600, 600)) {
+      const [tx, ty] = key.split(',').map(Number) as [number, number];
+      const cpu = new Float32Array(TILE_SIZE * TILE_SIZE);
+      accumulateDabs(cpu, tx, ty, pencilDabs, 1, true);
+      const gpu = stroke.readCoverage(key);
+      let maxErr = 0;
+      for (let i = 0; i < cpu.length; i++) maxErr = Math.max(maxErr, Math.abs(cpu[i]! - gpu[i]!));
+      expect(maxErr, `tile ${key}`).toBeLessThan(stroke.format === 'rgba8' ? 2.5 / 255 : 2e-3);
+    }
+  });
+
+  it.each(['chalk', 'charcoal', 'sponge'] as const)(
+    'textured tip (%s): live preview matches the CPU commit within ±2/255',
+    (tip) => {
+      const size = 300;
+      const gl = context(size, size);
+      const compositor = new Compositor(gl);
+      const stroke = new StrokeBuffer(gl, compositor.quad);
+      const settings: BrushSettings = { ...DEFAULT_BRUSH, color: [20, 90, 200], hardness: 0.9, tip };
+      stroke.hardness = settings.hardness;
+      const layer = createRasterLayer('paint');
+      const doc = new Document(size, size, [
+        createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+        layer,
+      ]);
+      stroke.addDabs(dabs, size, size);
+      compositor.render(
+        doc,
+        new Viewport(),
+        { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+        { buffer: stroke, layerId: layer.id, settings, preserveAlpha: false },
+      );
+      const pixels = new Uint8Array(size * size * 4);
+      gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      for (const key of stroke.keys()) {
+        const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+        const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+        accumulateDabs(cov, tileX, tileY, dabs, settings.hardness);
+        layer.tiles.set(
+          key,
+          applyStroke(undefined, cov, settings, { tileX, tileY, docWidth: size, docHeight: size }),
+        );
+      }
+      let maxErr = 0;
+      let textured = 0;
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const expected = compositePixel(liveLayers(doc.layers), x, y);
+          const i = ((size - 1 - y) * size + x) * 4;
+          for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+          if (expected[0] === 255 && Math.hypot(x - 100.3, y - 90.7) < 30) textured++; // holes inside the dab
+        }
+      }
+      expect(maxErr).toBeLessThanOrEqual(2);
+      expect(textured).toBeGreaterThan(50);
+    },
+  );
+
+  it('move preview matches the committed move, and pixels outside the canvas never show', () => {
+    const size = 300; // 2×2 tiles: the second column/row of tiles is mostly outside the canvas
+    const viewW = 400;
+    const gl = context(viewW, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    const rgba = new Uint8ClampedArray(size * size * 4);
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++)
+        if ((x * 7 + y * 3) % 11 < 6) rgba.set([x % 256, y % 256, 90, 255], (y * size + x) * 4);
+    const layer = createRasterLayer('top', TileGrid.fromRgba(size, size, rgba));
+    // Red pixels kept off the canvas, in the same edge tile as visible ones (x 300..320).
+    const edge = new Uint8ClampedArray(layer.tiles.get('1,0')!.data);
+    for (let y = 0; y < 50; y++) for (let x = 44; x < 64; x++) edge.set([255, 0, 0, 255], (y * 256 + x) * 4);
+    layer.tiles.set('1,0', createTile(edge));
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      layer,
+    ]);
+    const render = (move?: { dx: number; dy: number }) => {
+      compositor.render(
+        doc,
+        new Viewport(),
+        { cssWidth: viewW, cssHeight: size, width: viewW, height: size, dpr: 1 },
+        undefined,
+        move && { layerIds: new Set([layer.id]), ...move },
+      );
+      const px = new Uint8Array(viewW * size * 4);
+      gl.readPixels(0, 0, viewW, size, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const at = (px: Uint8Array, x: number, y: number) => [
+      ...px.subarray(((size - 1 - y) * viewW + x) * 4, ((size - 1 - y) * viewW + x) * 4 + 3),
+    ];
+
+    // Off-canvas red stays hidden: the area right of the canvas shows the surround, not the layer.
+    const still = render();
+    for (let y = 0; y < 50; y += 7) expect(at(still, 310, y)).toEqual([0x3a, 0x3a, 0x3a]);
+
+    // Dragging left brings the red pixels onto the canvas; the preview equals the committed move.
+    const preview = render({ dx: -37, dy: 21 });
+    translateLayer(doc, layer.id, -37, 21)!.do(doc);
+    const committed = render();
+    let maxErr = 0;
+    for (let i = 0; i < preview.length; i++) maxErr = Math.max(maxErr, Math.abs(preview[i]! - committed[i]!));
+    expect(maxErr).toBe(0);
+    expect(at(committed, 300 - 37 + 10, 30)).toEqual([255, 0, 0]);
+    expect(compositePixel(liveLayers(doc.layers), 300 - 37 + 10, 30)).toEqual([255, 0, 0, 255]);
   });
 });

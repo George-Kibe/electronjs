@@ -49,6 +49,11 @@ export class TileGrid {
     else this.tiles.delete(key);
   }
 
+  /** Removes every tile (commands that replace a whole layer's pixels). */
+  clear(): void {
+    this.tiles.clear();
+  }
+
   keys(): IterableIterator<TileKey> {
     return this.tiles.keys();
   }
@@ -99,11 +104,13 @@ export class TileGrid {
     return grid;
   }
 
-  /** Straight RGBA of one document pixel (transparent black outside tiles). */
+  /** Straight RGBA of one document pixel (transparent black outside tiles). Integer coordinates. */
   pixel(x: number, y: number): [number, number, number, number] {
-    const tile = this.tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)));
+    const tx = Math.floor(x / TILE_SIZE);
+    const ty = Math.floor(y / TILE_SIZE);
+    const tile = this.tiles.get(tileKey(tx, ty));
     if (!tile) return [0, 0, 0, 0];
-    const i = ((y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)) * 4;
+    const i = ((y - ty * TILE_SIZE) * TILE_SIZE + (x - tx * TILE_SIZE)) * 4;
     return [tile.data[i]!, tile.data[i + 1]!, tile.data[i + 2]!, tile.data[i + 3]!];
   }
 }

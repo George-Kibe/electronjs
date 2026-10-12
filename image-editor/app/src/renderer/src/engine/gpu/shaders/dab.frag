@@ -1,10 +1,11 @@
 #version 300 es
-// Dab coverage; must stay identical to brush/brush.ts dabCoverage(). Accumulated with
-// blendFunc(ONE, ONE_MINUS_SRC_ALPHA): s' = c + s·(1 − c).
+// Dab coverage; must stay identical to brush/brush.ts dabCoverage() and pencilCoverage(). Accumulated
+// with blendFunc(ONE, ONE_MINUS_SRC_ALPHA): s' = c + s·(1 − c).
 precision highp float;
 in vec4 v_dab;
 uniform vec2 u_tileOrigin;
 uniform float u_hardness;
+uniform bool u_aliased; // pencil: whole pixels, compared on squared distance (exact in float)
 out vec4 o_color;
 
 float dabCoverage(float d, float radius, float hardness) {
@@ -18,7 +19,10 @@ float dabCoverage(float d, float radius, float hardness) {
 
 void main() {
   vec2 doc = u_tileOrigin + gl_FragCoord.xy; // pixel centre (x + 0.5, y + 0.5)
-  float c = dabCoverage(distance(doc, v_dab.xy), v_dab.z, u_hardness) * v_dab.w;
+  vec2 delta = doc - v_dab.xy;
+  float c = u_aliased
+    ? (dot(delta, delta) < v_dab.z * v_dab.z ? 1.0 : 0.0) * v_dab.w
+    : dabCoverage(length(delta), v_dab.z, u_hardness) * v_dab.w;
   if (c <= 0.0) discard;
   o_color = vec4(0.0, 0.0, 0.0, c);
 }

@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { deflateSync, strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
-import { TILE_BYTES, TileGrid } from '../tiles/tile';
+import { createGroupLayer, createRasterLayer, Document, type RasterLayer } from '../doc/document';
+import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
 import { encodeTiles, IepError, readIep, writeIep } from './iep';
 import { fromSnapshot, toSnapshot } from './snapshot';
 
@@ -146,6 +146,17 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
     expect(back.locate(inner.id).parent?.id).toBe(sub.id);
   });
 
+  it('keeps pixels outside the canvas (moved there, FR-TRF-07) within one canvas of margin', () => {
+    const tiles = new TileGrid();
+    const data = new Uint8ClampedArray(TILE_BYTES).fill(200);
+    for (const key of ['-2,-1', '-1,0', '3,1', '0,1'])
+      tiles.set(key, createTile(new Uint8ClampedArray(data)));
+    const doc = new Document(300, 200, createRasterLayer('Moved', tiles)); // 2×1 tiles → x ∈ [-2, 4), y ∈ [-1, 2)
+    const back = roundTrip(doc).doc.layers[0] as RasterLayer;
+    expect([...back.tiles.keys()].sort()).toEqual(['-1,0', '-2,-1', '0,1', '3,1']);
+    expect(back.tiles.get('-2,-1')!.data).toEqual(data);
+  });
+
   it('rejects groups nested too deeply and ids repeated inside groups', () => {
     let nested: unknown = layerEntry();
     for (let i = 0; i < 40; i++) nested = { id: `G${i}`, type: 'group', name: 'g', children: [nested] };
@@ -244,13 +255,13 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
         /duplicate layer ids/,
       ],
       [
-        'tile outside the canvas',
-        () => zip(manifest(), { 'layers/0/tiles.bin': encodeTiles([['1,0', new Uint8Array(TILE_BYTES)]]) }),
+        'tile beyond the off-canvas margin',
+        () => zip(manifest(), { 'layers/0/tiles.bin': encodeTiles([['2,0', new Uint8Array(TILE_BYTES)]]) }),
         /outside the canvas/,
       ],
       [
-        'negative tile coordinate',
-        () => zip(manifest(), { 'layers/0/tiles.bin': encodeTiles([['-1,0', new Uint8Array(TILE_BYTES)]]) }),
+        'negative tile beyond the off-canvas margin',
+        () => zip(manifest(), { 'layers/0/tiles.bin': encodeTiles([['0,-2', new Uint8Array(TILE_BYTES)]]) }),
         /outside the canvas/,
       ],
       [

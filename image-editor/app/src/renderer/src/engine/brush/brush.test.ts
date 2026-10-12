@@ -1,7 +1,16 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { createTile, TILE_BYTES, TILE_SIZE } from '../tiles/tile';
-import { accumulateDabs, applyStroke, dabCoverage, DabGenerator, DEFAULT_BRUSH } from './brush';
+import {
+  accumulateDabs,
+  applyStroke,
+  dabCoverage,
+  DabGenerator,
+  DEFAULT_BRUSH,
+  PulledString,
+  type BrushPoint,
+} from './brush';
+import { BRUSH_TIPS, GRAIN_SIZE, tipGrain } from './tips';
 
 const bounds = { tileX: 0, tileY: 0, docWidth: 1000, docHeight: 1000 };
 
@@ -120,5 +129,129 @@ describe('accumulateDabs + applyStroke (CPU reference)', () => {
         bounds,
       ),
     ).toBe(before);
+  });
+});
+
+describe('pencil (FR-PNT-02)', () => {
+  const pencil = { ...DEFAULT_BRUSH, aliased: true, pressureSize: false, spacing: 0.1 };
+
+  const covered = (size: number, x: number, y: number) => {
+    const gen = new DabGenerator({ ...pencil, size });
+    const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+    accumulateDabs(cov, 0, 0, gen.begin({ x, y, pressure: 1 }), 1, true);
+    const out: string[] = [];
+    cov.forEach((c, i) => {
+      expect(c === 0 || c === 1).toBe(true); // aliased: no partial pixels
+      if (c) out.push(`${i % TILE_SIZE},${Math.floor(i / TILE_SIZE)}`);
+    });
+    return out;
+  };
+
+  it('paints exactly one pixel at size 1, wherever the pointer is inside it', () => {
+    expect(covered(1, 10.1, 20.9)).toEqual(['10,20']);
+    expect(covered(1, 10.99, 20)).toEqual(['10,20']);
+  });
+
+  it('paints whole-pixel squares and discs at small sizes', () => {
+    expect(covered(2, 10.4, 20.6)).toEqual(['9,20', '10,20', '9,21', '10,21']);
+    expect(covered(3, 10.5, 20.5)).toHaveLength(9);
+    expect(covered(5, 10.5, 20.5)).toHaveLength(21); // 5×5 minus the 4 corners
+  });
+
+  it('leaves no gaps along a 1-px diagonal line', () => {
+    const gen = new DabGenerator({ ...pencil, size: 1 });
+    const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+    const dabs = [
+      ...gen.begin({ x: 0.5, y: 0.5, pressure: 1 }),
+      ...gen.moveTo({ x: 40.5, y: 20.5, pressure: 1 }),
+    ];
+    accumulateDabs(cov, 0, 0, dabs, 1, true);
+    for (let x = 0; x <= 40; x++) {
+      const column = [...Array(TILE_SIZE).keys()].filter((y) => cov[y * TILE_SIZE + x]);
+      expect(column.length, `column ${x}`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('pressure and smoothing (FR-PNT-01)', () => {
+  it('scales dab strength with pressure when pressure → opacity is on', () => {
+    const gen = new DabGenerator({ ...DEFAULT_BRUSH, flow: 0.8, pressureSize: false, pressureOpacity: true });
+    expect(gen.begin({ x: 0, y: 0, pressure: 0.25 })[0]!.alpha).toBeCloseTo(0.2);
+    const off = new DabGenerator({ ...DEFAULT_BRUSH, flow: 0.8, pressureOpacity: false });
+    expect(off.begin({ x: 0, y: 0, pressure: 0.25 })[0]!.alpha).toBeCloseTo(0.8);
+  });
+
+  it('a pulled string stays put within its length, then trails the pointer at that distance', () => {
+    const s = new PulledString(10);
+    const p = (x: number, y = 0): BrushPoint => ({ x, y, pressure: 1 });
+    s.begin(p(0));
+    expect(s.move(p(6))).toBeNull();
+    expect(s.move(p(25))).toEqual(p(15));
+    expect(s.move(p(25, 30))!.x).toBeCloseTo(25 - 10 * (10 / Math.hypot(10, 30)));
+  });
+
+  it('property: the trailing brush is never more than the string length from the pointer', () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.tuple(
+            fc.double({ min: -200, max: 200, noNaN: true }),
+            fc.double({ min: -200, max: 200, noNaN: true }),
+          ),
+          {
+            minLength: 1,
+            maxLength: 40,
+          },
+        ),
+        (pts) => {
+          const s = new PulledString(12);
+          let brush = s.begin({ x: 0, y: 0, pressure: 1 });
+          for (const [x, y] of pts) {
+            brush = s.move({ x, y, pressure: 1 }) ?? brush;
+            expect(Math.hypot(x - brush.x, y - brush.y)).toBeLessThanOrEqual(12 + 1e-9);
+          }
+        },
+      ),
+    );
+  });
+});
+
+describe('textured tips (FR-PNT-01)', () => {
+  it('generates deterministic grain maps with real texture', () => {
+    for (const tip of BRUSH_TIPS) {
+      const grain = tipGrain(tip);
+      if (tip === 'round') {
+        expect(grain).toBeNull();
+        continue;
+      }
+      expect(grain).toHaveLength(GRAIN_SIZE * GRAIN_SIZE);
+      const holes = grain!.filter((v) => v === 0).length / grain!.length;
+      const solid = grain!.filter((v) => v === 255).length / grain!.length;
+      expect(holes, tip).toBeGreaterThan(0.05);
+      expect(solid, tip).toBeGreaterThan(0.05);
+    }
+  });
+
+  it('applyStroke multiplies coverage by the grain at document pixels (tileable across tiles)', () => {
+    const grain = tipGrain('chalk')!;
+    const cov = new Float32Array(TILE_SIZE * TILE_SIZE).fill(1);
+    const settings = {
+      color: [0, 0, 0] as [number, number, number],
+      opacity: 1,
+      mode: 'paint' as const,
+      tip: 'chalk' as const,
+    };
+    const a = applyStroke(undefined, cov, settings, { ...bounds, tileX: 0 })!;
+    const b = applyStroke(undefined, cov, settings, { tileX: 1, tileY: 0, docWidth: 1000, docHeight: 1000 })!;
+    for (const [x, y] of [
+      [0, 0],
+      [5, 77],
+      [130, 3],
+      [255, 255],
+    ] as const) {
+      const g = grain[(y % GRAIN_SIZE) * GRAIN_SIZE + (x % GRAIN_SIZE)]!;
+      expect(a.data[(y * TILE_SIZE + x) * 4 + 3]).toBe(g);
+      expect(b.data[(y * TILE_SIZE + x) * 4 + 3]).toBe(g);
+    }
   });
 });
