@@ -138,3 +138,6 @@ export async function stubSaveDialog(app: ElectronApplication, path: string): Pr
 
 /** The document canvas (layer thumbnails are canvases too). */
 export const docCanvas = (win: Page) => win.getByRole('img', { name: /^Canvas/ });
+
+/** The editable zoom percentage in the status bar (FR-NAV-01). */
+export const zoomField = (win: Page) => win.getByRole('textbox', { name: 'Zoom percentage' });

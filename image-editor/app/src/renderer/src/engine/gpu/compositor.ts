@@ -2,11 +2,12 @@ import type { BrushSettings } from '../brush/brush';
 import { GRAIN_SIZE, tipGrain, type BrushTip } from '../brush/tips';
 import { blendModeIndex } from '../doc/blend';
 import type { Document, Layer } from '../doc/document';
-import type { Viewport } from '../render/viewport';
+import { PIXEL_GRID_ZOOM, type Viewport } from '../render/viewport';
 import { parseTileKey, TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
 import { createProgram, createUnitQuad, type Program } from './program';
 import blendGlsl from './shaders/blend.glsl?raw';
 import checkerFrag from './shaders/checker.frag?raw';
+import gridFrag from './shaders/grid.frag?raw';
 import groupFrag from './shaders/group.frag?raw';
 import layerFrag from './shaders/layer.frag?raw';
 import quadVert from './shaders/quad.vert?raw';
@@ -61,6 +62,7 @@ export class Compositor {
   private readonly groupProgram: Program;
   private readonly checkerProgram: Program;
   private readonly presentProgram: Program;
+  private readonly gridProgram: Program;
   private readonly grains = new Map<BrushTip, WebGLTexture>();
   private readonly vao: WebGLVertexArrayObject;
   private readonly linearSampler: WebGLSampler;
@@ -79,6 +81,7 @@ export class Compositor {
     // The final composite is drawn as a document-rect quad, so pixels kept outside the canvas (moved layers)
     // never show, with exactly the same edge as the checkerboard.
     this.presentProgram = createProgram(gl, quadVert, withBlend(groupFrag));
+    this.gridProgram = createProgram(gl, quadVert, gridFrag);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -152,7 +155,14 @@ export class Compositor {
   // ---- rendering -------------------------------------------------------------------------------
 
   /** Draws the document into the canvas (default framebuffer) of size (width × height) device pixels. */
-  render(doc: Document, viewport: Viewport, size: Size, stroke?: StrokePreview, move?: MovePreview): void {
+  render(
+    doc: Document,
+    viewport: Viewport,
+    size: Size,
+    stroke?: StrokePreview,
+    move?: MovePreview,
+    overlays: { pixelGrid?: boolean } = {},
+  ): void {
     const gl = this.gl;
     this.resizePool(size.width, size.height);
     gl.viewport(0, 0, size.width, size.height);
@@ -194,6 +204,17 @@ export class Compositor {
     gl.uniform1i(present.uniform('u_blendMode'), 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     this.release(main);
+    if (overlays.pixelGrid && viewport.zoom >= PIXEL_GRID_ZOOM) {
+      const grid = this.gridProgram;
+      gl.useProgram(grid.program);
+      gl.uniformMatrix3fv(grid.uniform('u_docToClip'), false, docToClip);
+      gl.uniform4f(grid.uniform('u_rect'), 0, 0, doc.width, doc.height);
+      gl.uniform1f(grid.uniform('u_zoom'), viewport.zoom);
+      gl.uniform2f(grid.uniform('u_pan'), viewport.panX, viewport.panY);
+      gl.uniform1f(grid.uniform('u_dpr'), size.dpr);
+      gl.uniform1f(grid.uniform('u_height'), size.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(null);

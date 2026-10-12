@@ -124,6 +124,8 @@ export function menuTemplate(
         cmd('Zoom Out', 'view.zoomOut', 'CmdOrCtrl+-'),
         cmd('Fit on Screen', 'view.fit', 'CmdOrCtrl+0'),
         cmd('100 %', 'view.actualSize', 'CmdOrCtrl+1'),
+        { type: 'separator' },
+        cmd('Pixel Grid', 'view.pixelGrid'),
       ],
     },
     { role: 'windowMenu' },

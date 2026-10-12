@@ -22,6 +22,8 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
+import { Scrollbars } from './components/Scrollbars';
+import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
@@ -156,8 +158,9 @@ export function App() {
           'image.rotateArbitrary': () => setImageDialog('rotate'),
           'image.flipHorizontal': () => editor?.flipCanvas('horizontal'),
           'image.flipVertical': () => editor?.flipCanvas('vertical'),
-          'view.zoomIn': () => editor?.zoomBy(2),
-          'view.zoomOut': () => editor?.zoomBy(0.5),
+          'view.zoomIn': () => editor?.zoomStep(1),
+          'view.zoomOut': () => editor?.zoomStep(-1),
+          'view.pixelGrid': () => editor?.togglePixelGrid(),
           'view.fit': () => editor?.fitToScreen(),
           'view.actualSize': () => editor?.zoomTo(1),
         };
@@ -197,8 +200,7 @@ export function App() {
   const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
   // The crop tool shows the handle under the pointer (resize arrows, move).
   const cropCursor = active === 'crop' && snap?.crop?.hover ? HANDLE_CURSORS[snap.crop.hover] : undefined;
-  const job = snap?.job ? `${snap.job.label}… ${Math.round(snap.job.progress * 100)} %` : null;
-  const toast = files.error ?? files.busy ?? job ?? engineNotice ?? files.notice;
+  const toast = files.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <header className="bg-ui-panel border-ui-border flex h-9 items-center gap-1 border-b px-2">
@@ -267,7 +269,10 @@ export function App() {
             style={{ touchAction: 'none', cursor: cropCursor }}
           />
           {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
-          {snap?.crop && <CropOverlay crop={snap.crop} view={snap.view} />}
+          {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
+          {snap?.doc && editor && (
+            <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
+          )}
           {!hasDoc && <Welcome onNew={(w, h) => void files.newDocument(w, h)} onOpen={actions.open} />}
         </div>
         {snap && hasDoc && (
@@ -284,6 +289,9 @@ export function App() {
               history={snap.history}
               initialLabel={snap.file.ref ? 'Open' : 'New'}
               onGoTo={(i) => editor?.goToHistory(i)}
+              onSnapshot={() => editor?.takeSnapshot()}
+              onRestore={(id) => editor?.restoreSnapshot(id)}
+              onDeleteSnapshot={(id) => editor?.deleteSnapshot(id)}
             />
           </aside>
         )}
@@ -294,13 +302,7 @@ export function App() {
       >
         {snap?.doc ? (
           <>
-            <span>{Math.round(snap.zoom * 1000) / 10} %</span>
-            <span>
-              {snap.doc.width} × {snap.doc.height} px · sRGB
-              {snap.doc.sourceProfile ? ` (converted from ${snap.doc.sourceProfile})` : ''}
-            </span>
-            <span>{snap.cursor ? `X ${snap.cursor.x}  Y ${snap.cursor.y}` : ''}</span>
-            <span className="ml-auto truncate">{snap.gpu}</span>
+            <StatusBar snap={snap} onZoom={(z) => editor?.zoomTo(z)} />
           </>
         ) : (
           <span>{files.busy ?? 'Ready'}</span>

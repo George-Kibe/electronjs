@@ -1,5 +1,5 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { canvasPixel, docCanvas, launch, paintLine, target } from './app';
+import { canvasPixel, docCanvas, launch, paintLine, target, zoomField } from './app';
 
 async function newDocument(win: Page, width: number, height: number): Promise<void> {
   await win.getByRole('spinbutton').nth(0).fill(String(width));
@@ -15,7 +15,7 @@ async function docToPage(
   h: number,
 ): Promise<(x: number, y: number) => [number, number]> {
   await expect(win.locator('footer')).toContainText(`${w} × ${h} px`);
-  await expect(win.locator('footer')).toContainText('100 %');
+  await expect(zoomField(win)).toHaveValue('100');
   const box = (await docCanvas(win).boundingBox())!;
   const ox = box.x + Math.round((box.width - w) / 2);
   const oy = box.y + Math.round((box.height - h) / 2);

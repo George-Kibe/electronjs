@@ -500,3 +500,40 @@ describe('editor canvas geometry (FR-TRF-01..03)', () => {
     editor.dispose();
   });
 });
+
+describe('pixel grid (FR-NAV-01)', () => {
+  function renderWhite(zoom: number, pixelGrid: boolean): Uint8Array {
+    const w = 64;
+    const gl = context(w, w);
+    const compositor = new Compositor(gl);
+    const doc = new Document(16, 16, createRasterLayer('bg', TileGrid.filled(16, 16, [255, 255, 255, 255])));
+    const viewport = new Viewport();
+    viewport.zoom = zoom;
+    compositor.render(
+      doc,
+      viewport,
+      { cssWidth: w, cssHeight: w, width: w, height: w, dpr: 1 },
+      undefined,
+      undefined,
+      {
+        pixelGrid,
+      },
+    );
+    const px = new Uint8Array(w * w * 4);
+    gl.readPixels(0, 0, w, w, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  }
+  const red = (px: Uint8Array, x: number, y: number) => px[((64 - 1 - y) * 64 + x) * 4]!;
+
+  it('draws a line on every pixel boundary at 800 %, and leaves pixel interiors alone', () => {
+    const px = renderWhite(8, true);
+    for (const x of [0, 8, 16, 40]) expect(red(px, x, 3), `x ${x}`).toBeLessThan(220);
+    for (const x of [1, 4, 7, 12, 45]) expect(red(px, x, 3), `x ${x}`).toBe(255);
+    expect(red(px, 3, 24)).toBeLessThan(220); // horizontal line at y = 3 doc px
+  });
+
+  it('is hidden below 800 % and when turned off', () => {
+    for (const px of [renderWhite(4, true), renderWhite(8, false)])
+      for (const x of [0, 8, 16]) expect(red(px, x, 3)).toBe(255);
+  });
+});

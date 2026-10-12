@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { MAX_ZOOM, Viewport } from './viewport';
+import { MAX_ZOOM, nextZoomStep, scrollGeometry, Viewport } from './viewport';
 
 describe('Viewport', () => {
   it('round-trips screen and document coordinates', () => {
@@ -53,5 +53,34 @@ describe('Viewport', () => {
     };
     close(clip(0, 0), [-1, 1]);
     close(clip(800, 600), [1, -1]);
+  });
+});
+
+describe('zoom steps (FR-NAV-01)', () => {
+  it('steps through the presets and snaps from in-between zooms', () => {
+    expect(nextZoomStep(1, 1)).toBe(2);
+    expect(nextZoomStep(1, -1)).toBe(0.6667);
+    expect(nextZoomStep(0.7, -1)).toBe(0.6667);
+    expect(nextZoomStep(0.7, 1)).toBe(1);
+    expect(nextZoomStep(64, 1)).toBe(64);
+    expect(nextZoomStep(0.01, -1)).toBe(0.01);
+  });
+});
+
+describe('scrollGeometry (FR-NAV-02)', () => {
+  it('maps the view onto the document plus half a view of margin each side', () => {
+    // 1000 px document in a 400 px view, document left edge at the view centre: scrolled to the start.
+    expect(scrollGeometry(1000, 200, 400)).toMatchObject({
+      total: 1400,
+      offset: 0,
+      start: 0,
+      thumb: 400 / 1400,
+    });
+    // Right edge at the view centre: scrolled to the end.
+    const end = scrollGeometry(1000, 200 - 1000, 400);
+    expect(end.offset).toBe(1000);
+    expect(end.start + end.thumb).toBeCloseTo(1);
+    // Panned beyond the range: clamped.
+    expect(scrollGeometry(1000, 900, 400).offset).toBe(0);
   });
 });

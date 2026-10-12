@@ -188,7 +188,11 @@ on a downscaled proxy while a slider is being dragged, then at full resolution o
 - **Coalescing:** slider drags merge into one command. Continuous nudges within 500 ms merge.
 - **Limits:** the max step count (default 100) *and* the memory budget. The oldest steps drop first, but
   tiles still referenced by the live document are never dropped.
-- Snapshots = named, pinned history states (they never expire).
+- Snapshots = named, pinned history states (they never expire). They share tiles but own copies of the layer
+  objects and tile maps (paint commands update a layer's map in place). Restoring one is a new undoable
+  step, so it never discards history. The first snapshot is the document as opened.
+- The view (zoom/pan) is a separate store from the editor snapshot: overlays such as scrollbars and the crop
+  box subscribe to it, so panning at 60 fps never re-renders the panels.
 
 ## 7. File I/O flows
 

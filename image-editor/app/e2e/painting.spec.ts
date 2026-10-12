@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import sharp from 'sharp';
-import { canvasPixel, docCanvas, launch, paintLine, target } from './app';
+import { canvasPixel, docCanvas, launch, paintLine, target, zoomField } from './app';
 
 const W = 300;
 const H = 200;
@@ -10,7 +10,7 @@ async function newDocument(win: Page): Promise<void> {
   await win.getByRole('spinbutton').nth(1).fill(String(H));
   await win.getByRole('button', { name: 'Create' }).click();
   await expect(win.locator('footer')).toContainText(/strokes RGBA/, { timeout: 15_000 });
-  await expect(win.locator('footer')).toContainText('100 %'); // a small document fits at 100 %
+  await expect(zoomField(win)).toHaveValue('100'); // a small document fits at 100 %
 }
 
 /** Page coordinates of the centre of document pixel (x, y). The document is centred at 100 % zoom. */
@@ -104,9 +104,10 @@ test(`[${target}] painting: colour picker, swap/default, eyedropper, pencil and 
   await expect(options).toContainText('Pencil');
   await paintLine(win, at(40, 120), at(260, 120));
   await expect(history(win)).toContainText('Pencil');
-  await win.keyboard.press('ControlOrMeta+=');
-  await win.keyboard.press('ControlOrMeta+=');
-  await expect(win.locator('footer')).toContainText('400 %');
+  // Type the zoom into the status bar (FR-NAV-01); it zooms around the view centre like Ctrl+=.
+  await zoomField(win).fill('400');
+  await zoomField(win).press('Enter');
+  await expect(zoomField(win)).toHaveValue('400');
   const zoomed = await zoomedDocToPage(win, 4);
   for (const x of [100, 150, 200]) {
     await expect.poll(() => canvasPixel(win, ...zoomed(x, 120))).toEqual([0, 0, 0]);
@@ -114,7 +115,7 @@ test(`[${target}] painting: colour picker, swap/default, eyedropper, pencil and 
     expect(await canvasPixel(win, ...zoomed(x, 121))).toEqual([255, 255, 255]);
   }
   await win.keyboard.press('ControlOrMeta+0');
-  await expect(win.locator('footer')).toContainText('100 %');
+  await expect(zoomField(win)).toHaveValue('100');
 
   // B keeps the group's current tool (the pencil); Shift+B switches back to the brush.
   await win.keyboard.press('b');

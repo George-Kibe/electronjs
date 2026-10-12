@@ -33,6 +33,9 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         return true;
       };
       const handled = (() => {
+        // Ctrl+Alt+Z / Ctrl+Shift+Alt+Z: step backward / forward (docs/03 §6). e.code: Alt changes e.key on macOS.
+        if (mod && e.altKey && e.code === 'KeyZ')
+          return run(() => (e.shiftKey ? editor.redo() : editor.undo()));
         if (mod && key === 'z') return run(() => (e.shiftKey ? editor.redo() : editor.undo()));
         if (mod && key === 'y') return run(() => editor.redo());
         // e.code for the Alt combinations: on macOS, Alt changes e.key to another character.
@@ -53,8 +56,8 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && e.code === 'BracketLeft') return run(() => editor.nudgeActiveLayer(-1));
         if (mod && key === '0') return run(() => editor.fitToScreen());
         if (mod && key === '1') return run(() => editor.zoomTo(1));
-        if (mod && (key === '=' || key === '+')) return run(() => editor.zoomBy(2));
-        if (mod && key === '-') return run(() => editor.zoomBy(0.5));
+        if (mod && (key === '=' || key === '+')) return run(() => editor.zoomStep(1));
+        if (mod && key === '-') return run(() => editor.zoomStep(-1));
         if (mod || e.altKey) return false;
         // Move tool: arrows nudge the layer, Shift = 10 px (FR-TRF-07).
         const arrows: Record<string, [number, number]> = {
