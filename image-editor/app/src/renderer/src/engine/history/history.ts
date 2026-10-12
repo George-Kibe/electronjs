@@ -39,6 +39,17 @@ export class History {
     this.onChange(dirty);
   }
 
+  /** Changes the limits (Preferences › History steps); drops the oldest steps if they no longer fit. */
+  setLimits(options: Partial<HistoryOptions>): void {
+    Object.assign(this.options, options);
+    this.trim();
+    this.onChange({ layerIds: [], tiles: [] });
+  }
+
+  get limits(): Readonly<HistoryOptions> {
+    return this.options;
+  }
+
   /** Ends a coalescing sequence (e.g. slider released). */
   endCoalesce(): void {
     this.coalesceOpen = false;

@@ -1,13 +1,15 @@
-import type { EditorSnapshot } from '../../engine/editor';
+import { useSyncExternalStore } from 'react';
+import type { Editor, EditorSnapshot } from '../../engine/editor';
 
-type Props = { crop: NonNullable<EditorSnapshot['crop']>; view: EditorSnapshot['view'] };
+type Props = { crop: NonNullable<EditorSnapshot['crop']>; editor: Editor };
 
 /**
  * Crop box overlay (docs/03 §5.5): shades what will be cut, draws the box and its 8 handles, the
  * rule-of-thirds grid while dragging, and the straighten line. Display only: the editor handles input.
  */
-export function CropOverlay({ crop, view }: Props) {
-  const { zoom, panX, panY } = view;
+export function CropOverlay({ crop, editor }: Props) {
+  // Subscribes to the view store itself, so panning re-renders only this overlay.
+  const { zoom, panX, panY } = useSyncExternalStore(editor.subscribeView, editor.getView);
   const { rect } = crop;
   const x = rect.x * zoom + panX;
   const y = rect.y * zoom + panY;

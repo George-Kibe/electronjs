@@ -42,6 +42,7 @@ export const MENU_COMMANDS = [
   'view.zoomOut',
   'view.fit',
   'view.actualSize',
+  'view.pixelGrid',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 

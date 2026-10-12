@@ -25,7 +25,7 @@ import {
   type LayerLocks,
   type LayerProps,
 } from './doc/document';
-import { liveLayers, flattenPreview } from './doc/flatten';
+import { compositePixel, liveLayers, flattenPreview } from './doc/flatten';
 import {
   duplicateLayer,
   flattenImage,
@@ -60,6 +60,7 @@ import {
   type CropRect,
 } from './doc/geometry';
 import { History, type HistoryEntry } from './history/history';
+import { captureState, collectTileIds, restoreState, type DocState } from './history/snapshots';
 import { clipGrid, type Turns } from './ops/canvas';
 import {
   dragHandle,
@@ -74,8 +75,8 @@ import {
 } from './tools/crop';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
-import { Viewport } from './render/viewport';
-import { parseTileKey, TileGrid, type Tile, type TileKey } from './tiles/tile';
+import { nextZoomStep, Viewport } from './render/viewport';
+import { parseTileKey, TILE_BYTES, TileGrid, type Tile, type TileKey } from './tiles/tile';
 
 export type Tool = 'move' | 'crop' | 'brush' | 'pencil' | 'eraser' | 'eyedropper' | 'hand' | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
@@ -137,6 +138,12 @@ const MAX_RECENT = 10;
 const SMOOTHING_SCREEN_PX = 60;
 /** Arrow-key nudges this close together become one undo step (docs/02 §6). */
 const NUDGE_COALESCE_MS = 500;
+/** FR-HIS-01: 100 steps by default; the memory budget bounds them too. */
+const DEFAULT_HISTORY_STEPS = 100;
+const HISTORY_BYTES = 2 * 1024 ** 3;
+
+/** Zoom/pan (CSS px) and the canvas's CSS size. */
+export type ViewState = { zoom: number; panX: number; panY: number; width: number; height: number };
 
 /** Where the open document lives on disk (a FileRef from main; the engine never sees paths). */
 export type DocumentFile = { id: string; displayName: string; displayDir: string };
@@ -159,7 +166,19 @@ export type EditorSnapshot = {
   activeLayerId: string | null;
   /** Whether each layer operation applies to the active layer (null = yes, else why not). */
   layerOps: { mergeDown: string | null; canUngroup: boolean; canDelete: boolean };
-  history: { entries: HistoryEntry[]; position: number; canUndo: boolean; canRedo: boolean };
+  history: {
+    entries: HistoryEntry[];
+    position: number;
+    canUndo: boolean;
+    canRedo: boolean;
+    /** Named states that never expire (FR-HIS-02); the first is the document as opened. */
+    snapshots: Array<{ id: string; name: string }>;
+    maxSteps: number;
+  };
+  /** Memory meter (FR-NAV-06): pixels held by the document, snapshots and history, against the budget. */
+  memory: { usedBytes: number; budgetBytes: number };
+  /** Pixel grid at ≥ 800 % (View › Pixel Grid). */
+  pixelGrid: boolean;
   zoom: number;
   tool: Tool;
   /** The tool a click would use now: Alt (eyedropper) and Ctrl/⌘ (move) switch temporarily (docs/03 §4). */
@@ -174,11 +193,10 @@ export type EditorSnapshot = {
     /** Handle under the pointer, for the cursor. */
     hover: Handle | null;
   } | null;
-  /** Document → canvas CSS px mapping (kept current while the Crop tool's overlay needs it). */
-  view: { zoom: number; panX: number; panY: number };
   options: ToolOptions;
   colors: Colors;
-  cursor: { x: number; y: number } | null;
+  /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
+  cursor: { x: number; y: number; color: string | null } | null;
   /** A pixel job running in the ops worker (Image Size, rotation); editing waits until it ends. */
   job: { label: string; progress: number } | null;
   gpu: string;
@@ -235,7 +253,10 @@ export type EditorState = {
   tool: Tool;
   options: ToolOptions;
   colors: Colors;
+  snapshots: DocSnapshotEntry[];
 };
+
+type DocSnapshotEntry = { id: string; name: string; state: DocState };
 
 export type EditorOptions = {
   /**
@@ -292,9 +313,15 @@ export class Editor {
   private cropHover: Handle | null = null;
   /** Canvas size the view was last fitted to (refit when a command changes it). */
   private shownSize = { width: 0, height: 0 };
+  private snapshots: DocSnapshotEntry[] = [];
+  private snapshotSeq = 0;
+  private historySteps = DEFAULT_HISTORY_STEPS;
+  private pixelGrid = true;
+  private view: ViewState = { zoom: 1, panX: 0, panY: 0, width: 0, height: 0 };
+  private readonly viewListeners = new Set<() => void>();
   /** Keep the document fitted on resize until the user zooms or pans (FR-NAV-01). */
   private autoFit = true;
-  private cursor: { x: number; y: number } | null = null;
+  private cursor: EditorSnapshot['cursor'] = null;
   private frame = 0;
   private pendingInputTimes: number[] = [];
   private listeners = new Set<() => void>();
@@ -436,6 +463,7 @@ export class Editor {
       tool: this.tool,
       options: this.toolOptions,
       colors: this.colors,
+      snapshots: this.snapshots,
     };
   }
 
@@ -450,6 +478,7 @@ export class Editor {
     this.tool = state.tool;
     this.toolOptions = state.options;
     this.colors = state.colors;
+    this.snapshots = state.snapshots;
     this.version++;
     this.changed();
   }
@@ -462,7 +491,11 @@ export class Editor {
     this.moving = null;
     this.strokeBuffer.clear();
     this.doc = doc;
-    this.history = new History(doc, { maxSteps: 100, maxBytes: 2 * 1024 ** 3 }, () => this.onHistoryChange());
+    this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: HISTORY_BYTES }, () =>
+      this.onHistoryChange(),
+    );
+    // The document as opened is always reachable, however many steps are dropped (FR-HIS-02).
+    this.snapshots = [{ id: `S${++this.snapshotSeq}`, name: doc.meta.name, state: captureState(doc) }];
     this.file = { ...file, savedTop: null };
     this.version++;
     this.fitToScreen();
@@ -516,12 +549,15 @@ export class Editor {
         position: this.history?.position ?? -1,
         canUndo: this.history?.canUndo ?? false,
         canRedo: this.history?.canRedo ?? false,
+        snapshots: this.snapshots.map(({ id, name }) => ({ id, name })),
+        maxSteps: this.history?.limits.maxSteps ?? DEFAULT_HISTORY_STEPS,
       },
+      memory: { usedBytes: this.memoryUsed(), budgetBytes: HISTORY_BYTES },
+      pixelGrid: this.pixelGrid,
       zoom: this.viewport.zoom,
       tool: this.tool,
       activeTool: this.effectiveTool(this.modifiers),
       crop: this.cropState(),
-      view: { zoom: this.viewport.zoom, panX: this.viewport.panX, panY: this.viewport.panY },
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
@@ -1114,6 +1150,73 @@ export class Editor {
     this.zoomTo(this.viewport.zoom * factor);
   }
 
+  /** Zoom In (+1) / Zoom Out (−1) to the next preset step (FR-NAV-01), keeping the view centre. */
+  zoomStep(dir: 1 | -1): void {
+    this.zoomTo(nextZoomStep(this.viewport.zoom, dir));
+  }
+
+  /** View › Pixel Grid. */
+  togglePixelGrid(): void {
+    this.pixelGrid = !this.pixelGrid;
+    this.changed();
+  }
+
+  /** Scrollbars: pans so the canvas's view starts at (panX, panY) CSS px. */
+  panTo(panX: number, panY: number): void {
+    if (!this.doc) return;
+    this.viewport.panX = panX;
+    this.viewport.panY = panY;
+    this.autoFit = false;
+    this.requestRender();
+  }
+
+  /** Zoom, pan and canvas size for overlays (scrollbars, crop box); updated every frame it changes. */
+  subscribeView = (listener: () => void): (() => void) => {
+    this.viewListeners.add(listener);
+    return () => this.viewListeners.delete(listener);
+  };
+
+  getView = (): ViewState => this.view;
+
+  // ---- history limits and snapshots (FR-HIS-01/02) ----------------------------------------------
+
+  /** Preferences › History steps (20…1000). */
+  setHistoryLimit(steps: number): void {
+    this.historySteps = Math.min(1000, Math.max(20, Math.round(steps)));
+    this.history?.setLimits({ maxSteps: this.historySteps });
+  }
+
+  /** History › New Snapshot: the current state, named "Snapshot n". */
+  takeSnapshot(): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const n = this.snapshots.filter((s) => s.name.startsWith('Snapshot ')).length + 1;
+    this.snapshots = [
+      ...this.snapshots,
+      { id: `S${++this.snapshotSeq}`, name: `Snapshot ${n}`, state: captureState(doc) },
+    ];
+    this.changed();
+  }
+
+  /** Clicking a snapshot: returns the document to it as a new, undoable step. */
+  restoreSnapshot(id: string): void {
+    const snap = this.snapshots.find((s) => s.id === id);
+    if (snap) this.exec(restoreState(snap.state, `Restore ${snap.name}`));
+  }
+
+  deleteSnapshot(id: string): void {
+    this.snapshots = this.snapshots.filter((s) => s.id !== id);
+    this.changed();
+  }
+
+  /** Bytes of distinct tiles in the document and snapshots, plus what history holds on its own. */
+  private memoryUsed(): number {
+    const ids = new Set<number>();
+    if (this.doc) collectTileIds(this.doc.layers, ids);
+    for (const s of this.snapshots) collectTileIds(s.state.layers, ids);
+    return ids.size * TILE_BYTES + (this.history?.sizeBytes ?? 0);
+  }
+
   // ---- input -----------------------------------------------------------------------------------
 
   private docPoint(e: PointerEvent): { x: number; y: number; pressure: number } {
@@ -1137,7 +1240,9 @@ export class Editor {
     const tool = this.effectiveTool({ alt: e.altKey, ctrl });
     if (tool === 'zoom') {
       const rect = this.canvas.getBoundingClientRect();
-      this.viewport.zoomAt(e.altKey ? 0.5 : 2, e.clientX - rect.left, e.clientY - rect.top);
+      const z = this.viewport.zoom;
+      const target = nextZoomStep(z, e.altKey ? -1 : 1);
+      this.viewport.zoomAt(target / z, e.clientX - rect.left, e.clientY - rect.top);
       this.autoFit = false;
       this.changed();
       return;
@@ -1300,11 +1405,23 @@ export class Editor {
   }
 
   private setCursor(p: { x: number; y: number } | null): void {
-    const next = p ? { x: Math.floor(p.x), y: Math.floor(p.y) } : null;
-    if (next?.x === this.cursor?.x && next?.y === this.cursor?.y) return;
+    const x = p ? Math.floor(p.x) : 0;
+    const y = p ? Math.floor(p.y) : 0;
+    if (p && x === this.cursor?.x && y === this.cursor?.y) return;
+    if (!p && !this.cursor) return;
+    const next = p ? { x, y, color: this.colorAt(x, y) } : null;
     this.cursor = next;
     this.snapshot = { ...this.snapshot, cursor: next };
     for (const l of this.listeners) l();
+  }
+
+  /** Composite colour of one document pixel (status bar, FR-NAV-06), or null outside/transparent. */
+  private colorAt(x: number, y: number): string | null {
+    const doc = this.doc;
+    if (!doc || x < 0 || y < 0 || x >= doc.width || y >= doc.height) return null;
+    const [r, g, b, a] = compositePixel(liveLayers(doc.layers), x, y);
+    if (a === 0) return null;
+    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`.toUpperCase();
   }
 
   private addDabs(dabs: Dab[], inputTime: number): void {
@@ -1406,13 +1523,20 @@ export class Editor {
       { cssWidth, cssHeight, width, height, dpr },
       preview,
       move,
+      { pixelGrid: this.pixelGrid },
     );
-    // The crop overlay follows pans and zooms (cheap: only while the Crop tool is selected).
+    // Overlays (scrollbars, crop box) follow pans and zooms through the separate view store.
     const { zoom, panX, panY } = this.viewport;
-    const v = this.snapshot.view;
-    if (this.tool === 'crop' && (v.zoom !== zoom || v.panX !== panX || v.panY !== panY)) {
-      this.snapshot = { ...this.snapshot, view: { zoom, panX, panY } };
-      for (const l of this.listeners) l();
+    const v = this.view;
+    if (
+      v.zoom !== zoom ||
+      v.panX !== panX ||
+      v.panY !== panY ||
+      v.width !== cssWidth ||
+      v.height !== cssHeight
+    ) {
+      this.view = { zoom, panX, panY, width: cssWidth, height: cssHeight };
+      for (const l of this.viewListeners) l();
     }
     // NFR-PERF-02: pointer event → frame submitted. Read by the benchmark/E2E via the Performance API.
     const now = performance.now();

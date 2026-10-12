@@ -39,6 +39,12 @@ All notable changes to ImageEditor are documented here. The format follows
 - Image › Image Size (Ctrl+Alt+I) with bicubic, bilinear, nearest-neighbour or Lanczos resampling, and Canvas
   Size (Ctrl+Alt+C) with an anchor. Image › Image Rotation: 180°, 90° either way, any angle, and flip
   horizontal/vertical. Large images are processed in the background with progress.
+- Zoom In/Out step through standard levels (1 %–6400 %), and the zoom can be typed in the status bar. A pixel
+  grid appears from 800 % (View › Pixel Grid). Scrollbars pan the canvas.
+- The status bar shows the colour under the pointer, memory use (amber when nearly full) and the progress
+  of long operations.
+- History snapshots: keep a state with the camera button and return to it later; the document as opened
+  is always available. Ctrl+Alt+Z steps backward.
 - The brush shows its outline at the actual size on the canvas. Opacity presets with 1…0 while painting.
 - M0 app (`app/`): open images (PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF) with EXIF orientation and ICC → sRGB
   conversion, or create a new document. Brush and eraser with size, hardness, opacity, flow and colour.
