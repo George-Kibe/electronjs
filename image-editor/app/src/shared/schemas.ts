@@ -23,6 +23,8 @@ export const AppInfo = z.object({
   version: z.string(),
   platform: z.string(),
   arch: z.string(),
+  /** Physical RAM, for the automatic memory budget (docs/05 §3). */
+  totalMemoryBytes: z.number().nonnegative(),
 });
 export type AppInfo = z.infer<typeof AppInfo>;
 

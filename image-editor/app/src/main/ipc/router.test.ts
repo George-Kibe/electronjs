@@ -34,6 +34,8 @@ describe('registerIpc', () => {
       'file.readBytes',
       'file.writeAtomic',
       'files.registerDropped',
+      'settings.get',
+      'settings.update',
     ]);
   });
 

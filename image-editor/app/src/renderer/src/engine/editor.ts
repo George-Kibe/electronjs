@@ -316,6 +316,9 @@ export class Editor {
   private snapshots: DocSnapshotEntry[] = [];
   private snapshotSeq = 0;
   private historySteps = DEFAULT_HISTORY_STEPS;
+  private historyBytes = HISTORY_BYTES;
+  /** Kept here too, because a context loss rebuilds the compositor. */
+  private surround: [number, number, number] = [0x3a, 0x3a, 0x3a];
   private pixelGrid = true;
   private view: ViewState = { zoom: 1, panX: 0, panY: 0, width: 0, height: 0 };
   private readonly viewListeners = new Set<() => void>();
@@ -375,6 +378,7 @@ export class Editor {
 
   private initGpu(): void {
     this.compositor = new Compositor(this.gl);
+    this.compositor.surround = this.surround;
     this.strokeBuffer = new StrokeBuffer(this.gl, this.compositor.quad);
     // Composite buffers need the same capability the stroke self-test checked (blending into the format).
     this.compositor.targetFormat = this.strokeBuffer.format;
@@ -491,7 +495,7 @@ export class Editor {
     this.moving = null;
     this.strokeBuffer.clear();
     this.doc = doc;
-    this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: HISTORY_BYTES }, () =>
+    this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: this.historyBytes }, () =>
       this.onHistoryChange(),
     );
     // The document as opened is always reachable, however many steps are dropped (FR-HIS-02).
@@ -552,7 +556,7 @@ export class Editor {
         snapshots: this.snapshots.map(({ id, name }) => ({ id, name })),
         maxSteps: this.history?.limits.maxSteps ?? DEFAULT_HISTORY_STEPS,
       },
-      memory: { usedBytes: this.memoryUsed(), budgetBytes: HISTORY_BYTES },
+      memory: { usedBytes: this.memoryUsed(), budgetBytes: this.historyBytes },
       pixelGrid: this.pixelGrid,
       zoom: this.viewport.zoom,
       tool: this.tool,
@@ -1179,6 +1183,20 @@ export class Editor {
   getView = (): ViewState => this.view;
 
   // ---- history limits and snapshots (FR-HIS-01/02) ----------------------------------------------
+
+  /** Preferences › Memory budget for history and snapshots (bytes). */
+  setMemoryBudget(bytes: number): void {
+    this.historyBytes = Math.max(256 * 1024 ** 2, bytes);
+    this.history?.setLimits({ maxBytes: this.historyBytes });
+    this.changed();
+  }
+
+  /** Colour around the canvas (FR-GEN-02): the theme's neutral grey or a chosen one. */
+  setCanvasColor(rgb: [number, number, number]): void {
+    this.surround = rgb;
+    this.compositor.surround = rgb;
+    this.requestRender();
+  }
 
   /** Preferences › History steps (20…1000). */
   setHistoryLimit(steps: number): void {

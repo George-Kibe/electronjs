@@ -45,6 +45,9 @@ All notable changes to ImageEditor are documented here. The format follows
   of long operations.
 - History snapshots: keep a state with the camera button and return to it later; the document as opened
   is always available. Ctrl+Alt+Z steps backward.
+- Preferences (Ctrl+, or ⌘,): light, dark or system theme; interface scale; the grey around the canvas;
+  brush-outline or precise cursor; number of history steps and memory for history; turn graphics
+  acceleration off.
 - The brush shows its outline at the actual size on the canvas. Opacity presets with 1…0 while painting.
 - M0 app (`app/`): open images (PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF) with EXIF orientation and ICC → sRGB
   conversion, or create a new document. Brush and eraser with size, hardness, opacity, flow and colour.

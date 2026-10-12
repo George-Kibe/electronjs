@@ -156,7 +156,15 @@ canvas plus one canvas of margin, §1.1), and a total uncompressed tile size che
 **before** inflating. Zip entries with `..` or absolute names are
 rejected. A declared uncompressed size mismatch aborts the load (zip-bomb guard).
 
-## 3. Settings (electron-store, zod-validated, migrated)
+## 3. Settings (zod-validated, migrated)
+
+**As built (M1):** `shared/settings.ts` (schema) and `main/services/settings-store.ts` (store) instead of
+electron-store: the zod schema already validates, the existing atomic writer saves, and that avoids about ten
+transitive dependencies. `settings.json` in userData; loaded synchronously at startup (GPU off must apply
+before `ready`); a damaged file is set aside as `settings.json.damaged-<time>` and defaults are used;
+fields from newer versions are kept on save. M1 implements `general` (theme, interface scale, canvas
+surround, brush cursor), `performance` (history steps, memory budget, GPU), `files.autosaveMinutes` and
+`privacy.crashReports`; the other sections arrive with their features. The planned full schema:
 
 ```ts
 const Settings = z.object({

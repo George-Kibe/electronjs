@@ -4,6 +4,7 @@ import { extname, join } from 'node:path';
 import { FORMAT_INFO } from '@shared/export-options';
 import { MAX_FILE_BYTES } from '@shared/ipc-contract';
 import type { FileRefRegistry } from '../services/file-refs';
+import type { SettingsStore } from '../services/settings-store';
 import { HandlerError, type Handlers } from './router';
 
 export type HandlerDeps = {
@@ -12,7 +13,8 @@ export type HandlerDeps = {
   window: () => BrowserWindow | null;
   codec: { decode(path: string, target: WebContents): string; encode(target: WebContents): string };
   writeAtomic(path: string, data: Uint8Array): Promise<void>;
-  appInfo: { productName: string; version: string; platform: string; arch: string };
+  appInfo: { productName: string; version: string; platform: string; arch: string; totalMemoryBytes: number };
+  settings: Pick<SettingsStore, 'get' | 'update'>;
   launchPaths: string[];
   /** Folder shown by the first save dialog (Pictures); later dialogs reuse the last folder. */
   defaultDir: string;
@@ -126,5 +128,16 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     'codec.decode': (ref, event) => ({ requestId: deps.codec.decode(resolveOrThrow(ref), event.sender) }),
 
     'codec.encode': (_req, event) => ({ requestId: deps.codec.encode(event.sender) }),
+
+    'settings.get': () => deps.settings.get(),
+
+    'settings.update': async (patch) => {
+      try {
+        return await deps.settings.update(patch);
+      } catch (err) {
+        if (err instanceof Error && err.name === 'ZodError') throw err; // → VALIDATION_FAILED
+        throw new HandlerError('WRITE_FAILED', 'Could not save your preferences. They apply until you quit.');
+      }
+    },
   };
 }

@@ -75,6 +75,7 @@ interface Api {
 | `file.readBytes(ref)` | Bytes of a chosen file (≤ 2 GiB), parsed in the file worker |
 | `file.writeAtomic(ref, bytes)` | Temp + fsync + rename; only save-dialog refs or an opened `.iep` (else `FORBIDDEN`) |
 | `codec.decode(ref)`, `codec.encode()` | Open a codec session; the MessagePort arrives via `codec.port` |
+| `settings.get()`, `settings.update(patch)` | User settings (docs/05 §3). The patch is validated field by field; every window then gets `settings.changed` |
 
 Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks. Menu
 accelerators are displayed but not registered; the renderer's keymap handles keys.

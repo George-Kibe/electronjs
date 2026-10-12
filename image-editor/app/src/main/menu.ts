@@ -25,6 +25,8 @@ export function menuTemplate(
             submenu: [
               { role: 'about' },
               { type: 'separator' },
+              cmd('Settings…', 'app.preferences', 'Cmd+,'),
+              { type: 'separator' },
               { role: 'hide' },
               { role: 'hideOthers' },
               { role: 'unhide' },
@@ -65,6 +67,12 @@ export function menuTemplate(
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        ...(mac
+          ? []
+          : [
+              { type: 'separator' } as MenuItemConstructorOptions,
+              cmd('Preferences…', 'app.preferences', 'Ctrl+,'),
+            ]),
       ],
     },
     {

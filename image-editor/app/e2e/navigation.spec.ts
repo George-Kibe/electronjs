@@ -46,7 +46,7 @@ test(`[${target}] navigation and history: zoom steps, pixel grid, scrollbars, st
   await expect(footer(win).getByLabel('Colour under the cursor')).toHaveText('#000000');
   await win.mouse.move(cx, cy - 60);
   await expect(footer(win).getByLabel('Colour under the cursor')).toHaveText('#FFFFFF');
-  await expect(footer(win)).toContainText(/Mem \d+ MB \/ 2\.0 GB/);
+  await expect(footer(win)).toContainText(/Mem \d+ MB \/ [\d.]+ GB/);
 
   // Zoom In steps through presets: 100 → 200 → 300 %; Zoom Out goes back.
   await win.keyboard.press('ControlOrMeta+=');
