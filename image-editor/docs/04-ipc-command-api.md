@@ -138,7 +138,7 @@ The only entry point is `doc.execute(cmd)`. It runs `do`, pushes to history (or 
 | Pixels | `PaintTiles` (brush, eraser, clone, fill, gradient: carries before/after tile refs), `FilterLayer`, `ApplyAdjustment` (destructive), `ClearSelection`, `FillSelection` |
 | Masks | `AddMask`, `DeleteMask`, `ApplyMask`, `SetMaskProps` (enabled, linked, inverted), `PaintTiles` targeting the mask |
 | Selection | `SetSelection` (holds before/after mask tile refs), `TransformSelection` |
-| Transform | `TranslateLayer` (Move tool drag, nudge and align: whole-pixel offset of a layer or every raster layer in a group; consecutive nudges coalesce; pixels outside the canvas are kept), `TransformLayers` (matrix, resampling), `CropDocument`, `ResizeImage`, `ResizeCanvas`, `RotateCanvas`, `FlipCanvas`, `Trim` |
+| Transform | `TranslateLayer` (Move tool drag, nudge and align: whole-pixel offset of a layer or every raster layer in a group; consecutive nudges coalesce; pixels outside the canvas are kept), `TransformLayers` (matrix, resampling), `CropDocument`, `ResizeImage`, `ResizeCanvas`, `RotateCanvas`, `FlipCanvas`, `Trim` (canvas-level commands change the document size and guides along with every layer's tiles, as one tree swap; resampled pixels are computed in the ops worker first) |
 | Adjustment layers | `AddAdjustmentLayer`, `SetAdjustmentParams` (coalescing) |
 | Text/shape | `AddTextLayer`, `EditText` (runs diff), `SetTextStyle`, `AddShapeLayer`, `EditShape` |
 | Document | `SetGuides`, `SetDocumentProps` (ppi) |

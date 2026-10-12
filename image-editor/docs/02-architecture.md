@@ -163,8 +163,11 @@ on a downscaled proxy while a slider is being dragged, then at full resolution o
 
 - Free transform: a live preview as a textured quad with an affine (later projective) matrix. On commit,
   it re-rasterizes into tiles with bicubic sampling in the shader.
-- Image size: Lanczos3 / bicubic / bilinear / nearest, as GPU two-pass separable resampling (CPU fallback
-  in the worker for sizes beyond the VRAM budget).
+- Image size: Lanczos3 / bicubic / bilinear / nearest, as two-pass separable resampling in premultiplied
+  gamma space, widened when downscaling, edges extended at the canvas. M1 runs it on the CPU in the ops
+  worker (`engine/ops/resample.ts`, band by band so memory follows the output width); a GPU path for
+  sizes within the VRAM budget is a later optimisation. Arbitrary rotation inverse-maps each output pixel
+  with Catmull-Rom bicubic in the same worker. 90° rotations and flips are exact tile copies.
 
 ### 5.7 Text & shapes
 

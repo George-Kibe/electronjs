@@ -1,6 +1,8 @@
 import { tileRange } from '@shared/iep-schema';
+import { assemble, contentBounds, words, type Bounds } from '../ops/canvas';
+
+export { contentBounds, type Bounds };
 import {
-  createTile,
   parseTileKey,
   TILE_BYTES,
   TILE_SIZE,
@@ -18,8 +20,6 @@ import { walkLayers, type Document, type Layer, type RasterLayer } from './docum
  * them) up to the margin of `tileRange` (shared with the `.iep` reader), and dropped beyond it.
  */
 
-export type Bounds = { x0: number; y0: number; x1: number; y1: number };
-
 /** Shifts a grid by (dx, dy) whole pixels. Tiles are shared when the offset is a multiple of the tile size. */
 export function translateGrid(
   grid: TileGrid,
@@ -27,10 +27,10 @@ export function translateGrid(
   dy: number,
   range: ReturnType<typeof tileRange>,
 ): TileGrid {
-  const out = new TileGrid();
-  const inRange = (tx: number, ty: number) =>
-    tx >= range.tx0 && tx < range.tx1 && ty >= range.ty0 && ty < range.ty1;
   if (dx % TILE_SIZE === 0 && dy % TILE_SIZE === 0) {
+    const out = new TileGrid();
+    const inRange = (tx: number, ty: number) =>
+      tx >= range.tx0 && tx < range.tx1 && ty >= range.ty0 && ty < range.ty1;
     for (const [key, tile] of grid.entries()) {
       const [tx, ty] = parseTileKey(key);
       const nx = tx + dx / TILE_SIZE;
@@ -39,76 +39,13 @@ export function translateGrid(
     }
     return out;
   }
-  const dest = new Map<TileKey, Uint32Array>();
-  for (const [key, tile] of grid.entries()) {
-    const [tx, ty] = parseTileKey(key);
-    const bytes = tile.data.byteOffset % 4 === 0 ? tile.data : tile.data.slice();
-    const src = new Uint32Array(bytes.buffer, bytes.byteOffset, TILE_SIZE * TILE_SIZE);
-    const ox = tx * TILE_SIZE + dx; // where the source tile's top-left pixel lands
-    const oy = ty * TILE_SIZE + dy;
-    for (let ny = Math.floor(oy / TILE_SIZE); ny <= Math.floor((oy + TILE_SIZE - 1) / TILE_SIZE); ny++) {
-      for (let nx = Math.floor(ox / TILE_SIZE); nx <= Math.floor((ox + TILE_SIZE - 1) / TILE_SIZE); nx++) {
-        if (!inRange(nx, ny)) continue;
-        const k = tileKey(nx, ny);
-        let d = dest.get(k);
-        if (!d) dest.set(k, (d = new Uint32Array(TILE_SIZE * TILE_SIZE)));
-        // Overlap of the shifted source tile with destination tile (nx, ny), in destination-local px.
-        const x0 = Math.max(0, ox - nx * TILE_SIZE);
-        const x1 = Math.min(TILE_SIZE, ox + TILE_SIZE - nx * TILE_SIZE);
-        const y0 = Math.max(0, oy - ny * TILE_SIZE);
-        const y1 = Math.min(TILE_SIZE, oy + TILE_SIZE - ny * TILE_SIZE);
-        const sx = nx * TILE_SIZE - ox; // destination-local → source-local offset
-        const sy = ny * TILE_SIZE - oy;
-        for (let y = y0; y < y1; y++) {
-          const from = (y + sy) * TILE_SIZE + x0 + sx;
-          d.set(src.subarray(from, from + (x1 - x0)), y * TILE_SIZE + x0);
-        }
-      }
-    }
-  }
-  for (const [k, d] of dest) {
-    const bytes = new Uint8ClampedArray(d.buffer);
-    if (hasPixels(bytes)) out.set(k, createTile(bytes));
-  }
-  return out;
-}
-
-function hasPixels(data: Uint8ClampedArray): boolean {
-  for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return true;
-  return false;
-}
-
-/** Bounds of the non-transparent pixels of `grids` (document px, exclusive max), or null if all empty. */
-export function contentBounds(grids: Iterable<TileGrid>): Bounds | null {
-  const b: Bounds = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
-  for (const grid of grids) {
-    for (const [key, tile] of grid.entries()) {
+  return assemble(
+    [...grid.entries()].map(([key, tile]) => {
       const [tx, ty] = parseTileKey(key);
-      const d = tile.data;
-      let x0 = TILE_SIZE;
-      let y0 = TILE_SIZE;
-      let x1 = -1;
-      let y1 = -1;
-      for (let y = 0; y < TILE_SIZE; y++) {
-        const row = y * TILE_SIZE * 4;
-        for (let x = 0; x < TILE_SIZE; x++) {
-          if (d[row + x * 4 + 3] === 0) continue;
-          if (x < x0) x0 = x;
-          if (x > x1) x1 = x;
-          if (y < y0) y0 = y;
-          y1 = y;
-        }
-      }
-      if (x1 < 0) continue;
-      const ox = tx * TILE_SIZE;
-      const oy = ty * TILE_SIZE;
-      b.x0 = Math.min(b.x0, ox + x0);
-      b.y0 = Math.min(b.y0, oy + y0);
-      b.x1 = Math.max(b.x1, ox + x1 + 1);
-      b.y1 = Math.max(b.y1, oy + y1 + 1);
-    }
-  }
-  return b.x1 > b.x0 ? b : null;
+      return { x: tx * TILE_SIZE + dx, y: ty * TILE_SIZE + dy, data: words(tile) };
+    }),
+    range,
+  );
 }
 
 /** The raster layers a move of `id` affects: the layer itself, or every raster layer inside a group. */

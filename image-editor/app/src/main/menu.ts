@@ -68,6 +68,25 @@ export function menuTemplate(
       ],
     },
     {
+      label: 'Image',
+      submenu: [
+        cmd('Image Size…', 'image.imageSize', 'CmdOrCtrl+Alt+I'),
+        cmd('Canvas Size…', 'image.canvasSize', 'CmdOrCtrl+Alt+C'),
+        {
+          label: 'Image Rotation',
+          submenu: [
+            cmd('180°', 'image.rotate180'),
+            cmd('90° Clockwise', 'image.rotate90cw'),
+            cmd('90° Counter Clockwise', 'image.rotate90ccw'),
+            cmd('Arbitrary…', 'image.rotateArbitrary'),
+            { type: 'separator' },
+            cmd('Flip Canvas Horizontal', 'image.flipHorizontal'),
+            cmd('Flip Canvas Vertical', 'image.flipVertical'),
+          ],
+        },
+      ],
+    },
+    {
       label: 'Layer',
       submenu: [
         cmd('New Layer', 'layer.new', 'CmdOrCtrl+Shift+N'),
