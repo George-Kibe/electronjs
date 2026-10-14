@@ -41,6 +41,8 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
     settings: new SettingsStore({ path: join(dir, `settings-${crypto.randomUUID()}.json`), writeAtomic }),
     recent: new RecentFiles({ dir: mkdtempSync(join(dir, 'recent-')), writeAtomic }),
     addOsRecent: vi.fn(),
+    openDocumentWindow: vi.fn(),
+    takeHandover: vi.fn(() => null),
     launchPaths,
     defaultDir: dir,
     setDocumentEdited: vi.fn(),
@@ -82,6 +84,36 @@ describe('IPC handlers', () => {
     expect(await handlers['recovery.read']({ id }, event)).toEqual(new Uint8Array([7]));
     await handlers['recovery.discard']({ id }, event);
     await expect(handlers['recovery.read']({ id }, event)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('moves a document to a new window, keeping only file refs main issued', async () => {
+    const { handlers, deps, event } = setup();
+    const ref = (await handlers['dialog.openImage'](undefined, event))!;
+    const document = {
+      id: crypto.randomUUID(),
+      name: 'Doc',
+      file: ref,
+      isProject: true,
+      dirty: true,
+      readOnlyReason: null,
+    };
+    await handlers['window.moveDocument'](
+      { project: new Uint8Array([1]), document, at: { x: 5, y: 6 } },
+      event,
+    );
+    expect(deps.openDocumentWindow).toHaveBeenLastCalledWith(
+      { project: new Uint8Array([1]), document },
+      { x: 5, y: 6 },
+    );
+    const forged = { ...ref, id: crypto.randomUUID() };
+    await handlers['window.moveDocument'](
+      { project: new Uint8Array([1]), document: { ...document, file: forged }, at: null },
+      event,
+    );
+    expect(deps.openDocumentWindow).toHaveBeenLastCalledWith(
+      { project: new Uint8Array([1]), document: { ...document, file: null, isProject: false } },
+      null,
+    );
   });
 
   it('reads and updates settings; a failed save is reported, invalid values are rejected', async () => {
@@ -189,7 +221,9 @@ describe('IPC handlers', () => {
     const { handlers, deps, event } = setup();
     await handlers['app.setDocumentEdited'](true, event);
     await handlers['app.closeWindow'](undefined, event);
-    expect(deps.setDocumentEdited).toHaveBeenCalledWith(true);
-    expect(deps.closeWindow).toHaveBeenCalled();
+    // The sender identifies which window's guard to update (several windows, FR-DOC-03).
+    const sender = (event as { sender: unknown }).sender;
+    expect(deps.setDocumentEdited).toHaveBeenCalledWith(true, sender);
+    expect(deps.closeWindow).toHaveBeenCalledWith(sender);
   });
 });

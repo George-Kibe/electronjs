@@ -47,6 +47,7 @@ export const MENU_COMMANDS = [
   'view.fit',
   'view.actualSize',
   'view.pixelGrid',
+  'window.moveTab',
   'window.layers',
   'window.swatches',
   'window.history',

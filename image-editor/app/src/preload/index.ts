@@ -21,6 +21,10 @@ const api: ImageEditorBridge = {
     getLaunchFiles: () => call('app.getLaunchFiles'),
     setDocumentEdited: (edited) => call('app.setDocumentEdited', edited),
     closeWindow: () => call('app.closeWindow'),
+    takeHandover: () => call('app.takeHandover'),
+  },
+  window: {
+    moveDocument: (req) => call('window.moveDocument', req),
   },
   dialog: {
     openImage: () => call('dialog.openImage'),

@@ -10,6 +10,7 @@ import {
 import type { MenuCommandId } from '@shared/menu';
 import { Editor, isPaintTool, type EditorSnapshot, type EditorState, type Tool } from '../engine/editor';
 import { api, errorMessage, events } from '../lib/api';
+import { readProject } from '../lib/files';
 import { runOps } from '../lib/ops';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { BrushCursor } from './components/BrushCursor';
@@ -146,6 +147,17 @@ export function App() {
   };
   const { openRef } = files;
 
+  // A window opened for a tab dragged out of another one shows that document (FR-DOC-03).
+  const { reportError } = files;
+  useEffect(() => {
+    if (!editor) return;
+    api.app.takeHandover().then(async (h) => {
+      if (!h) return;
+      const { doc } = await readProject(h.project);
+      editor.openMoved(doc, h.document);
+    }, reportError);
+  }, [editor, reportError]);
+
   // Files passed on the command line / via file association (FR-DOC-02).
   useEffect(() => {
     if (!editor) return;
@@ -190,6 +202,7 @@ export function App() {
           'file.revert': () => void files.revert(),
           'file.close': () => void files.closeDocument(),
           'app.preferences': () => setPreferencesOpen(true),
+          'window.moveTab': () => void files.moveToNewWindow(),
           'window.layers': () => setWorkspace(toggleVisible(workspace, 'layers')),
           'window.swatches': () => setWorkspace(toggleVisible(workspace, 'swatches')),
           'window.history': () => setWorkspace(toggleVisible(workspace, 'history')),
@@ -335,6 +348,7 @@ export function App() {
               tabs={snap.tabs}
               onActivate={(id) => editor.activateDocument(id)}
               onClose={(id) => void files.closeDocument(id)}
+              onMoveOut={(id, at) => void files.moveToNewWindow(id, at)}
             />
           )}
           <div ref={canvasHost} className="relative min-h-0 flex-1 overflow-hidden">

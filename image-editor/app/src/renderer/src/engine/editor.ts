@@ -257,7 +257,10 @@ export type EditorState = {
     isProject: boolean;
     readOnlyReason: string | null;
     savedTop: Command | null;
-    /** Restored from a recovery snapshot: unsaved until saved, whatever the history says. */
+    /**
+     * Arrived without its history (a recovery snapshot, or moved from another window) with unsaved
+     * changes: unsaved until saved, whatever the history says.
+     */
     recovered?: boolean;
   };
   view: { zoom: number; panX: number; panY: number; autoFit: boolean };
@@ -485,6 +488,49 @@ export class Editor {
     this.open(doc, { ref: null, isProject: false, readOnlyReason: null }, id);
     this.file = { ...this.file, recovered: true };
     this.changed();
+  }
+
+  /**
+   * Shows a document moved here from another window (FR-DOC-03): same id (recovery continues), same file
+   * and save state. Its history stays behind.
+   */
+  openMoved(
+    snapshot: DocSnapshot,
+    meta: {
+      id: string;
+      name: string;
+      file: DocumentFile | null;
+      isProject: boolean;
+      dirty: boolean;
+      readOnlyReason: string | null;
+    },
+  ): void {
+    const doc = fromSnapshot(snapshot);
+    doc.meta.name = meta.name;
+    this.open(
+      doc,
+      { ref: meta.file, isProject: meta.isProject, readOnlyReason: meta.readOnlyReason },
+      meta.id,
+    );
+    if (meta.dirty) this.file = { ...this.file, recovered: true };
+    this.changed();
+  }
+
+  /** Name, file and save state of any open document (moving it to another window). */
+  describeDocument(id: string) {
+    const active = id === this.docId;
+    const s = active ? null : this.background.get(id);
+    const doc = active ? this.doc : s?.doc;
+    if (!doc) return null;
+    const file = active ? this.file : s!.file;
+    return {
+      id,
+      name: doc.meta.name,
+      file: file.ref,
+      isProject: file.isProject,
+      dirty: sessionDirty(active ? this.history : s!.history, file),
+      readOnlyReason: file.readOnlyReason,
+    };
   }
 
   /** Plain copy of the document for the file worker (tile bytes are shared, not copied). */

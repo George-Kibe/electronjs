@@ -164,6 +164,8 @@ export function menuTemplate(
     {
       label: 'Window',
       submenu: [
+        cmd('Move Tab to New Window', 'window.moveTab'),
+        { type: 'separator' },
         cmd('Layers', 'window.layers'),
         cmd('Swatches', 'window.swatches'),
         cmd('History', 'window.history'),

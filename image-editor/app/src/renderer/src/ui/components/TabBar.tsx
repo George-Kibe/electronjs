@@ -5,13 +5,15 @@ type Props = {
   tabs: EditorSnapshot['tabs'];
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  /** A tab dragged out of the window: show it in a new window near (x, y) on screen (FR-DOC-03). */
+  onMoveOut: (id: string, at: { x: number; y: number }) => void;
 };
 
 /**
  * Document tabs (FR-DOC-03, docs/03 §3): name with an unsaved-changes dot; middle-click or ✕ closes
  * (asking about unsaved changes). Arrow keys move between tabs (WAI-ARIA tabs pattern).
  */
-export function TabBar({ tabs, onActivate, onClose }: Props) {
+export function TabBar({ tabs, onActivate, onClose, onMoveOut }: Props) {
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = tabs.findIndex((t) => t.active);
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -38,6 +40,21 @@ export function TabBar({ tabs, onActivate, onClose }: Props) {
           }`}
           onAuxClick={(e) => {
             if (e.button === 1) onClose(t.id);
+          }}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('application/x-imageeditor-tab', t.id);
+          }}
+          onDragEnd={(e) => {
+            // Dropped outside the window (nothing accepted it, and the pointer is off the page).
+            const outside =
+              e.clientX < 0 ||
+              e.clientY < 0 ||
+              e.clientX > window.innerWidth ||
+              e.clientY > window.innerHeight;
+            if (e.dataTransfer.dropEffect === 'none' && outside)
+              onMoveOut(t.id, { x: e.screenX, y: e.screenY });
           }}
         >
           <button

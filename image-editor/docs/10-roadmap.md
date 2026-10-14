@@ -100,7 +100,10 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         each tab keeps its history, snapshots and view; Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+W, middle-click; the
         window's close asks about each tab with unsaved changes; autosave covers every dirty tab; new
         documents are numbered (Untitled-1, -2…). E2E green on 3 OSes (run 38618226424).
-  - [ ] 6.5b Drag a tab out into its own window (FR-DOC-03, second half): multi-window, document handover
+  - [ ] 6.5b A tab moves to its own window by dragging it out of the window or with Window › Move Tab to
+        New Window (FR-DOC-03): main manages several windows (a close guard each, menu commands to the
+        focused one), the document travels as `.iep` bytes with its file, id and unsaved state; undo history
+        stays behind.
   - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
   - [x] 6.7 Panel dock and workspaces (FR-GEN-01): collapsible panels, reorder by dragging a header or
         Alt+↑/↓, resize between panels and the dock's width, show/hide from the Window menu, Essentials and

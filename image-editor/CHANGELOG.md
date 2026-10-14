@@ -48,6 +48,7 @@ All notable changes to ImageEditor are documented here. The format follows
 - Panels can be collapsed, reordered (drag the title, or Alt+↑/↓), resized and hidden (Window menu);
   Window › Workspace › Essentials / Photography / Reset Workspace. Press Tab to hide the toolbar, options
   bar and panels. Your layout is remembered.
+- Drag a tab out of the window (or Window › Move Tab to New Window) to work on it in its own window.
 - Document tabs: open several images and projects at once. Ctrl+Tab switches, Ctrl+W closes (asking about
   unsaved changes), and closing the window asks about each unsaved document. New documents are numbered
   (Untitled-1, Untitled-2…).
