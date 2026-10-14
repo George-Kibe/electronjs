@@ -149,7 +149,14 @@ export type ViewState = { zoom: number; panX: number; panY: number; width: numbe
 export type DocumentFile = { id: string; displayName: string; displayDir: string };
 
 export type EditorSnapshot = {
-  doc: { width: number; height: number; name: string; sourceProfile: string | null } | null;
+  doc: {
+    /** Identity of this open document (names its recovery snapshot, FR-DOC-10). */
+    id: string;
+    width: number;
+    height: number;
+    name: string;
+    sourceProfile: string | null;
+  } | null;
   /** Save state (FR-DOC-04/11). */
   file: {
     /** The file the document was opened from or last saved to. */
@@ -161,6 +168,8 @@ export type EditorSnapshot = {
     /** Why Save must go to a new file (a project from a newer version), if so. */
     readOnlyReason: string | null;
   };
+  /** Open documents in tab order (FR-DOC-03). */
+  tabs: Array<{ id: string; name: string; dirty: boolean; active: boolean }>;
   /** Rows of the Layers panel: top → bottom, children under their group (hidden when collapsed). */
   layers: LayerRow[];
   activeLayerId: string | null;
@@ -248,15 +257,36 @@ export type EditorState = {
     isProject: boolean;
     readOnlyReason: string | null;
     savedTop: Command | null;
+    /** Restored from a recovery snapshot: unsaved until saved, whatever the history says. */
+    recovered?: boolean;
   };
   view: { zoom: number; panX: number; panY: number; autoFit: boolean };
   tool: Tool;
   options: ToolOptions;
   colors: Colors;
   snapshots: DocSnapshotEntry[];
+  docId: string;
+  /** Documents open in other tabs, and the tab order (FR-DOC-03). */
+  background: Session[];
+  tabOrder: string[];
 };
 
 type DocSnapshotEntry = { id: string; name: string; state: DocState };
+
+/** A document open in a tab that is not shown: everything needed to switch back to it (FR-DOC-03). */
+type Session = {
+  id: string;
+  doc: Document;
+  history: History;
+  file: EditorState['file'];
+  view: EditorState['view'];
+  snapshots: DocSnapshotEntry[];
+  /** Document version when it was last shown (it cannot change while hidden). */
+  version: number;
+};
+
+const sessionDirty = (history: History | null, file: EditorState['file']) =>
+  Boolean(file.recovered) || (history?.top ?? null) !== file.savedTop;
 
 export type EditorOptions = {
   /**
@@ -283,6 +313,10 @@ export class Editor {
   private doc: Document | null = null;
   private history: History | null = null;
   private file: EditorState['file'] = { ref: null, isProject: false, readOnlyReason: null, savedTop: null };
+  private docId = '';
+  private readonly background = new Map<string, Session>();
+  private tabOrder: string[] = [];
+  private untitledSeq = 0;
   /** Increments on every document change; lets the file worker reuse a flatten for repeated exports. */
   private version = 0;
   readonly viewport = new Viewport();
@@ -405,7 +439,8 @@ export class Editor {
       width,
       height,
       createRasterLayer('Background', TileGrid.filled(width, height, background)),
-      { ppi },
+      // Numbered, so tabs of new documents can be told apart (as in Photoshop).
+      { ppi, name: `Untitled-${++this.untitledSeq}` },
     );
     this.open(doc);
   }
@@ -416,6 +451,8 @@ export class Editor {
     rgba: Uint8Array,
     meta: { name: string; sourceProfile: string | null; exif: Uint8Array | null },
     file: DocumentFile | null = null,
+    /** Revert: reload into the same tab. */
+    replace = false,
   ): void {
     const doc = new Document(
       width,
@@ -423,23 +460,134 @@ export class Editor {
       createRasterLayer('Background', TileGrid.fromRgba(width, height, rgba)),
       meta,
     );
-    this.open(doc, { ref: file, isProject: false, readOnlyReason: null });
+    this.open(doc, { ref: file, isProject: false, readOnlyReason: null }, undefined, replace);
   }
 
   /** Opens a project read by the file worker. */
-  openProject(snapshot: DocSnapshot, file: DocumentFile | null, readOnlyReason: string | null): void {
+  openProject(
+    snapshot: DocSnapshot,
+    file: DocumentFile | null,
+    readOnlyReason: string | null,
+    replace = false,
+  ): void {
     const doc = fromSnapshot(snapshot);
     if (file) doc.meta.name = file.displayName;
-    this.open(doc, { ref: file, isProject: file !== null, readOnlyReason });
+    this.open(doc, { ref: file, isProject: file !== null, readOnlyReason }, undefined, replace);
+  }
+
+  /**
+   * Reopens a recovery snapshot (FR-DOC-10) as an unsaved document that keeps its id, so later autosaves
+   * overwrite the same recovery entry and saving removes it.
+   */
+  openRecovered(snapshot: DocSnapshot, id: string, name: string): void {
+    const doc = fromSnapshot(snapshot);
+    doc.meta.name = name;
+    this.open(doc, { ref: null, isProject: false, readOnlyReason: null }, id);
+    this.file = { ...this.file, recovered: true };
+    this.changed();
   }
 
   /** Plain copy of the document for the file worker (tile bytes are shared, not copied). */
-  getDocSnapshot(): DocSnapshot | null {
-    return this.doc ? toSnapshot(this.doc) : null;
+  getDocSnapshot(id: string = this.docId): DocSnapshot | null {
+    if (id === this.docId) return this.doc ? toSnapshot(this.doc) : null;
+    const s = this.background.get(id);
+    return s ? toSnapshot(s.doc) : null;
   }
 
   get documentVersion(): number {
     return this.version;
+  }
+
+  /** Version of any open document (autosave skips documents that have not changed). */
+  documentVersionOf(id: string): number {
+    return id === this.docId ? this.version : (this.background.get(id)?.version ?? -1);
+  }
+
+  // ---- tabs (FR-DOC-03) --------------------------------------------------------------------------
+
+  /** Keeps the shown document as a background session (before showing another one). */
+  private stash(): void {
+    if (!this.doc || !this.history) return;
+    const { zoom, panX, panY } = this.viewport;
+    this.background.set(this.docId, {
+      id: this.docId,
+      doc: this.doc,
+      history: this.history,
+      file: this.file,
+      view: { zoom, panX, panY, autoFit: this.autoFit },
+      snapshots: this.snapshots,
+      version: this.version,
+    });
+  }
+
+  /** Shows a background session; transient tool state never crosses documents. */
+  private show(s: Session): void {
+    this.background.delete(s.id);
+    this.stroke = null;
+    this.moving = null;
+    this.sampling = null;
+    this.cropDrag = null;
+    this.strokeBuffer.clear();
+    this.doc = s.doc;
+    this.history = s.history;
+    this.file = s.file;
+    this.snapshots = s.snapshots;
+    this.docId = s.id;
+    Object.assign(this.viewport, { zoom: s.view.zoom, panX: s.view.panX, panY: s.view.panY });
+    this.autoFit = s.view.autoFit;
+    this.shownSize = { width: s.doc.width, height: s.doc.height };
+    if (this.cropRect) this.cropRect = { x: 0, y: 0, width: s.doc.width, height: s.doc.height };
+    // A new version: caches keyed by version (the export flatten) must not serve another document.
+    this.version++;
+    if (this.autoFit) this.fitToScreen();
+    else this.changed();
+  }
+
+  /** Clicking a tab (or Ctrl+Tab). */
+  activateDocument(id: string): void {
+    const s = this.background.get(id);
+    if (!s || this.busy) return;
+    this.stash();
+    this.show(s);
+  }
+
+  /** Ctrl+Tab / Ctrl+Shift+Tab. */
+  cycleDocument(step: 1 | -1): void {
+    const n = this.tabOrder.length;
+    if (n < 2) return;
+    const i = this.tabOrder.indexOf(this.docId);
+    this.activateDocument(this.tabOrder[(i + step + n) % n]!);
+  }
+
+  /** Closes a tab without asking (the host confirms unsaved changes first). */
+  closeDocument(id: string = this.docId): void {
+    if (this.busy) return;
+    const index = this.tabOrder.indexOf(id);
+    if (index < 0) return;
+    this.tabOrder.splice(index, 1);
+    if (id !== this.docId) {
+      this.background.delete(id);
+      return this.changed();
+    }
+    const next = this.tabOrder[index] ?? this.tabOrder[index - 1];
+    if (next) return this.show(this.background.get(next)!);
+    this.doc = null;
+    this.history = null;
+    this.file = { ref: null, isProject: false, readOnlyReason: null, savedTop: null };
+    this.snapshots = [];
+    this.docId = '';
+    this.cropRect = null;
+    this.version++;
+    this.changed();
+  }
+
+  /** The tab already showing this file, if any (opening it again just switches to it). */
+  findDocument(file: Pick<DocumentFile, 'displayName' | 'displayDir'>): string | null {
+    const same = (f: EditorState['file']) =>
+      f.ref !== null && f.ref.displayName === file.displayName && f.ref.displayDir === file.displayDir;
+    if (this.doc && same(this.file)) return this.docId;
+    for (const s of this.background.values()) if (same(s.file)) return s.id;
+    return null;
   }
 
   /** Identifies the current history state; take it together with getDocSnapshot() when saving. */
@@ -470,6 +618,9 @@ export class Editor {
       options: this.toolOptions,
       colors: this.colors,
       snapshots: this.snapshots,
+      docId: this.docId,
+      background: [...this.background.values()],
+      tabOrder: [...this.tabOrder],
     };
   }
 
@@ -485,14 +636,34 @@ export class Editor {
     this.toolOptions = state.options;
     this.colors = state.colors;
     this.snapshots = state.snapshots;
+    this.docId = state.docId;
+    this.background.clear();
+    for (const s of state.background) {
+      s.history.onChange = () => this.onHistoryChange();
+      this.background.set(s.id, s);
+    }
+    this.tabOrder = [...state.tabOrder];
     this.version++;
     this.changed();
   }
 
+  /**
+   * Shows `doc` in a new tab after the active one, or in place of the active one with `replace` (Revert).
+   */
   private open(
     doc: Document,
     file: Omit<EditorState['file'], 'savedTop'> = { ref: null, isProject: false, readOnlyReason: null },
+    id: string = crypto.randomUUID(),
+    replace = false,
   ): void {
+    const at = this.tabOrder.indexOf(this.docId);
+    if (replace && at >= 0) this.tabOrder.splice(at, 1, id);
+    else {
+      this.stash();
+      this.tabOrder.splice(at + 1, 0, id);
+    }
+    this.cropRect = this.cropRect && { x: 0, y: 0, width: doc.width, height: doc.height };
+    this.docId = id;
     this.stroke = null;
     this.moving = null;
     this.strokeBuffer.clear();
@@ -531,14 +702,26 @@ export class Editor {
     const debug = this.gl.getExtension('WEBGL_debug_renderer_info');
     return {
       doc: doc
-        ? { width: doc.width, height: doc.height, name: doc.meta.name, sourceProfile: doc.meta.sourceProfile }
+        ? {
+            id: this.docId,
+            width: doc.width,
+            height: doc.height,
+            name: doc.meta.name,
+            sourceProfile: doc.meta.sourceProfile,
+          }
         : null,
       file: {
         ref: this.file.ref,
         isProject: this.file.isProject,
-        dirty: doc !== null && (this.history?.top ?? null) !== this.file.savedTop,
+        dirty: doc !== null && sessionDirty(this.history, this.file),
         readOnlyReason: this.file.readOnlyReason,
       },
+      tabs: this.tabOrder.map((id) => {
+        if (id === this.docId)
+          return { id, name: doc!.meta.name, dirty: sessionDirty(this.history, this.file), active: true };
+        const s = this.background.get(id)!;
+        return { id, name: s.doc.meta.name, dirty: sessionDirty(s.history, s.file), active: false };
+      }),
       layers: doc ? layerRows(doc.layers) : [],
       activeLayerId: doc?.activeLayerId ?? null,
       layerOps: doc
@@ -620,6 +803,51 @@ export class Editor {
     if (!this.doc) return;
     const { parentId, index } = this.insertionPoint();
     this.exec(new AddLayerCommand(this.nextName('Layer'), index, parentId));
+  }
+
+  /**
+   * Edit › Paste (FR-DOC-12): the pixels become a new layer above the active one, centred on the visible
+   * part of the canvas (as in Photoshop). Parts outside the canvas are kept (FR-TRF-07 margin).
+   */
+  pasteAsLayer(width: number, height: number, rgba: Uint8Array): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const view = this.viewport.visibleDocRect(this.cssSize().width, this.cssSize().height);
+    const cx = (Math.max(0, view.x0) + Math.min(doc.width, view.x1)) / 2;
+    const cy = (Math.max(0, view.y0) + Math.min(doc.height, view.y1)) / 2;
+    const grid = translateGrid(
+      TileGrid.fromRgba(width, height, rgba),
+      Math.round(cx - width / 2),
+      Math.round(cy - height / 2),
+      tileRange(doc.width, doc.height),
+    );
+    const { parentId, index } = this.insertionPoint();
+    this.exec(
+      new AddLayerCommand(createRasterLayer(this.nextName('Pasted Layer'), grid), index, parentId, 'Paste'),
+    );
+  }
+
+  /**
+   * What Edit › Copy (the active layer, as if visible, opaque and Normal) or Copy Merged (the visible
+   * composite) puts on the clipboard, as a snapshot for the file worker to encode (FR-DOC-12).
+   */
+  clipboardSnapshot(merged: boolean): DocSnapshot | null {
+    const doc = this.doc;
+    if (!doc) return null;
+    const full = toSnapshot(doc);
+    if (merged) return full;
+    const find = (list: DocSnapshot['layers']): DocSnapshot['layers'][number] | undefined => {
+      for (const l of list) {
+        if (l.id === doc.activeLayerId) return l;
+        const inner = l.type === 'group' ? find(l.children) : undefined;
+        if (inner) return inner;
+      }
+      return undefined;
+    };
+    const layer = find(full.layers);
+    if (!layer) return null;
+    const plain = { ...layer, visible: true, opacity: 1, fillOpacity: 1, blendMode: 'normal' as const };
+    return { ...full, layers: [plain.type === 'group' ? { ...plain, passThrough: false } : plain] };
   }
 
   addGroup(): void {

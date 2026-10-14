@@ -167,6 +167,7 @@ Defaults follow Photoshop where applicable. Ctrl = ⌘ on macOS, Alt = ⌥.
 | Image size / Canvas size | Ctrl+Alt+I / Ctrl+Alt+C |
 | Tools: Move / Crop / Brush ↔ Pencil / Eraser / Eyedropper / Hand / Zoom | V / C / B (Shift+B switches) / E / I / H / Z |
 | Crop: commit / reset the box | Enter / Esc |
+| Close document / next / previous tab | Ctrl+W / Ctrl+Tab / Ctrl+Shift+Tab |
 | Nudge the layer with the Move tool (Shift = 10 px) | Arrow keys |
 | Brush size − / + / Hardness − / + | [ / ] / Shift+[ / Shift+] |
 | Opacity presets for painting tools | 1…0 (10 %…100 %) |

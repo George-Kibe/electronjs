@@ -67,13 +67,8 @@ export function LayersPanel({ editor, snap }: Props) {
   };
 
   return (
-    <section
-      aria-labelledby="layers-title"
-      className="border-ui-border flex min-h-0 flex-1 flex-col border-b"
-    >
-      <h2 id="layers-title" className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide uppercase">
-        Layers
-      </h2>
+    // The dock (PanelDock) provides the section and its "Layers" header.
+    <div className="flex h-full min-h-0 flex-col pt-1">
       {active && (
         <div className="flex flex-col gap-1 px-3 pb-2">
           <select
@@ -290,6 +285,6 @@ export function LayersPanel({ editor, snap }: Props) {
           🗑
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
