@@ -31,6 +31,7 @@ import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
 import { useFileActions, type NewDocumentSpec } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
+import { useClipboard } from './useClipboard';
 import { useRecent } from './useRecent';
 import { useSettings } from './useSettings';
 import { useSwatches } from './useSwatches';
@@ -106,6 +107,7 @@ export function App() {
   const prefs = useSettings(editor, totalMemoryBytes);
   const files = useFileActions(editor);
   const recent = useRecent();
+  const clipboard = useClipboard(editor, files);
   // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
   const presets = prefs.settings.files.documentPresets;
   const newDocumentForm = {
@@ -142,10 +144,11 @@ export function App() {
       exportAs: files.openExport,
       quickExport: () => void files.quickExport(),
       preferences: () => setPreferencesOpen(true),
+      copyMerged: () => void clipboard.copyMerged(),
       imageSize: () => setImageDialog('imageSize'),
       canvasSize: () => setImageDialog('canvasSize'),
     }),
-    [files],
+    [files, clipboard],
   );
   useShortcuts(editor, actions);
 
@@ -164,6 +167,8 @@ export function App() {
           'file.quickExport': actions.quickExport,
           'file.revert': () => void files.revert(),
           'app.preferences': () => setPreferencesOpen(true),
+          'edit.copyMerged': () => void clipboard.copyMerged(),
+          'edit.pasteNewDocument': () => void clipboard.pasteAsNewDocument(),
           'edit.undo': () => editor?.undo(),
           'edit.redo': () => editor?.redo(),
           'layer.new': () => editor?.addLayer(),
@@ -199,7 +204,7 @@ export function App() {
         };
         run[id]();
       }),
-    [actions, files, editor],
+    [actions, files, editor, clipboard],
   );
 
   const onDrop = async (e: DragEvent) => {

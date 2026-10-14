@@ -14,6 +14,8 @@ export const MENU_COMMANDS = [
   'app.preferences',
   'edit.undo',
   'edit.redo',
+  'edit.copyMerged',
+  'edit.pasteNewDocument',
   'layer.new',
   'layer.newGroup',
   'layer.duplicate',
