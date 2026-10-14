@@ -16,6 +16,7 @@ import { FileRefRegistry } from './services/file-refs';
 import { launchPaths } from './services/launch-args';
 import { logger } from './services/logger';
 import { RecentFiles } from './services/recent-files';
+import { RecoveryStore } from './services/recovery';
 import { SettingsStore } from './services/settings-store';
 
 const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -153,7 +154,10 @@ if (!app.requestSingleInstanceLock()) {
           platform: process.platform,
           arch: process.arch,
           totalMemoryBytes: totalmem(),
+          // E2E only: a short autosave interval so crash recovery can be tested (docs/07 T-REC-01).
+          autosaveSecondsOverride: Number(process.env['E2E_AUTOSAVE_SECONDS']) || null,
         },
+        recovery: new RecoveryStore({ dir: join(app.getPath('userData'), 'recovery'), writeAtomic }),
         settings,
         recent,
         addOsRecent: (path) => app.addRecentDocument(path),

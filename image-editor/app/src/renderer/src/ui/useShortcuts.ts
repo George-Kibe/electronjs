@@ -9,6 +9,8 @@ export type ShortcutActions = {
   exportAs(): void;
   quickExport(): void;
   preferences(): void;
+  closeDocument(): void;
+  copyMerged(): void;
   imageSize(): void;
   canvasSize(): void;
 };
@@ -46,6 +48,9 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && e.altKey && !e.shiftKey && e.code === 'KeyI') return run(() => actions.imageSize());
         if (mod && e.altKey && !e.shiftKey && e.code === 'KeyC') return run(() => actions.canvasSize());
         if (mod && e.key === ',') return run(() => actions.preferences());
+        if (mod && !e.shiftKey && key === 'w') return run(() => actions.closeDocument());
+        if (e.ctrlKey && e.key === 'Tab') return run(() => editor.cycleDocument(e.shiftKey ? -1 : 1));
+        if (mod && e.shiftKey && key === 'c') return run(() => actions.copyMerged());
         if (mod && key === 'o') return run(() => actions.open());
         if (mod && key === 's') return run(() => (e.shiftKey ? actions.saveAs() : actions.save()));
         if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());

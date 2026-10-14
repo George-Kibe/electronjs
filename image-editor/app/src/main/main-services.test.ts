@@ -86,6 +86,20 @@ describe('menu', () => {
       expect(item.registerAccelerator).toBe(false);
   });
 
+  it('leaves Ctrl/⌘+W to File › Close (a tab) on every platform', () => {
+    for (const platform of ['linux', 'win32', 'darwin'] as const) {
+      type Item = ReturnType<typeof menuTemplate>[number];
+      const walk = (list: Item[]): Item[] =>
+        list.flatMap((m) => (Array.isArray(m.submenu) ? [m, ...walk(m.submenu)] : [m]));
+      const items = walk(menuTemplate(platform, () => undefined));
+      expect(
+        items.filter((i) => i.role === 'close' || i.role === 'windowMenu'),
+        platform,
+      ).toEqual([]);
+      expect(items.filter((i) => i.accelerator === 'CmdOrCtrl+W').map((i) => i.label)).toEqual(['Close']);
+    }
+  });
+
   it('adds the app menu on macOS', () => {
     expect(menuTemplate('darwin', () => undefined)[0]!.label).toBe('ImageEditor');
   });

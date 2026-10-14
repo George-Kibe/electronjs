@@ -64,6 +64,7 @@ export function menuTemplate(
         cmd('Save', 'file.save', 'CmdOrCtrl+S'),
         cmd('Save As…', 'file.saveAs', 'CmdOrCtrl+Shift+S'),
         cmd('Revert', 'file.revert'),
+        cmd('Close', 'file.close', 'CmdOrCtrl+W'),
         { type: 'separator' },
         cmd('Export As…', 'file.exportAs', 'CmdOrCtrl+Alt+Shift+W'),
         cmd('Quick Export as PNG', 'file.quickExport', "CmdOrCtrl+Alt+Shift+'"),
@@ -82,9 +83,13 @@ export function menuTemplate(
         cmd('Redo', 'edit.redo', 'CmdOrCtrl+Shift+Z'),
         { type: 'separator' },
         // Text fields in dialogs need the native clipboard roles.
+        // Native roles: text fields keep working, and on the canvas the renderer handles the DOM
+        // copy/paste events (FR-DOC-12).
         { role: 'cut' },
         { role: 'copy' },
+        cmd('Copy Merged', 'edit.copyMerged', 'CmdOrCtrl+Shift+C'),
         { role: 'paste' },
+        cmd('Paste as New Document', 'edit.pasteNewDocument'),
         { role: 'selectAll' },
         ...(mac
           ? []
@@ -155,6 +160,15 @@ export function menuTemplate(
         cmd('Pixel Grid', 'view.pixelGrid'),
       ],
     },
-    { role: 'windowMenu' },
+    // Not role 'windowMenu': its native "Close Window" would take Ctrl/⌘+W from File › Close (a tab).
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        ...(mac
+          ? ([{ role: 'zoom' }, { type: 'separator' }, { role: 'front' }] as MenuItemConstructorOptions[])
+          : []),
+      ],
+    },
   ];
 }

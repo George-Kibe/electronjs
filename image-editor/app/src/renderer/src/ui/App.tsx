@@ -26,12 +26,15 @@ import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
+import { TabBar } from './components/TabBar';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
 import { useFileActions, type NewDocumentSpec } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
+import { useClipboard } from './useClipboard';
 import { useRecent } from './useRecent';
+import { useRecovery } from './useRecovery';
 import { useSettings } from './useSettings';
 import { useSwatches } from './useSwatches';
 
@@ -55,9 +58,16 @@ export function App() {
   const swatches = useSwatches();
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [totalMemoryBytes, setTotalMemoryBytes] = useState(8 * 1024 ** 3);
+  const [appInfo, setAppInfo] = useState<{ version: string; autosaveSecondsOverride: number | null }>({
+    version: '0.0.0',
+    autosaveSecondsOverride: null,
+  });
   useEffect(() => {
     api.app.getInfo().then(
-      (info) => setTotalMemoryBytes(info.totalMemoryBytes),
+      (info) => {
+        setTotalMemoryBytes(info.totalMemoryBytes);
+        setAppInfo(info);
+      },
       () => undefined,
     );
   }, []);
@@ -104,8 +114,14 @@ export function App() {
   }, [engineNotice]);
 
   const prefs = useSettings(editor, totalMemoryBytes);
-  const files = useFileActions(editor);
+  const autosaveMs =
+    appInfo.autosaveSecondsOverride !== null
+      ? appInfo.autosaveSecondsOverride * 1000
+      : prefs.settings.files.autosaveMinutes * 60_000;
+  const recovery = useRecovery(editor, snap, autosaveMs, appInfo.version);
+  const files = useFileActions(editor, recovery.discardAll);
   const recent = useRecent();
+  const clipboard = useClipboard(editor, files);
   // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
   const presets = prefs.settings.files.documentPresets;
   const newDocumentForm = {
@@ -142,10 +158,12 @@ export function App() {
       exportAs: files.openExport,
       quickExport: () => void files.quickExport(),
       preferences: () => setPreferencesOpen(true),
+      closeDocument: () => void files.closeDocument(),
+      copyMerged: () => void clipboard.copyMerged(),
       imageSize: () => setImageDialog('imageSize'),
       canvasSize: () => setImageDialog('canvasSize'),
     }),
-    [files],
+    [files, clipboard],
   );
   useShortcuts(editor, actions);
 
@@ -163,7 +181,10 @@ export function App() {
           'file.exportAs': actions.exportAs,
           'file.quickExport': actions.quickExport,
           'file.revert': () => void files.revert(),
+          'file.close': () => void files.closeDocument(),
           'app.preferences': () => setPreferencesOpen(true),
+          'edit.copyMerged': () => void clipboard.copyMerged(),
+          'edit.pasteNewDocument': () => void clipboard.pasteAsNewDocument(),
           'edit.undo': () => editor?.undo(),
           'edit.redo': () => editor?.redo(),
           'layer.new': () => editor?.addLayer(),
@@ -199,7 +220,7 @@ export function App() {
         };
         run[id]();
       }),
-    [actions, files, editor],
+    [actions, files, editor, clipboard],
   );
 
   const onDrop = async (e: DragEvent) => {
@@ -292,31 +313,43 @@ export function App() {
             onReset={() => editor.resetColors()}
           />
         )}
-        <div ref={canvasHost} className="relative min-w-0 flex-1 overflow-hidden">
-          <canvas
-            key={canvasKey}
-            ref={attachCanvas}
-            aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
-            role="img"
-            // Absolutely positioned: the canvas's own pixel size (CSS size × DPR) must never feed back into layout.
-            className={`absolute inset-0 block h-full w-full ${cursorClass}`}
-            style={{ touchAction: 'none', cursor: cropCursor }}
-          />
-          {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
-          {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
-          {snap?.doc && editor && (
-            <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
-          )}
-          {!hasDoc && (
-            <Welcome
-              onOpen={actions.open}
-              recent={recent}
-              onOpenRecent={(id) => void files.openRecent(id)}
-              onRemoveRecent={(id) => void api.recent.remove(id).catch(files.reportError)}
-              onClearRecent={() => void api.recent.clear().catch(files.reportError)}
-              newDocument={newDocumentForm}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {snap && snap.tabs.length > 0 && editor && (
+            <TabBar
+              tabs={snap.tabs}
+              onActivate={(id) => editor.activateDocument(id)}
+              onClose={(id) => void files.closeDocument(id)}
             />
           )}
+          <div ref={canvasHost} className="relative min-h-0 flex-1 overflow-hidden">
+            <canvas
+              key={canvasKey}
+              ref={attachCanvas}
+              aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
+              role="img"
+              // Absolutely positioned: the canvas's own pixel size (CSS size × DPR) must never feed back into layout.
+              className={`absolute inset-0 block h-full w-full ${cursorClass}`}
+              style={{ touchAction: 'none', cursor: cropCursor }}
+            />
+            {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
+            {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
+            {snap?.doc && editor && (
+              <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
+            )}
+            {!hasDoc && (
+              <Welcome
+                onOpen={actions.open}
+                recent={recent}
+                onOpenRecent={(id) => void files.openRecent(id)}
+                onRemoveRecent={(id) => void api.recent.remove(id).catch(files.reportError)}
+                onClearRecent={() => void api.recent.clear().catch(files.reportError)}
+                newDocument={newDocumentForm}
+                recovery={recovery.items}
+                onRecover={(item) => void recovery.recover(item).catch(files.reportError)}
+                onDiscardRecovery={(id) => void recovery.discard(id)}
+              />
+            )}
+          </div>
         </div>
         {snap && hasDoc && (
           <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">
