@@ -46,7 +46,11 @@ export type NewDocumentSpec = {
  * Open / save / export / revert and the unsaved-changes guard (FR-DOC-02/04/05/06/11). Pixels and project
  * bytes never pass through React state: the engine, the file worker and the codec host handle them.
  */
-export function useFileActions(editor: Editor | null) {
+export function useFileActions(
+  editor: Editor | null,
+  /** Runs after Save / Don't Save and before the window closes (e.g. discarding the recovery snapshot). */
+  beforeClose: () => Promise<void> = async () => undefined,
+) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -241,10 +245,12 @@ export function useFileActions(editor: Editor | null) {
     () =>
       events.onCloseRequested(() => {
         void confirmDiscard().then(async (ok) => {
-          if (ok) await api.app.closeWindow();
+          if (!ok) return;
+          await beforeClose();
+          await api.app.closeWindow();
         });
       }),
-    [confirmDiscard],
+    [confirmDiscard, beforeClose],
   );
 
   return useMemo(

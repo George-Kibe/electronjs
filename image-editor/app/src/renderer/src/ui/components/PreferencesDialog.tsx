@@ -23,13 +23,13 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 }
 
 const selectClass = 'bg-ui-bg border-ui-border rounded border px-1.5 py-1';
-const SECTIONS = ['General', 'Performance'] as const;
+const SECTIONS = ['General', 'Performance', 'Files'] as const;
 type Section = (typeof SECTIONS)[number];
 
 /**
  * Preferences (FR-GEN-04, Ctrl+, / ⌘,). Changes apply and save immediately, so there is nothing to confirm;
- * "GPU off" takes effect at the next launch. Settings appear with the features that use them: autosave with
- * recovery, units with rulers and the scratch-space limit with disk history (M2).
+ * "GPU off" takes effect at the next launch. Settings appear with the features that use them: units with
+ * rulers and the scratch-space limit with disk history (M2).
  */
 export function PreferencesDialog({ settings, totalMemoryBytes, onChange, onClose }: Props) {
   const [section, setSection] = useState<Section>('General');
@@ -195,6 +195,25 @@ export function PreferencesDialog({ settings, totalMemoryBytes, onChange, onClos
                 </select>
               </Row>
             </>
+          )}
+          {section === 'Files' && (
+            <Row
+              label="Recovery snapshots"
+              hint="If the app or computer crashes, the Welcome screen offers the last snapshot."
+            >
+              <select
+                aria-label="Recovery snapshots"
+                value={settings.files.autosaveMinutes}
+                onChange={(e) => onChange({ files: { autosaveMinutes: Number(e.target.value) } })}
+                className={selectClass}
+              >
+                <option value={1}>Every minute</option>
+                <option value={2}>Every 2 minutes</option>
+                <option value={5}>Every 5 minutes</option>
+                <option value={10}>Every 10 minutes</option>
+                <option value={0}>Off</option>
+              </select>
+            </Row>
           )}
         </div>
       </div>

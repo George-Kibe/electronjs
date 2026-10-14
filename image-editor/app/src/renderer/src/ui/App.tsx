@@ -32,6 +32,7 @@ import { Welcome } from './components/Welcome';
 import { useFileActions, type NewDocumentSpec } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
 import { useRecent } from './useRecent';
+import { useRecovery } from './useRecovery';
 import { useSettings } from './useSettings';
 import { useSwatches } from './useSwatches';
 
@@ -55,9 +56,16 @@ export function App() {
   const swatches = useSwatches();
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [totalMemoryBytes, setTotalMemoryBytes] = useState(8 * 1024 ** 3);
+  const [appInfo, setAppInfo] = useState<{ version: string; autosaveSecondsOverride: number | null }>({
+    version: '0.0.0',
+    autosaveSecondsOverride: null,
+  });
   useEffect(() => {
     api.app.getInfo().then(
-      (info) => setTotalMemoryBytes(info.totalMemoryBytes),
+      (info) => {
+        setTotalMemoryBytes(info.totalMemoryBytes);
+        setAppInfo(info);
+      },
       () => undefined,
     );
   }, []);
@@ -104,7 +112,12 @@ export function App() {
   }, [engineNotice]);
 
   const prefs = useSettings(editor, totalMemoryBytes);
-  const files = useFileActions(editor);
+  const autosaveMs =
+    appInfo.autosaveSecondsOverride !== null
+      ? appInfo.autosaveSecondsOverride * 1000
+      : prefs.settings.files.autosaveMinutes * 60_000;
+  const recovery = useRecovery(editor, snap, autosaveMs, appInfo.version);
+  const files = useFileActions(editor, recovery.discardCurrent);
   const recent = useRecent();
   // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
   const presets = prefs.settings.files.documentPresets;
@@ -315,6 +328,9 @@ export function App() {
               onRemoveRecent={(id) => void api.recent.remove(id).catch(files.reportError)}
               onClearRecent={() => void api.recent.clear().catch(files.reportError)}
               newDocument={newDocumentForm}
+              recovery={recovery.items}
+              onRecover={(item) => void recovery.recover(item).catch(files.reportError)}
+              onDiscardRecovery={(id) => void recovery.discard(id)}
             />
           )}
         </div>

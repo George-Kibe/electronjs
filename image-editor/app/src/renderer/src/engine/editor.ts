@@ -149,7 +149,14 @@ export type ViewState = { zoom: number; panX: number; panY: number; width: numbe
 export type DocumentFile = { id: string; displayName: string; displayDir: string };
 
 export type EditorSnapshot = {
-  doc: { width: number; height: number; name: string; sourceProfile: string | null } | null;
+  doc: {
+    /** Identity of this open document (names its recovery snapshot, FR-DOC-10). */
+    id: string;
+    width: number;
+    height: number;
+    name: string;
+    sourceProfile: string | null;
+  } | null;
   /** Save state (FR-DOC-04/11). */
   file: {
     /** The file the document was opened from or last saved to. */
@@ -248,12 +255,15 @@ export type EditorState = {
     isProject: boolean;
     readOnlyReason: string | null;
     savedTop: Command | null;
+    /** Restored from a recovery snapshot: unsaved until saved, whatever the history says. */
+    recovered?: boolean;
   };
   view: { zoom: number; panX: number; panY: number; autoFit: boolean };
   tool: Tool;
   options: ToolOptions;
   colors: Colors;
   snapshots: DocSnapshotEntry[];
+  docId: string;
 };
 
 type DocSnapshotEntry = { id: string; name: string; state: DocState };
@@ -283,6 +293,7 @@ export class Editor {
   private doc: Document | null = null;
   private history: History | null = null;
   private file: EditorState['file'] = { ref: null, isProject: false, readOnlyReason: null, savedTop: null };
+  private docId = '';
   /** Increments on every document change; lets the file worker reuse a flatten for repeated exports. */
   private version = 0;
   readonly viewport = new Viewport();
@@ -433,6 +444,18 @@ export class Editor {
     this.open(doc, { ref: file, isProject: file !== null, readOnlyReason });
   }
 
+  /**
+   * Reopens a recovery snapshot (FR-DOC-10) as an unsaved document that keeps its id, so later autosaves
+   * overwrite the same recovery entry and saving removes it.
+   */
+  openRecovered(snapshot: DocSnapshot, id: string, name: string): void {
+    const doc = fromSnapshot(snapshot);
+    doc.meta.name = name;
+    this.open(doc, { ref: null, isProject: false, readOnlyReason: null }, id);
+    this.file = { ...this.file, recovered: true };
+    this.changed();
+  }
+
   /** Plain copy of the document for the file worker (tile bytes are shared, not copied). */
   getDocSnapshot(): DocSnapshot | null {
     return this.doc ? toSnapshot(this.doc) : null;
@@ -470,6 +493,7 @@ export class Editor {
       options: this.toolOptions,
       colors: this.colors,
       snapshots: this.snapshots,
+      docId: this.docId,
     };
   }
 
@@ -485,6 +509,7 @@ export class Editor {
     this.toolOptions = state.options;
     this.colors = state.colors;
     this.snapshots = state.snapshots;
+    this.docId = state.docId;
     this.version++;
     this.changed();
   }
@@ -492,7 +517,9 @@ export class Editor {
   private open(
     doc: Document,
     file: Omit<EditorState['file'], 'savedTop'> = { ref: null, isProject: false, readOnlyReason: null },
+    id: string = crypto.randomUUID(),
   ): void {
+    this.docId = id;
     this.stroke = null;
     this.moving = null;
     this.strokeBuffer.clear();
@@ -531,12 +558,20 @@ export class Editor {
     const debug = this.gl.getExtension('WEBGL_debug_renderer_info');
     return {
       doc: doc
-        ? { width: doc.width, height: doc.height, name: doc.meta.name, sourceProfile: doc.meta.sourceProfile }
+        ? {
+            id: this.docId,
+            width: doc.width,
+            height: doc.height,
+            name: doc.meta.name,
+            sourceProfile: doc.meta.sourceProfile,
+          }
         : null,
       file: {
         ref: this.file.ref,
         isProject: this.file.isProject,
-        dirty: doc !== null && (this.history?.top ?? null) !== this.file.savedTop,
+        dirty:
+          doc !== null &&
+          (Boolean(this.file.recovered) || (this.history?.top ?? null) !== this.file.savedTop),
         readOnlyReason: this.file.readOnlyReason,
       },
       layers: doc ? layerRows(doc.layers) : [],
