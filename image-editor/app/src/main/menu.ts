@@ -164,6 +164,20 @@ export function menuTemplate(
     {
       label: 'Window',
       submenu: [
+        cmd('Layers', 'window.layers'),
+        cmd('Swatches', 'window.swatches'),
+        cmd('History', 'window.history'),
+        { type: 'separator' },
+        {
+          label: 'Workspace',
+          submenu: [
+            cmd('Essentials', 'window.essentials'),
+            cmd('Photography', 'window.photography'),
+            { type: 'separator' },
+            cmd('Reset Workspace', 'window.resetWorkspace'),
+          ],
+        },
+        { type: 'separator' },
         { role: 'minimize' },
         ...(mac
           ? ([{ role: 'zoom' }, { type: 'separator' }, { role: 'front' }] as MenuItemConstructorOptions[])

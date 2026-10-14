@@ -102,7 +102,11 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         documents are numbered (Untitled-1, -2…). E2E green on 3 OSes (run 38618226424).
   - [ ] 6.5b Drag a tab out into its own window (FR-DOC-03, second half): multi-window, document handover
   - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
-  - [ ] 6.7 Collapsible panels and workspaces (FR-GEN-01)
+  - [ ] 6.7 Panel dock and workspaces (FR-GEN-01): collapsible panels, reorder by dragging a header or
+        Alt+↑/↓, resize between panels and the dock's width, show/hide from the Window menu, Essentials and
+        Photography presets, Reset Workspace, Tab hides the interface (from the canvas only, so keyboard
+        focus still moves); the layout is saved in settings. Photography gains Histogram, Navigator and
+        Adjustments with those panels (M2); floating panels are M4.
 
 **Exit:** journeys 1–2 (minus adjustments) pass E2E on 3 OSes. T-HIS-01, T-GPU-01, T-IO-01..04, T-REC-01
 green. Signed installers with auto-update. 10 testers use it for a week with no data loss.

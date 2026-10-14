@@ -45,6 +45,9 @@ All notable changes to ImageEditor are documented here. The format follows
   of long operations.
 - History snapshots: keep a state with the camera button and return to it later; the document as opened
   is always available. Ctrl+Alt+Z steps backward.
+- Panels can be collapsed, reordered (drag the title, or Alt+↑/↓), resized and hidden (Window menu);
+  Window › Workspace › Essentials / Photography / Reset Workspace. Press Tab to hide the toolbar, options
+  bar and panels. Your layout is remembered.
 - Document tabs: open several images and projects at once. Ctrl+Tab switches, Ctrl+W closes (asking about
   unsaved changes), and closing the window asks about each unsaved document. New documents are numbered
   (Untitled-1, Untitled-2…).

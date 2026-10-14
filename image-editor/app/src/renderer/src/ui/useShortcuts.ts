@@ -9,6 +9,7 @@ export type ShortcutActions = {
   exportAs(): void;
   quickExport(): void;
   preferences(): void;
+  toggleUi(): void;
   closeDocument(): void;
   copyMerged(): void;
   imageSize(): void;
@@ -90,6 +91,13 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
           );
         }
         if (key === ' ') return run(() => editor.setSpaceHeld(true));
+        // Only from the canvas or nothing focused: elsewhere Tab must keep moving focus (docs/03 §7).
+        if (
+          e.key === 'Tab' &&
+          !e.shiftKey &&
+          (e.target === document.body || e.target instanceof HTMLCanvasElement)
+        )
+          return run(() => actions.toggleUi());
         if (e.shiftKey && key === 'b') return run(() => editor.selectBrushTool(true));
         if (e.shiftKey) return false;
         if (key === 'v') return run(() => editor.setTool('move'));

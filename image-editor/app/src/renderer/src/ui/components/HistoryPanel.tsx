@@ -4,7 +4,6 @@ type Props = {
   history: EditorSnapshot['history'];
   initialLabel: string;
   onGoTo: (index: number) => void;
-  onSnapshot: () => void;
   onRestore: (id: string) => void;
   onDeleteSnapshot: (id: string) => void;
 };
@@ -13,30 +12,11 @@ type Props = {
  * History panel (FR-HIS-02): snapshots on top (the document as opened, then named ones; they never expire),
  * then every step. Clicking a step goes back to it; clicking a snapshot restores it as a new step.
  */
-export function HistoryPanel({
-  history,
-  initialLabel,
-  onGoTo,
-  onSnapshot,
-  onRestore,
-  onDeleteSnapshot,
-}: Props) {
+export function HistoryPanel({ history, initialLabel, onGoTo, onRestore, onDeleteSnapshot }: Props) {
   const rows = [{ label: initialLabel, index: -1 }, ...history.entries];
   return (
-    <section aria-labelledby="history-title" className="flex max-h-[40%] min-h-0 flex-col">
-      <div className="flex items-center px-3 pt-2 pb-1">
-        <h2 id="history-title" className="text-[11px] font-semibold tracking-wide uppercase">
-          History
-        </h2>
-        <button
-          className="text-ui-muted hover:text-ui-text ml-auto px-1"
-          aria-label="New snapshot"
-          title="New snapshot: keep this state even when older steps are dropped"
-          onClick={onSnapshot}
-        >
-          📷
-        </button>
-      </div>
+    // The dock (PanelDock) provides the section, the "History" header and its New snapshot button.
+    <div className="flex h-full min-h-0 flex-col">
       <ul aria-label="Snapshots" className="border-ui-border border-b pb-1">
         {history.snapshots.map((s, i) => (
           <li key={s.id} className="group flex items-center">
@@ -78,6 +58,6 @@ export function HistoryPanel({
           </li>
         ))}
       </ol>
-    </section>
+    </div>
   );
 }

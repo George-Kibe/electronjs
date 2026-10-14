@@ -22,6 +22,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
+import { PanelDock } from './components/PanelDock';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { StatusBar } from './components/StatusBar';
@@ -36,6 +37,8 @@ import { useClipboard } from './useClipboard';
 import { useRecent } from './useRecent';
 import { useRecovery } from './useRecovery';
 import { useSettings } from './useSettings';
+import { useWorkspace } from './useWorkspace';
+import { applyPreset, toggleVisible } from './workspace';
 import { useSwatches } from './useSwatches';
 
 const noSubscribe = () => () => undefined;
@@ -120,6 +123,9 @@ export function App() {
       : prefs.settings.files.autosaveMinutes * 60_000;
   const recovery = useRecovery(editor, snap, autosaveMs, appInfo.version);
   const files = useFileActions(editor, recovery.discardAll);
+  const [workspace, setWorkspace] = useWorkspace(prefs.settings, prefs.update);
+  /** Tab hides the toolbar, options bar and panels (docs/03 §6). */
+  const [uiHidden, setUiHidden] = useState(false);
   const recent = useRecent();
   const clipboard = useClipboard(editor, files);
   // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
@@ -158,6 +164,7 @@ export function App() {
       exportAs: files.openExport,
       quickExport: () => void files.quickExport(),
       preferences: () => setPreferencesOpen(true),
+      toggleUi: () => setUiHidden((h) => !h),
       closeDocument: () => void files.closeDocument(),
       copyMerged: () => void clipboard.copyMerged(),
       imageSize: () => setImageDialog('imageSize'),
@@ -183,6 +190,15 @@ export function App() {
           'file.revert': () => void files.revert(),
           'file.close': () => void files.closeDocument(),
           'app.preferences': () => setPreferencesOpen(true),
+          'window.layers': () => setWorkspace(toggleVisible(workspace, 'layers')),
+          'window.swatches': () => setWorkspace(toggleVisible(workspace, 'swatches')),
+          'window.history': () => setWorkspace(toggleVisible(workspace, 'history')),
+          'window.essentials': () => setWorkspace(applyPreset(workspace, 'essentials')),
+          'window.photography': () => setWorkspace(applyPreset(workspace, 'photography')),
+          'window.resetWorkspace': () =>
+            setWorkspace(
+              applyPreset(workspace, workspace.preset === 'photography' ? 'photography' : 'essentials'),
+            ),
           'edit.copyMerged': () => void clipboard.copyMerged(),
           'edit.pasteNewDocument': () => void clipboard.pasteAsNewDocument(),
           'edit.undo': () => editor?.undo(),
@@ -220,7 +236,7 @@ export function App() {
         };
         run[id]();
       }),
-    [actions, files, editor, clipboard],
+    [actions, files, editor, clipboard, workspace, setWorkspace],
   );
 
   const onDrop = async (e: DragEvent) => {
@@ -283,7 +299,7 @@ export function App() {
           {snap?.file.dirty ? <span aria-label="unsaved changes"> •</span> : null}
         </span>
       </header>
-      {snap && hasDoc && editor && (
+      {snap && hasDoc && editor && !uiHidden && (
         <OptionsBar
           tool={snap.tool}
           options={snap.options}
@@ -303,7 +319,7 @@ export function App() {
         />
       )}
       <div className="flex min-h-0 flex-1">
-        {snap && hasDoc && editor && (
+        {snap && hasDoc && editor && !uiHidden && (
           <ToolBar
             tool={snap.tool}
             colors={snap.colors}
@@ -351,25 +367,55 @@ export function App() {
             )}
           </div>
         </div>
-        {snap && hasDoc && (
-          <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">
-            {editor && <LayersPanel editor={editor} snap={snap} />}
-            <SwatchesPanel
-              recent={snap.colors.recent}
-              saved={swatches}
-              foreground={snap.colors.foreground}
-              onForeground={(c) => editor?.setForeground(c)}
-              onBackground={(c) => editor?.setBackground(c)}
-            />
-            <HistoryPanel
-              history={snap.history}
-              initialLabel={snap.file.ref ? 'Open' : 'New'}
-              onGoTo={(i) => editor?.goToHistory(i)}
-              onSnapshot={() => editor?.takeSnapshot()}
-              onRestore={(id) => editor?.restoreSnapshot(id)}
-              onDeleteSnapshot={(id) => editor?.deleteSnapshot(id)}
-            />
-          </aside>
+        {snap && hasDoc && !uiHidden && (
+          <PanelDock
+            workspace={workspace}
+            onChange={setWorkspace}
+            panels={{
+              layers: { content: editor && <LayersPanel editor={editor} snap={snap} /> },
+              swatches: {
+                content: (
+                  <SwatchesPanel
+                    recent={snap.colors.recent}
+                    saved={swatches}
+                    onForeground={(c) => editor?.setForeground(c)}
+                    onBackground={(c) => editor?.setBackground(c)}
+                  />
+                ),
+                actions: (
+                  <button
+                    className="text-ui-muted hover:text-ui-text px-1"
+                    aria-label="Add foreground colour to swatches"
+                    title="Add foreground colour to swatches"
+                    onClick={() => swatches.add(snap.colors.foreground)}
+                  >
+                    ＋
+                  </button>
+                ),
+              },
+              history: {
+                content: (
+                  <HistoryPanel
+                    history={snap.history}
+                    initialLabel={snap.file.ref ? 'Open' : 'New'}
+                    onGoTo={(i) => editor?.goToHistory(i)}
+                    onRestore={(id) => editor?.restoreSnapshot(id)}
+                    onDeleteSnapshot={(id) => editor?.deleteSnapshot(id)}
+                  />
+                ),
+                actions: (
+                  <button
+                    className="text-ui-muted hover:text-ui-text px-1"
+                    aria-label="New snapshot"
+                    title="New snapshot: keep this state even when older steps are dropped"
+                    onClick={() => editor?.takeSnapshot()}
+                  >
+                    📷
+                  </button>
+                ),
+              },
+            }}
+          />
         )}
       </div>
       <footer
