@@ -26,6 +26,7 @@ import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
+import { TabBar } from './components/TabBar';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
@@ -117,7 +118,7 @@ export function App() {
       ? appInfo.autosaveSecondsOverride * 1000
       : prefs.settings.files.autosaveMinutes * 60_000;
   const recovery = useRecovery(editor, snap, autosaveMs, appInfo.version);
-  const files = useFileActions(editor, recovery.discardCurrent);
+  const files = useFileActions(editor, recovery.discardAll);
   const recent = useRecent();
   // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
   const presets = prefs.settings.files.documentPresets;
@@ -155,6 +156,7 @@ export function App() {
       exportAs: files.openExport,
       quickExport: () => void files.quickExport(),
       preferences: () => setPreferencesOpen(true),
+      closeDocument: () => void files.closeDocument(),
       imageSize: () => setImageDialog('imageSize'),
       canvasSize: () => setImageDialog('canvasSize'),
     }),
@@ -176,6 +178,7 @@ export function App() {
           'file.exportAs': actions.exportAs,
           'file.quickExport': actions.quickExport,
           'file.revert': () => void files.revert(),
+          'file.close': () => void files.closeDocument(),
           'app.preferences': () => setPreferencesOpen(true),
           'edit.undo': () => editor?.undo(),
           'edit.redo': () => editor?.redo(),
@@ -305,34 +308,43 @@ export function App() {
             onReset={() => editor.resetColors()}
           />
         )}
-        <div ref={canvasHost} className="relative min-w-0 flex-1 overflow-hidden">
-          <canvas
-            key={canvasKey}
-            ref={attachCanvas}
-            aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
-            role="img"
-            // Absolutely positioned: the canvas's own pixel size (CSS size × DPR) must never feed back into layout.
-            className={`absolute inset-0 block h-full w-full ${cursorClass}`}
-            style={{ touchAction: 'none', cursor: cropCursor }}
-          />
-          {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
-          {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
-          {snap?.doc && editor && (
-            <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
-          )}
-          {!hasDoc && (
-            <Welcome
-              onOpen={actions.open}
-              recent={recent}
-              onOpenRecent={(id) => void files.openRecent(id)}
-              onRemoveRecent={(id) => void api.recent.remove(id).catch(files.reportError)}
-              onClearRecent={() => void api.recent.clear().catch(files.reportError)}
-              newDocument={newDocumentForm}
-              recovery={recovery.items}
-              onRecover={(item) => void recovery.recover(item).catch(files.reportError)}
-              onDiscardRecovery={(id) => void recovery.discard(id)}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {snap && snap.tabs.length > 0 && editor && (
+            <TabBar
+              tabs={snap.tabs}
+              onActivate={(id) => editor.activateDocument(id)}
+              onClose={(id) => void files.closeDocument(id)}
             />
           )}
+          <div ref={canvasHost} className="relative min-h-0 flex-1 overflow-hidden">
+            <canvas
+              key={canvasKey}
+              ref={attachCanvas}
+              aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
+              role="img"
+              // Absolutely positioned: the canvas's own pixel size (CSS size × DPR) must never feed back into layout.
+              className={`absolute inset-0 block h-full w-full ${cursorClass}`}
+              style={{ touchAction: 'none', cursor: cropCursor }}
+            />
+            {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
+            {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
+            {snap?.doc && editor && (
+              <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
+            )}
+            {!hasDoc && (
+              <Welcome
+                onOpen={actions.open}
+                recent={recent}
+                onOpenRecent={(id) => void files.openRecent(id)}
+                onRemoveRecent={(id) => void api.recent.remove(id).catch(files.reportError)}
+                onClearRecent={() => void api.recent.clear().catch(files.reportError)}
+                newDocument={newDocumentForm}
+                recovery={recovery.items}
+                onRecover={(item) => void recovery.recover(item).catch(files.reportError)}
+                onDiscardRecovery={(id) => void recovery.discard(id)}
+              />
+            )}
+          </div>
         </div>
         {snap && hasDoc && (
           <aside aria-label="Panels" className="bg-ui-panel border-ui-border flex w-60 flex-col border-l">

@@ -93,7 +93,11 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         document has unsaved changes, discarded when it is saved, replaced or closed; after a crash the
         Welcome screen offers Recover / Discard; a recovered document stays unsaved until saved (FR-DOC-10,
         T-REC-01 in E2E with a real SIGKILL). E2E green on 3 OSes (run 38615698011).
-  - [ ] 6.5 Document tabs (FR-DOC-03)
+  - [ ] 6.5 Document tabs (FR-DOC-03): open, new and paste add a tab (opening an open file switches to it);
+        each tab keeps its history, snapshots and view; Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+W, middle-click; the
+        window's close asks about each tab with unsaved changes; autosave covers every dirty tab; new
+        documents are numbered (Untitled-1, -2…).
+  - [ ] 6.5b Drag a tab out into its own window (FR-DOC-03, second half): multi-window, document handover
   - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
   - [ ] 6.7 Collapsible panels and workspaces (FR-GEN-01)
 

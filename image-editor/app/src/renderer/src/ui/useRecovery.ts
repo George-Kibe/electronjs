@@ -17,33 +17,38 @@ export function useRecovery(
   appVersion: string,
 ) {
   const [items, setItems] = useState<RecoveryItem[]>([]);
-  const written = useRef<{ id: string; version: number } | null>(null);
+  /** Version last written per document id (nothing is rewritten until it changes). */
+  const written = useRef(new Map<string, number>());
   const busy = useRef(false);
 
   const refresh = useCallback(() => void api.recovery.list().then(setItems, () => undefined), []);
 
+  /** Writes a snapshot of every open document with unsaved changes that changed since its last one. */
   const writeNow = useCallback(async () => {
-    const s = editor?.getSnapshot();
-    if (!editor || !s?.doc || !s.file.dirty || busy.current) return;
-    const version = editor.documentVersion;
-    if (written.current?.id === s.doc.id && written.current.version === version) return; // nothing new
-    const doc = editor.getDocSnapshot();
-    if (!doc) return;
+    if (!editor || busy.current) return;
     busy.current = true;
     try {
-      const [project, thumbnail] = await Promise.all([
-        writeProject(doc, appVersion),
-        thumbnailPng(doc).catch(() => null),
-      ]);
-      await api.recovery.write({
-        id: s.doc.id,
-        name: s.doc.name,
-        project,
-        thumbnail: thumbnail ?? undefined,
-      });
-      written.current = { id: s.doc.id, version };
-    } catch (err) {
-      console.warn('[recovery] snapshot not written', err);
+      for (const tab of editor.getSnapshot().tabs) {
+        const version = editor.documentVersionOf(tab.id);
+        if (!tab.dirty || written.current.get(tab.id) === version) continue;
+        const doc = editor.getDocSnapshot(tab.id);
+        if (!doc) continue;
+        try {
+          const [project, thumbnail] = await Promise.all([
+            writeProject(doc, appVersion),
+            thumbnailPng(doc).catch(() => null),
+          ]);
+          await api.recovery.write({
+            id: tab.id,
+            name: tab.name,
+            project,
+            thumbnail: thumbnail ?? undefined,
+          });
+          written.current.set(tab.id, version);
+        } catch (err) {
+          console.warn('[recovery] snapshot not written', err);
+        }
+      }
     } finally {
       busy.current = false;
     }
@@ -55,24 +60,25 @@ export function useRecovery(
     return () => window.clearInterval(timer);
   }, [editor, intervalMs, writeNow]);
 
-  // A document that is saved, replaced or closed no longer needs its snapshot.
-  const docId = snap?.doc?.id ?? null;
-  const dirty = snap?.file.dirty ?? false;
-  const previous = useRef<{ id: string | null; dirty: boolean }>({ id: null, dirty: false });
+  // A document that is saved or closed no longer needs its snapshot.
+  const tabsKey = JSON.stringify(snap?.tabs.map((t) => [t.id, t.dirty]) ?? []);
+  const previous = useRef(new Map<string, boolean>());
   useEffect(() => {
-    const prev = previous.current;
-    if (prev.id && (prev.id !== docId || (prev.dirty && !dirty))) {
-      void api.recovery.discard(prev.id).catch(() => undefined);
-      if (written.current?.id === prev.id) written.current = null;
+    const now = new Map<string, boolean>(JSON.parse(tabsKey) as Array<[string, boolean]>);
+    for (const [id, wasDirty] of previous.current) {
+      if (!now.has(id) || (wasDirty && !now.get(id))) {
+        void api.recovery.discard(id).catch(() => undefined);
+        written.current.delete(id);
+      }
     }
-    previous.current = { id: docId, dirty };
-    if (!docId) refresh(); // the Welcome screen lists what can be recovered
-  }, [docId, dirty, refresh]);
+    previous.current = now;
+    if (now.size === 0) refresh(); // the Welcome screen lists what can be recovered
+  }, [tabsKey, refresh]);
 
-  /** Before the window closes after Save / Don't Save: nothing left to recover. */
-  const discardCurrent = useCallback(async () => {
-    const id = editor?.getSnapshot().doc?.id;
-    if (id) await api.recovery.discard(id).catch(() => undefined);
+  /** Before the window closes (every tab saved or discarded): nothing left to recover. */
+  const discardAll = useCallback(async () => {
+    const ids = editor?.getSnapshot().tabs.map((t) => t.id) ?? [];
+    await Promise.all(ids.map((id) => api.recovery.discard(id).catch(() => undefined)));
   }, [editor]);
 
   const recover = useCallback(
@@ -80,7 +86,7 @@ export function useRecovery(
       if (!editor) return;
       const { doc } = await readProject(await api.recovery.read(item.id));
       editor.openRecovered(doc, item.id, item.name);
-      written.current = { id: item.id, version: editor.documentVersion };
+      written.current.set(item.id, editor.documentVersion);
     },
     [editor],
   );
@@ -93,5 +99,5 @@ export function useRecovery(
     [refresh],
   );
 
-  return { items, recover, discard, discardCurrent };
+  return { items, recover, discard, discardAll };
 }

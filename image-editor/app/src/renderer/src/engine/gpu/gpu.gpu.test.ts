@@ -537,3 +537,59 @@ describe('pixel grid (FR-NAV-01)', () => {
       for (const x of [0, 8, 16]) expect(red(px, x, 3)).toBe(255);
   });
 });
+
+describe('document tabs (FR-DOC-03)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+
+  it('keeps each document with its own history and view; closing shows a neighbour', () => {
+    const editor = new Editor(editorCanvas());
+    editor.newDocument(100, 80);
+    editor.addLayer();
+    const first = editor.getSnapshot().doc!.id;
+    editor.zoomTo(3);
+    editor.newDocument(50, 40);
+    const second = editor.getSnapshot().doc!.id;
+    let snap = editor.getSnapshot();
+    expect(snap.tabs.map((t) => [t.id, t.active, t.dirty])).toEqual([
+      [first, false, true],
+      [second, true, false],
+    ]);
+    expect(snap.history.entries).toEqual([]);
+
+    editor.activateDocument(first);
+    snap = editor.getSnapshot();
+    expect(snap.doc).toMatchObject({ width: 100, height: 80 });
+    expect(snap.zoom).toBe(3); // the view comes back with the document
+    expect(snap.history.entries.map((e) => e.label)).toEqual(['New Layer']);
+    editor.undo();
+    expect(editor.getSnapshot().tabs[0]!.dirty).toBe(false);
+
+    editor.cycleDocument(1);
+    expect(editor.getSnapshot().doc!.id).toBe(second);
+    editor.closeDocument();
+    expect(editor.getSnapshot().doc!.id).toBe(first);
+    editor.closeDocument();
+    expect(editor.getSnapshot().doc).toBeNull();
+    expect(editor.getSnapshot().tabs).toEqual([]);
+    editor.dispose();
+  });
+
+  it('a new canvas after context loss keeps every tab', () => {
+    const editor = new Editor(editorCanvas());
+    editor.newDocument(10, 10);
+    editor.newDocument(20, 20);
+    const state = editor.exportState();
+    editor.dispose();
+    const next = new Editor(editorCanvas());
+    next.adopt(state);
+    expect(next.getSnapshot().tabs).toHaveLength(2);
+    next.cycleDocument(1);
+    expect(next.getSnapshot().doc).toMatchObject({ width: 10, height: 10 });
+    next.dispose();
+  });
+});

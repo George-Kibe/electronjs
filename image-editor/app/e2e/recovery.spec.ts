@@ -29,9 +29,9 @@ test(`[${target}] recovery: a crash leaves a snapshot that the next launch resto
   const second = await launch([], profile);
   win = second.win;
   await expect(win.getByRole('heading', { name: 'Recover an unsaved document' })).toBeVisible();
-  await win.getByRole('button', { name: 'Recover Untitled' }).click();
+  await win.getByRole('button', { name: 'Recover Untitled-1' }).click();
   await expect(win.locator('footer')).toContainText('300 × 200 px');
-  await expect(win.getByLabel('unsaved changes')).toBeVisible();
+  await expect(win.getByLabel('unsaved changes', { exact: true })).toBeVisible();
   box = (await docCanvas(win).boundingBox())!;
   [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
   await expect.poll(() => canvasPixel(win, cx, cy)).toEqual([0, 0, 0]);
@@ -40,7 +40,7 @@ test(`[${target}] recovery: a crash leaves a snapshot that the next launch resto
   const dir = mkdtempSync(join(tmpdir(), 'ie-recovered-'));
   await stubSaveDialog(second.app, join(dir, 'Recovered.iep'));
   await win.keyboard.press('ControlOrMeta+s');
-  await expect(win.getByLabel('Document')).toHaveText('Recovered.iep');
+  await expect(win.getByLabel('Document', { exact: true })).toHaveText('Recovered.iep');
   await expect.poll(() => recoveryFiles(profile)).toHaveLength(0);
   await second.close();
 

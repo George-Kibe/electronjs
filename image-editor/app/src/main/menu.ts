@@ -64,6 +64,7 @@ export function menuTemplate(
         cmd('Save', 'file.save', 'CmdOrCtrl+S'),
         cmd('Save As…', 'file.saveAs', 'CmdOrCtrl+Shift+S'),
         cmd('Revert', 'file.revert'),
+        cmd('Close', 'file.close', 'CmdOrCtrl+W'),
         { type: 'separator' },
         cmd('Export As…', 'file.exportAs', 'CmdOrCtrl+Alt+Shift+W'),
         cmd('Quick Export as PNG', 'file.quickExport', "CmdOrCtrl+Alt+Shift+'"),
@@ -155,6 +156,15 @@ export function menuTemplate(
         cmd('Pixel Grid', 'view.pixelGrid'),
       ],
     },
-    { role: 'windowMenu' },
+    // Not role 'windowMenu': its native "Close Window" would take Ctrl/⌘+W from File › Close (a tab).
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        ...(mac
+          ? ([{ role: 'zoom' }, { type: 'separator' }, { role: 'front' }] as MenuItemConstructorOptions[])
+          : []),
+      ],
+    },
   ];
 }

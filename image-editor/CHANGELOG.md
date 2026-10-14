@@ -45,6 +45,9 @@ All notable changes to ImageEditor are documented here. The format follows
   of long operations.
 - History snapshots: keep a state with the camera button and return to it later; the document as opened
   is always available. Ctrl+Alt+Z steps backward.
+- Document tabs: open several images and projects at once. Ctrl+Tab switches, Ctrl+W closes (asking about
+  unsaved changes), and closing the window asks about each unsaved document. New documents are numbered
+  (Untitled-1, Untitled-2…).
 - Crash recovery: while a document has unsaved changes it is saved in the background every 2 minutes
   (Preferences › Files). If the app or computer crashes, the Welcome screen offers to recover it.
 - Welcome screen with your recent files as thumbnails, and File › Open Recent. Clear the list or remove a
