@@ -805,6 +805,51 @@ export class Editor {
     this.exec(new AddLayerCommand(this.nextName('Layer'), index, parentId));
   }
 
+  /**
+   * Edit › Paste (FR-DOC-12): the pixels become a new layer above the active one, centred on the visible
+   * part of the canvas (as in Photoshop). Parts outside the canvas are kept (FR-TRF-07 margin).
+   */
+  pasteAsLayer(width: number, height: number, rgba: Uint8Array): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const view = this.viewport.visibleDocRect(this.cssSize().width, this.cssSize().height);
+    const cx = (Math.max(0, view.x0) + Math.min(doc.width, view.x1)) / 2;
+    const cy = (Math.max(0, view.y0) + Math.min(doc.height, view.y1)) / 2;
+    const grid = translateGrid(
+      TileGrid.fromRgba(width, height, rgba),
+      Math.round(cx - width / 2),
+      Math.round(cy - height / 2),
+      tileRange(doc.width, doc.height),
+    );
+    const { parentId, index } = this.insertionPoint();
+    this.exec(
+      new AddLayerCommand(createRasterLayer(this.nextName('Pasted Layer'), grid), index, parentId, 'Paste'),
+    );
+  }
+
+  /**
+   * What Edit › Copy (the active layer, as if visible, opaque and Normal) or Copy Merged (the visible
+   * composite) puts on the clipboard, as a snapshot for the file worker to encode (FR-DOC-12).
+   */
+  clipboardSnapshot(merged: boolean): DocSnapshot | null {
+    const doc = this.doc;
+    if (!doc) return null;
+    const full = toSnapshot(doc);
+    if (merged) return full;
+    const find = (list: DocSnapshot['layers']): DocSnapshot['layers'][number] | undefined => {
+      for (const l of list) {
+        if (l.id === doc.activeLayerId) return l;
+        const inner = l.type === 'group' ? find(l.children) : undefined;
+        if (inner) return inner;
+      }
+      return undefined;
+    };
+    const layer = find(full.layers);
+    if (!layer) return null;
+    const plain = { ...layer, visible: true, opacity: 1, fillOpacity: 1, blendMode: 'normal' as const };
+    return { ...full, layers: [plain.type === 'group' ? { ...plain, passThrough: false } : plain] };
+  }
+
   addGroup(): void {
     if (!this.doc) return;
     const { parentId, index } = this.insertionPoint();

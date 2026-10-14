@@ -83,9 +83,13 @@ export function menuTemplate(
         cmd('Redo', 'edit.redo', 'CmdOrCtrl+Shift+Z'),
         { type: 'separator' },
         // Text fields in dialogs need the native clipboard roles.
+        // Native roles: text fields keep working, and on the canvas the renderer handles the DOM
+        // copy/paste events (FR-DOC-12).
         { role: 'cut' },
         { role: 'copy' },
+        cmd('Copy Merged', 'edit.copyMerged', 'CmdOrCtrl+Shift+C'),
         { role: 'paste' },
+        cmd('Paste as New Document', 'edit.pasteNewDocument'),
         { role: 'selectAll' },
         ...(mac
           ? []

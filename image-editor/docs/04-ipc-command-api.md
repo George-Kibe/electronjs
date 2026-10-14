@@ -79,7 +79,10 @@ interface Api {
 | `recovery.write({ id, name, project, thumbnail? })`, `recovery.list()`, `recovery.read({ id })`, `recovery.discard({ id })` | Autosave recovery in `<userData>/recovery/` (FR-DOC-10). Ids are UUIDs (validated, so never a path); the project bytes are written by the file worker's `.iep` writer and parsed only by it on recovery |
 | `settings.get()`, `settings.update(patch)` | User settings (docs/05 §3). The patch is validated field by field; every window then gets `settings.changed` |
 
-Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks. Menu
+Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks.
+The clipboard needs no IPC: Edit › Copy / Paste keep their native roles (so text fields work), which fire DOM
+`copy`/`paste` events that the renderer handles on the canvas; images are decoded and encoded by Chromium in
+the file worker, and written with the async Clipboard API (`clipboard-sanitized-write`, docs/06 §4). Menu
 accelerators are displayed but not registered; the renderer's keymap handles keys.
 
 ### 1.1 codec-host messages (over the brokered MessagePort)

@@ -50,6 +50,9 @@ All notable changes to ImageEditor are documented here. The format follows
   (Untitled-1, Untitled-2…).
 - Crash recovery: while a document has unsaved changes it is saved in the background every 2 minutes
   (Preferences › Files). If the app or computer crashes, the Welcome screen offers to recover it.
+- Clipboard: paste an image as a new layer (or as a new document when none is open), Edit › Paste as New
+  Document, copy the active layer (Ctrl+C) or the visible image (Copy Merged, Ctrl+Shift+C) with
+  transparency.
 - Welcome screen with your recent files as thumbnails, and File › Open Recent. Clear the list or remove a
   file at any time.
 - New document: presets (Instagram, A4 at 300 ppi, 1080p, 4K), your own saved presets, resolution and

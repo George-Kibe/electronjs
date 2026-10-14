@@ -32,6 +32,7 @@ import { UnsavedDialog } from './components/UnsavedDialog';
 import { Welcome } from './components/Welcome';
 import { useFileActions, type NewDocumentSpec } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
+import { useClipboard } from './useClipboard';
 import { useRecent } from './useRecent';
 import { useRecovery } from './useRecovery';
 import { useSettings } from './useSettings';
@@ -120,6 +121,7 @@ export function App() {
   const recovery = useRecovery(editor, snap, autosaveMs, appInfo.version);
   const files = useFileActions(editor, recovery.discardAll);
   const recent = useRecent();
+  const clipboard = useClipboard(editor, files);
   // New document form (FR-DOC-01), shared by the Welcome screen and File › New.
   const presets = prefs.settings.files.documentPresets;
   const newDocumentForm = {
@@ -157,10 +159,11 @@ export function App() {
       quickExport: () => void files.quickExport(),
       preferences: () => setPreferencesOpen(true),
       closeDocument: () => void files.closeDocument(),
+      copyMerged: () => void clipboard.copyMerged(),
       imageSize: () => setImageDialog('imageSize'),
       canvasSize: () => setImageDialog('canvasSize'),
     }),
-    [files],
+    [files, clipboard],
   );
   useShortcuts(editor, actions);
 
@@ -180,6 +183,8 @@ export function App() {
           'file.revert': () => void files.revert(),
           'file.close': () => void files.closeDocument(),
           'app.preferences': () => setPreferencesOpen(true),
+          'edit.copyMerged': () => void clipboard.copyMerged(),
+          'edit.pasteNewDocument': () => void clipboard.pasteAsNewDocument(),
           'edit.undo': () => editor?.undo(),
           'edit.redo': () => editor?.redo(),
           'layer.new': () => editor?.addLayer(),
@@ -215,7 +220,7 @@ export function App() {
         };
         run[id]();
       }),
-    [actions, files, editor],
+    [actions, files, editor, clipboard],
   );
 
   const onDrop = async (e: DragEvent) => {

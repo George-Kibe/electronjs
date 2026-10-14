@@ -88,7 +88,10 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
   - [x] 6.2 Recent files (Welcome grid with thumbnails, File › Open Recent, OS recent documents) and the
         full New document form with presets, saved presets, resolution and background (FR-GEN-08,
         FR-DOC-01/02). E2E green on 3 OSes (run 38314544932).
-  - [ ] 6.3 Clipboard: paste as new document/layer, copy merged (FR-DOC-02/12)
+  - [x] 6.3 Clipboard: Paste as a new layer (centred in view) or a new document when none is open; Paste
+        as New Document; Copy (active layer) and Copy Merged as PNG with transparency (FR-DOC-02/12).
+        Decoding and encoding run in the file worker (Chromium, sandboxed); main never touches clipboard
+        pixels. Cut and copying a selection arrive with selections (M2). E2E green on 3 OSes (run 38614784061).
   - [x] 6.4 Autosave recovery: a project snapshot every 2 minutes (Preferences › Files: 1–10 or off) while a
         document has unsaved changes, discarded when it is saved, replaced or closed; after a crash the
         Welcome screen offers Recover / Discard; a recovered document stays unsaved until saved (FR-DOC-10,
