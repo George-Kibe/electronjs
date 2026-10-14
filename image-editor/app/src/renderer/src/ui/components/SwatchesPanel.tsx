@@ -5,7 +5,6 @@ type Props = {
   recent: RGB[];
   /** Saved swatches, shared with the colour picker's "Add to swatches". */
   saved: ReturnType<typeof useSwatches>;
-  foreground: RGB;
   onForeground: (c: RGB) => void;
   onBackground: (c: RGB) => void;
 };
@@ -34,24 +33,12 @@ function Swatch(props: { color: RGB; label: string; onPick: (bg: boolean) => voi
 }
 
 /** Swatches panel (FR-PNT-07): recently painted colours and saved swatches. */
-export function SwatchesPanel({ recent, saved, foreground, onForeground, onBackground }: Props) {
-  const { swatches, add, remove } = saved;
+export function SwatchesPanel({ recent, saved, onForeground, onBackground }: Props) {
+  const { swatches, remove } = saved;
   const pick = (c: RGB) => (bg: boolean) => (bg ? onBackground(c) : onForeground(c));
   return (
-    <section aria-labelledby="swatches-title" className="border-ui-border border-b px-3 pt-2 pb-2">
-      <div className="mb-1 flex items-center">
-        <h2 id="swatches-title" className="text-[11px] font-semibold tracking-wide uppercase">
-          Swatches
-        </h2>
-        <button
-          className="text-ui-muted hover:text-ui-text ml-auto px-1"
-          aria-label="Add foreground colour to swatches"
-          title="Add foreground colour to swatches"
-          onClick={() => add(foreground)}
-        >
-          ＋
-        </button>
-      </div>
+    // The dock (PanelDock) provides the section, the "Swatches" header and its Add button.
+    <div className="px-3 py-2">
       {recent.length > 0 && (
         <div role="group" aria-label="Recent colours" className="mb-1.5 flex flex-wrap gap-1">
           {recent.map((c) => (
@@ -64,6 +51,6 @@ export function SwatchesPanel({ recent, saved, foreground, onForeground, onBackg
           <Swatch key={rgbToHex(c)} color={c} label="Swatch" onPick={pick(c)} onDelete={() => remove(c)} />
         ))}
       </div>
-    </section>
+    </div>
   );
 }

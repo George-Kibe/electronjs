@@ -62,6 +62,18 @@ export function writeProject(doc: DocSnapshot, appVersion: string): Promise<Uint
   return request({ op: 'writeIep', doc, appVersion });
 }
 
+/** Decodes a pasted image in the file worker (FR-DOC-02/12). */
+export function decodeClipboardImage(
+  blob: Blob,
+): Promise<{ width: number; height: number; rgba: Uint8Array }> {
+  return request({ op: 'decodeClipboard', blob });
+}
+
+/** PNG of a snapshot's composite, for Copy / Copy Merged (FR-DOC-12). */
+export function encodeClipboardPng(doc: DocSnapshot): Promise<Uint8Array> {
+  return request({ op: 'encodePng', doc });
+}
+
 /** A 256 px PNG of the composite for the recent-files list, or null if it cannot be made here. */
 export function thumbnailPng(doc: DocSnapshot): Promise<Uint8Array | null> {
   return request({ op: 'thumbnail', doc, maxSide: 256 });

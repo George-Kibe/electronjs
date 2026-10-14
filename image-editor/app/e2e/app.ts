@@ -36,7 +36,13 @@ async function freePort(): Promise<number> {
   });
 }
 
-function start(files: string[], cdpPort: number, userDataDir: string): Promise<ElectronApplication> {
+function start(
+  files: string[],
+  cdpPort: number,
+  userDataDir: string,
+  extraEnv: Record<string, string>,
+): Promise<ElectronApplication> {
+  const env = { ...(process.env as Record<string, string>), ...extraEnv };
   // Our port comes after Playwright's own --remote-debugging-port=0, and Chromium uses the last one.
   // Each launch gets its own profile, so settings and recent files never leak between tests (or into the
   // developer's real profile).
@@ -45,9 +51,9 @@ function start(files: string[], cdpPort: number, userDataDir: string): Promise<E
     const executablePath = packagedExecutable();
     if (!existsSync(executablePath))
       throw new Error(`Packaged app missing: ${executablePath}. Run pnpm pack:dir`);
-    return electron.launch({ executablePath, args: [...debug, ...files] });
+    return electron.launch({ executablePath, args: [...debug, ...files], env });
   }
-  return electron.launch({ args: [...debug, '.', ...files], cwd: appRoot });
+  return electron.launch({ args: [...debug, '.', ...files], cwd: appRoot, env });
 }
 
 /**
@@ -65,6 +71,8 @@ export type Launched = {
   win: Page;
   /** Disconnects the extra CDP client first, so no in-flight call fails while the app exits. */
   close: () => Promise<void>;
+  /** Every app window's page (several windows: a tab moved out, FR-DOC-03). */
+  pages: () => Page[];
 };
 
 /** A fresh, empty profile folder (pass it to several launches to test persistence). */
@@ -74,9 +82,13 @@ export function newProfile(): string {
   return realpathSync(mkdtempSync(join(tmpdir(), 'ie-profile-')));
 }
 
-export async function launch(files: string[] = [], userDataDir = newProfile()): Promise<Launched> {
+export async function launch(
+  files: string[] = [],
+  userDataDir = newProfile(),
+  env: Record<string, string> = {},
+): Promise<Launched> {
   const cdpPort = await freePort();
-  const app = await start(files, cdpPort, userDataDir);
+  const app = await start(files, cdpPort, userDataDir, env);
   // Surface main-process logs (GPU/child-process crashes, codec errors) in the test output.
   app.process().stdout?.on('data', (d: Buffer) => process.stdout.write(`[main] ${d}`));
   app.process().stderr?.on('data', (d: Buffer) => process.stdout.write(`[main:err] ${d}`));
@@ -115,7 +127,12 @@ export async function launch(files: string[] = [], userDataDir = newProfile()): 
     await close();
     throw err;
   }
-  return { app, win, close };
+  const pages = () =>
+    browser
+      .contexts()
+      .flatMap((c) => c.pages())
+      .filter((p) => /^(app|https?):/.test(p.url()));
+  return { app, win, close, pages };
 }
 
 export async function snapshot(win: Page, name: string): Promise<void> {

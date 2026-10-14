@@ -46,7 +46,11 @@ export type NewDocumentSpec = {
  * Open / save / export / revert and the unsaved-changes guard (FR-DOC-02/04/05/06/11). Pixels and project
  * bytes never pass through React state: the engine, the file worker and the codec host handle them.
  */
-export function useFileActions(editor: Editor | null) {
+export function useFileActions(
+  editor: Editor | null,
+  /** Runs after Save / Don't Save and before the window closes (e.g. discarding the recovery snapshot). */
+  beforeClose: () => Promise<void> = async () => undefined,
+) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -135,13 +139,14 @@ export function useFileActions(editor: Editor | null) {
     return save();
   }, [editor, save]);
 
+  /** Opens a file in a new tab, or (Revert) in place of the active one. */
   const load = useCallback(
-    async (ref: FileRef) => {
+    async (ref: FileRef, replace = false) => {
       if (!editor) return;
       await run(`Opening ${ref.displayName}…`, async () => {
         if (isProjectFile(ref)) {
           const { doc, readOnlyReason } = await readProject(await api.file.readBytes(ref));
-          editor.openProject(doc, ref, readOnlyReason);
+          editor.openProject(doc, ref, readOnlyReason, replace);
           setNotice(readOnlyReason ? `${readOnlyReason} Use Save As to keep your changes.` : null);
         } else {
           const { header, rgba } = await decodeImage(ref);
@@ -151,6 +156,7 @@ export function useFileActions(editor: Editor | null) {
             rgba,
             { name: ref.displayName, sourceProfile: header.sourceProfile, exif: header.exif },
             ref,
+            replace,
           );
           setNotice(null);
         }
@@ -160,17 +166,73 @@ export function useFileActions(editor: Editor | null) {
     [editor, run, remember],
   );
 
+  /** Opens a file in a new tab (FR-DOC-03), or switches to the tab that already shows it. */
   const openRef = useCallback(
     async (ref: FileRef) => {
-      if (await confirmDiscard()) await load(ref);
+      const open = editor?.findDocument(ref);
+      if (open) editor!.activateDocument(open);
+      else await load(ref);
     },
-    [confirmDiscard, load],
+    [editor, load],
   );
+
+  /** File › Close (Ctrl+W) or a tab's ✕: asks about unsaved changes, then closes the tab. */
+  const closeDocument = useCallback(
+    async (id?: string) => {
+      if (!editor) return false;
+      if (id) editor.activateDocument(id);
+      if (!(await confirmDiscard())) return false;
+      editor.closeDocument();
+      return true;
+    },
+    [editor, confirmDiscard],
+  );
+
+  /**
+   * Window › Move Tab to New Window, or dragging a tab out of the window (FR-DOC-03): the document moves
+   * with its file and save state; here the tab closes without asking (nothing is lost).
+   */
+  const moveToNewWindow = useCallback(
+    async (id?: string, at: { x: number; y: number } | null = null) => {
+      const doc = editor && editor.describeDocument(id ?? editor.getSnapshot().doc?.id ?? '');
+      const snapshot = doc && editor.getDocSnapshot(doc.id);
+      if (!doc || !snapshot) return;
+      await run(`Moving ${doc.name} to a new window…`, async () => {
+        const project = await writeProject(snapshot, appVersion.current);
+        await api.window.moveDocument({ project, document: doc, at });
+        editor.closeDocument(doc.id);
+      });
+    },
+    [editor, run],
+  );
+
+  /** Before the window closes: asks about every tab with unsaved changes, in turn. Cancel stops. */
+  const confirmCloseAll = useCallback(async (): Promise<boolean> => {
+    for (;;) {
+      const dirty = editor?.getSnapshot().tabs.find((t) => t.dirty);
+      if (!editor || !dirty) return true;
+      editor.activateDocument(dirty.id);
+      const choice = await new Promise<UnsavedChoice>((resolve) => setUnsaved({ name: dirty.name, resolve }));
+      setUnsaved(null);
+      if (choice === 'cancel') return false;
+      if (choice === 'save' && !(await save())) return false;
+      if (choice === 'discard') editor.closeDocument(dirty.id);
+    }
+  }, [editor, save]);
 
   const openDialog = useCallback(async () => {
     const ref = await run('', () => api.dialog.openImage());
     if (ref) await openRef(ref);
   }, [run, openRef]);
+
+  /** A new document from pixels (paste with no document open, FR-DOC-02). */
+  const openPixels = useCallback(
+    async (width: number, height: number, rgba: Uint8Array, name: string) => {
+      // A new tab (FR-DOC-03): nothing to discard.
+      editor?.loadImage(width, height, rgba, { name, sourceProfile: null, exif: null }, null);
+    },
+    [editor],
+  );
 
   /** File › Open Recent (menu or Welcome screen). */
   const openRecent = useCallback(
@@ -183,17 +245,16 @@ export function useFileActions(editor: Editor | null) {
 
   const newDocument = useCallback(
     async (spec: NewDocumentSpec) => {
-      if (editor && (await confirmDiscard()))
-        editor.newDocument(spec.width, spec.height, spec.background, spec.ppi);
+      editor?.newDocument(spec.width, spec.height, spec.background, spec.ppi);
     },
-    [editor, confirmDiscard],
+    [editor],
   );
 
   /** FR-DOC-11: reload the file the document came from, discarding changes (after confirming). */
   const revert = useCallback(async () => {
     const ref = editor?.getSnapshot().file.ref;
     if (!ref) return;
-    if (await confirmDiscard()) await load(ref);
+    if (await confirmDiscard()) await load(ref, true);
   }, [editor, confirmDiscard, load]);
 
   const exportWith = useCallback(
@@ -229,7 +290,8 @@ export function useFileActions(editor: Editor | null) {
 
   // Keep main informed of unsaved changes (quit guard, macOS close-button dot) and the window title.
   const snap = editor?.getSnapshot();
-  const dirty = snap?.file.dirty ?? false;
+  // Any tab with unsaved changes keeps the close/quit guard on (FR-DOC-11).
+  const dirty = snap?.tabs.some((t) => t.dirty) ?? false;
   const name = snap?.doc?.name;
   useEffect(() => {
     void api.app.setDocumentEdited(dirty).catch(() => undefined);
@@ -240,11 +302,13 @@ export function useFileActions(editor: Editor | null) {
   useEffect(
     () =>
       events.onCloseRequested(() => {
-        void confirmDiscard().then(async (ok) => {
-          if (ok) await api.app.closeWindow();
+        void confirmCloseAll().then(async (ok) => {
+          if (!ok) return;
+          await beforeClose();
+          await api.app.closeWindow();
         });
       }),
-    [confirmDiscard],
+    [confirmCloseAll, beforeClose],
   );
 
   return useMemo(
@@ -255,6 +319,8 @@ export function useFileActions(editor: Editor | null) {
       dismissError: () => setError(null),
       dismissNotice: () => setNotice(null),
       reportError: (err: unknown) => setError(errorMessage(err)),
+      reportNotice: (message: string) => setNotice(message),
+      openPixels,
       unsaved,
       exporting,
       exportInitial: lastExport,
@@ -265,6 +331,8 @@ export function useFileActions(editor: Editor | null) {
       openRef,
       openDialog,
       openRecent,
+      closeDocument,
+      moveToNewWindow,
       newDocument,
       save,
       saveAs,
@@ -283,6 +351,9 @@ export function useFileActions(editor: Editor | null) {
       openRef,
       openDialog,
       openRecent,
+      closeDocument,
+      moveToNewWindow,
+      openPixels,
       newDocument,
       save,
       saveAs,

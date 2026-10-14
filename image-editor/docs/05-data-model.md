@@ -164,7 +164,8 @@ transitive dependencies. `settings.json` in userData; loaded synchronously at st
 before `ready`); a damaged file is set aside as `settings.json.damaged-<time>` and defaults are used;
 fields from newer versions are kept on save. M1 implements `general` (theme, interface scale, canvas
 surround, brush cursor), `performance` (history steps, memory budget, GPU), `files.autosaveMinutes` and
-`privacy.crashReports`; the other sections arrive with their features. The planned full schema:
+`privacy.crashReports`, plus `workspace` (preset, panel order/visibility/sizes, dock width); the other
+sections arrive with their features. The planned full schema:
 
 ```ts
 const Settings = z.object({

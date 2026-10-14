@@ -108,5 +108,7 @@ engine `doc/` + `history/` + `tiles/` 90 % · CPU references 95 % · renderer ov
 - [ ] Journeys 1–7 manually on real GPUs
 - [ ] GPU-off mode (Preferences) still works
 - [ ] Recovery after a forced kill
+- [ ] Drag a document tab out of the window: it opens in a new window at the drop point (E2E covers
+      Window › Move Tab to New Window; the drag gesture leaves the browser, so it is checked by hand)
 - [ ] AI model download → offline use afterwards (network disabled)
 - [ ] Screen reader smoke on the Layers panel, dialogs and menus

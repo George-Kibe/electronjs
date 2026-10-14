@@ -11,9 +11,12 @@ export const MENU_COMMANDS = [
   'file.exportAs',
   'file.quickExport',
   'file.revert',
+  'file.close',
   'app.preferences',
   'edit.undo',
   'edit.redo',
+  'edit.copyMerged',
+  'edit.pasteNewDocument',
   'layer.new',
   'layer.newGroup',
   'layer.duplicate',
@@ -44,6 +47,13 @@ export const MENU_COMMANDS = [
   'view.fit',
   'view.actualSize',
   'view.pixelGrid',
+  'window.moveTab',
+  'window.layers',
+  'window.swatches',
+  'window.history',
+  'window.essentials',
+  'window.photography',
+  'window.resetWorkspace',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 

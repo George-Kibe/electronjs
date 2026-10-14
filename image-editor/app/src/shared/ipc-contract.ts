@@ -28,6 +28,27 @@ export const RecentItem = z.object({
 });
 export type RecentItem = z.infer<typeof RecentItem>;
 
+const RecoveryId = z.object({ id: z.uuid() });
+
+/** A document moving to another window (FR-DOC-03): its identity, file and save state. */
+export const MovedDocument = z.object({
+  id: z.uuid(),
+  name: z.string().max(255),
+  file: FileRef.nullable(),
+  isProject: z.boolean(),
+  dirty: z.boolean(),
+  readOnlyReason: z.string().max(500).nullable(),
+});
+export type MovedDocument = z.infer<typeof MovedDocument>;
+const Handover = z.object({ project: Bytes, document: MovedDocument });
+export const RecoveryItem = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  savedAt: z.number(),
+  thumbnail: Thumbnail.nullable(),
+});
+export type RecoveryItem = z.infer<typeof RecoveryItem>;
+
 /** Renderer ↔ main request/response channels (docs/04 §1). Validated on the main side. */
 export const ipcContract = {
   'app.getInfo': { request: z.void(), response: AppInfo },
@@ -66,6 +87,31 @@ export const ipcContract = {
   'recent.open': { request: RecentId, response: FileRef },
   'recent.remove': { request: RecentId, response: z.void() },
   'recent.clear': { request: z.void(), response: z.void() },
+  /** Autosave recovery (FR-DOC-10): a project snapshot of a document with unsaved changes. */
+  'recovery.write': {
+    request: z.object({
+      id: z.uuid(),
+      name: z.string().max(255),
+      project: Bytes,
+      thumbnail: Thumbnail.optional(),
+    }),
+    response: z.void(),
+  },
+  /** Documents left from a session that did not close cleanly, newest first. */
+  'recovery.list': { request: z.void(), response: z.array(RecoveryItem) },
+  'recovery.read': { request: RecoveryId, response: Bytes },
+  'recovery.discard': { request: RecoveryId, response: z.void() },
+  /** Opens a new window for a document dragged out of a tab (FR-DOC-03), near the screen point. */
+  'window.moveDocument': {
+    request: z.object({
+      project: Bytes,
+      document: MovedDocument,
+      at: z.object({ x: z.number(), y: z.number() }).nullable(),
+    }),
+    response: z.void(),
+  },
+  /** In a window opened by window.moveDocument: the document it should show (once). */
+  'app.takeHandover': { request: z.void(), response: Handover.nullable() },
   /** User settings (FR-GEN-04, docs/05 §3). */
   'settings.get': { request: z.void(), response: Settings },
   /** Validated patch; the saved settings come back and every window gets 'settings.changed'. */
@@ -98,6 +144,10 @@ export interface ImageEditorApi {
     getLaunchFiles(): Promise<ResponseOf<'app.getLaunchFiles'>>;
     setDocumentEdited(edited: boolean): Promise<void>;
     closeWindow(): Promise<void>;
+    takeHandover(): Promise<ResponseOf<'app.takeHandover'>>;
+  };
+  window: {
+    moveDocument(req: RequestOf<'window.moveDocument'>): Promise<void>;
   };
   dialog: {
     openImage(): Promise<ResponseOf<'dialog.openImage'>>;
@@ -118,6 +168,12 @@ export interface ImageEditorApi {
     open(id: string): Promise<FileRef>;
     remove(id: string): Promise<void>;
     clear(): Promise<void>;
+  };
+  recovery: {
+    write(req: RequestOf<'recovery.write'>): Promise<void>;
+    list(): Promise<RecoveryItem[]>;
+    read(id: string): Promise<Uint8Array>;
+    discard(id: string): Promise<void>;
   };
   settings: {
     get(): Promise<Settings>;

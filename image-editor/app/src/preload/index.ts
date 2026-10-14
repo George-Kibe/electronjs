@@ -21,6 +21,10 @@ const api: ImageEditorBridge = {
     getLaunchFiles: () => call('app.getLaunchFiles'),
     setDocumentEdited: (edited) => call('app.setDocumentEdited', edited),
     closeWindow: () => call('app.closeWindow'),
+    takeHandover: () => call('app.takeHandover'),
+  },
+  window: {
+    moveDocument: (req) => call('window.moveDocument', req),
   },
   dialog: {
     openImage: () => call('dialog.openImage'),
@@ -47,6 +51,12 @@ const api: ImageEditorBridge = {
     open: (id) => call('recent.open', { id }),
     remove: (id) => call('recent.remove', { id }),
     clear: () => call('recent.clear'),
+  },
+  recovery: {
+    write: (req) => call('recovery.write', req),
+    list: () => call('recovery.list'),
+    read: (id) => call('recovery.read', { id }),
+    discard: (id) => call('recovery.discard', { id }),
   },
   settings: {
     get: () => call('settings.get'),

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, session } from 'electron';
 import { totalmem } from 'node:os';
 import { join } from 'node:path';
+import type { MovedDocument } from '@shared/ipc-contract';
 import type { Settings } from '@shared/settings';
 import { APP_HOST, APP_ORIGIN, APP_SCHEME, PRODUCT_NAME } from '@shared/constants';
 import { CloseGuard } from './close-guard';
@@ -16,6 +17,7 @@ import { FileRefRegistry } from './services/file-refs';
 import { launchPaths } from './services/launch-args';
 import { logger } from './services/logger';
 import { RecentFiles } from './services/recent-files';
+import { RecoveryStore } from './services/recovery';
 import { SettingsStore } from './services/settings-store';
 
 const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -49,13 +51,25 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-let mainWindow: BrowserWindow | null = null;
-let guard: CloseGuard | null = null;
+/** Open windows and their unsaved-changes guards (several windows: FR-DOC-03 "drag a tab out"). */
+const guards = new Map<BrowserWindow, CloseGuard>();
+/** Documents waiting for the window that will show them (by webContents id). */
+const handovers = new Map<number, { project: Uint8Array; document: MovedDocument }>();
 
-function createWindow(): BrowserWindow {
+/** The window menu commands go to: the focused one, else the most recently created. */
+function activeWindow(): BrowserWindow | null {
+  return BrowserWindow.getFocusedWindow() ?? [...guards.keys()].at(-1) ?? null;
+}
+
+function createWindow(
+  handover?: { project: Uint8Array; document: MovedDocument },
+  at?: { x: number; y: number } | null,
+): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    // A window for a dragged-out tab opens where the tab was dropped.
+    ...(at ? { x: Math.round(at.x - 200), y: Math.round(at.y - 40) } : {}),
     minWidth: 800,
     minHeight: 560,
     title: PRODUCT_NAME,
@@ -63,17 +77,19 @@ function createWindow(): BrowserWindow {
     show: false,
     webPreferences: secureWebPreferences(join(import.meta.dirname, '../preload/index.cjs')),
   });
+  if (handover) handovers.set(win.webContents.id, handover);
   win.once('ready-to-show', () => win.show());
   win.webContents.on('did-finish-load', () => applyAppearance(settings.get(), [win]));
-  guard = new CloseGuard(() => win.webContents.send('app.closeRequested'), {
+  const guard = new CloseGuard(() => win.webContents.send('app.closeRequested'), {
     close: () => win.close(),
     quit: () => app.quit(),
   });
-  const windowGuard = guard;
-  win.on('close', (event) => windowGuard.onClose(event));
+  guards.set(win, guard);
+  win.on('close', (event) => guard.onClose(event));
+  const id = win.webContents.id;
   win.on('closed', () => {
-    if (mainWindow === win) mainWindow = null;
-    if (guard === windowGuard) guard = null;
+    guards.delete(win);
+    handovers.delete(id);
   });
   void win.loadURL(isDev ? devServerUrl! : `${APP_ORIGIN}/index.html`);
   return win;
@@ -83,14 +99,15 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    const win = activeWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
     }
   });
 
   applyNavigationPolicy(app);
-  app.on('before-quit', () => guard?.onBeforeQuit());
+  app.on('before-quit', () => guards.forEach((g) => g.onBeforeQuit()));
 
   // GPU/renderer crashes are rare but decisive when they happen; always log them (docs/09 §4 ops notes).
   app.on('child-process-gone', (_e, details) => logger.warn('Child process gone', details));
@@ -118,9 +135,9 @@ if (!app.requestSingleInstanceLock()) {
     const buildMenu = () =>
       Menu.setApplicationMenu(
         Menu.buildFromTemplate(
-          menuTemplate(process.platform, (id) => mainWindow?.webContents.send('menu.command', id), {
+          menuTemplate(process.platform, (id) => activeWindow()?.webContents.send('menu.command', id), {
             items: recent.menuItems(),
-            open: (id) => mainWindow?.webContents.send('menu.openRecent', id),
+            open: (id) => activeWindow()?.webContents.send('menu.openRecent', id),
             clear: () => {
               app.clearRecentDocuments();
               void recent.clear();
@@ -138,22 +155,36 @@ if (!app.requestSingleInstanceLock()) {
       createHandlers({
         refs: new FileRefRegistry(),
         dialog,
-        window: () => mainWindow,
+        window: (sender) => BrowserWindow.fromWebContents(sender),
         codec,
         writeAtomic,
         defaultDir: app.getPath('pictures'),
-        setDocumentEdited: (edited) => {
-          guard?.setEdited(edited);
-          mainWindow?.setDocumentEdited(edited);
+        setDocumentEdited: (edited, sender) => {
+          const win = BrowserWindow.fromWebContents(sender);
+          if (!win) return;
+          guards.get(win)?.setEdited(edited);
+          win.setDocumentEdited(edited);
         },
-        closeWindow: () => guard?.allowClose(),
+        closeWindow: (sender) => {
+          const win = BrowserWindow.fromWebContents(sender);
+          if (win) guards.get(win)?.allowClose();
+        },
+        openDocumentWindow: (handover, at) => void createWindow(handover, at),
+        takeHandover: (sender) => {
+          const h = handovers.get(sender.id) ?? null;
+          handovers.delete(sender.id);
+          return h;
+        },
         appInfo: {
           productName: PRODUCT_NAME,
           version: app.getVersion(),
           platform: process.platform,
           arch: process.arch,
           totalMemoryBytes: totalmem(),
+          // E2E only: a short autosave interval so crash recovery can be tested (docs/07 T-REC-01).
+          autosaveSecondsOverride: Number(process.env['E2E_AUTOSAVE_SECONDS']) || null,
         },
+        recovery: new RecoveryStore({ dir: join(app.getPath('userData'), 'recovery'), writeAtomic }),
         settings,
         recent,
         addOsRecent: (path) => app.addRecentDocument(path),
@@ -169,9 +200,9 @@ if (!app.requestSingleInstanceLock()) {
       applyAppearance(s);
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('settings.changed', s);
     });
-    mainWindow = createWindow();
+    createWindow();
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
 

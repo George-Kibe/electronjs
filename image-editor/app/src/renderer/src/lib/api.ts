@@ -15,6 +15,10 @@ export const api: ImageEditorApi = {
     getLaunchFiles: () => unwrap(bridge.app.getLaunchFiles()),
     setDocumentEdited: (edited) => unwrap(bridge.app.setDocumentEdited(edited)),
     closeWindow: () => unwrap(bridge.app.closeWindow()),
+    takeHandover: () => unwrap(bridge.app.takeHandover()),
+  },
+  window: {
+    moveDocument: (req) => unwrap(bridge.window.moveDocument(req)),
   },
   dialog: {
     openImage: () => unwrap(bridge.dialog.openImage()),
@@ -35,6 +39,12 @@ export const api: ImageEditorApi = {
     open: (id) => unwrap(bridge.recent.open(id)),
     remove: (id) => unwrap(bridge.recent.remove(id)),
     clear: () => unwrap(bridge.recent.clear()),
+  },
+  recovery: {
+    write: (req) => unwrap(bridge.recovery.write(req)),
+    list: () => unwrap(bridge.recovery.list()),
+    read: (id) => unwrap(bridge.recovery.read(id)),
+    discard: (id) => unwrap(bridge.recovery.discard(id)),
   },
   settings: {
     get: () => unwrap(bridge.settings.get()),

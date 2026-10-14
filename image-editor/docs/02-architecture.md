@@ -191,6 +191,10 @@ on a downscaled proxy while a slider is being dragged, then at full resolution o
 - Snapshots = named, pinned history states (they never expire). They share tiles but own copies of the layer
   objects and tile maps (paint commands update a layer's map in place). Restoring one is a new undoable
   step, so it never discards history. The first snapshot is the document as opened.
+- Tabs (FR-DOC-03): the Editor shows one document on its canvas; the others are background sessions
+  (document, history, file state, view, snapshots). Switching swaps them; GPU textures rebuild lazily from
+  the tiles, and the document version changes so caches keyed by it (the export flatten) never serve
+  another document.
 - The view (zoom/pan) is a separate store from the editor snapshot: overlays such as scrollbars and the crop
   box subscribe to it, so panning at 60 fps never re-renders the panels.
 
