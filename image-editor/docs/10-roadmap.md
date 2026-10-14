@@ -89,10 +89,10 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         full New document form with presets, saved presets, resolution and background (FR-GEN-08,
         FR-DOC-01/02). E2E green on 3 OSes (run 38314544932).
   - [ ] 6.3 Clipboard: paste as new document/layer, copy merged (FR-DOC-02/12)
-  - [ ] 6.4 Autosave recovery: a project snapshot every 2 minutes (Preferences › Files: 1–10 or off) while a
+  - [x] 6.4 Autosave recovery: a project snapshot every 2 minutes (Preferences › Files: 1–10 or off) while a
         document has unsaved changes, discarded when it is saved, replaced or closed; after a crash the
         Welcome screen offers Recover / Discard; a recovered document stays unsaved until saved (FR-DOC-10,
-        T-REC-01 in E2E with a real SIGKILL).
+        T-REC-01 in E2E with a real SIGKILL). E2E green on 3 OSes (run 38615698011).
   - [ ] 6.5 Document tabs (FR-DOC-03)
   - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
   - [ ] 6.7 Collapsible panels and workspaces (FR-GEN-01)
