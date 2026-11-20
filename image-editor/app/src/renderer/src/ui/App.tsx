@@ -26,6 +26,7 @@ import { OptionsBar } from './components/OptionsBar';
 import { PanelDock } from './components/PanelDock';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
+import { SelectionOverlay } from './components/SelectionOverlay';
 import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
 import { TabBar } from './components/TabBar';
@@ -251,6 +252,11 @@ export function App() {
           'view.fit': () => editor?.fitToScreen(),
           'view.actualSize': () => editor?.zoomTo(1),
           'help.checkForUpdates': updates.check,
+          'select.all': () => editor?.selectAll(),
+          'select.deselect': () => editor?.deselect(),
+          'select.reselect': () => editor?.reselect(),
+          'select.inverse': () => editor?.invertSelection(),
+          'edit.clear': () => editor?.clearSelection(),
         };
         run[id]();
       }),
@@ -360,7 +366,17 @@ export function App() {
             <canvas
               key={canvasKey}
               ref={attachCanvas}
-              aria-label={snap?.doc ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels` : 'Canvas'}
+              aria-label={
+                snap?.doc
+                  ? `Canvas, ${snap.doc.width} by ${snap.doc.height} pixels${
+                      snap.selection
+                        ? `, selection ${snap.selection.bounds.x1 - snap.selection.bounds.x0} by ${
+                            snap.selection.bounds.y1 - snap.selection.bounds.y0
+                          } at ${snap.selection.bounds.x0}, ${snap.selection.bounds.y0}`
+                        : ''
+                    }`
+                  : 'Canvas'
+              }
               role="img"
               // Absolutely positioned: the canvas's own pixel size (CSS size × DPR) must never feed back into layout.
               className={`absolute inset-0 block h-full w-full ${cursorClass}`}
@@ -368,6 +384,9 @@ export function App() {
             />
             {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
             {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
+            {editor && (snap?.selection || snap?.marquee) && (
+              <SelectionOverlay editor={editor} selection={snap.selection} marquee={snap.marquee} />
+            )}
             {snap?.doc && editor && (
               <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
             )}

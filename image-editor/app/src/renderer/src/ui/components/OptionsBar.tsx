@@ -2,6 +2,8 @@ import { BRUSH_TIPS, TIP_LABELS, type BrushTip } from '../../engine/brush/tips';
 import type { CropRect } from '../../engine/doc/geometry';
 import type { AlignEdge } from '../../engine/doc/translate';
 import { CROP_RATIOS, RATIO_LABELS, type CropRatio } from '../../engine/tools/crop';
+import type { SelectionOp } from '../../engine/doc/selection';
+import type { MarqueeOptions as MarqueeOpts } from '../../engine/tools/marquee';
 import { isPaintTool, type BrushOptions, type Tool, type ToolOptions } from '../../engine/editor';
 import { Button } from './Button';
 
@@ -25,6 +27,7 @@ type Props = {
 
 const TOOL_NAMES: Record<Tool, string> = {
   move: 'Move',
+  marquee: 'Marquee',
   crop: 'Crop',
   brush: 'Brush',
   pencil: 'Pencil',
@@ -275,6 +278,92 @@ function CropOptions({
   );
 }
 
+const MODES: ReadonlyArray<readonly [SelectionOp, string, string]> = [
+  ['replace', 'New', 'New selection'],
+  ['add', 'Add', 'Add to selection (Shift)'],
+  ['subtract', 'Subtract', 'Subtract from selection (Alt)'],
+  ['intersect', 'Intersect', 'Intersect with selection (Shift+Alt)'],
+];
+
+/** Marquee options (FR-SEL-01/04): selection mode, shape, style with ratio or size, anti-alias. */
+function MarqueeOptions({ options, onOptions }: { options: ToolOptions; onOptions: Props['onOptions'] }) {
+  const o = options.marquee;
+  const set = (patch: Partial<MarqueeOpts>) => onOptions('marquee', patch);
+  const number = (label: string, key: 'ratioW' | 'ratioH' | 'width' | 'height', max: number) => (
+    <label className="flex items-center gap-1">
+      <span className="text-ui-muted">{label}</span>
+      <input
+        type="number"
+        aria-label={label}
+        min={1}
+        max={max}
+        value={o[key]}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (v >= 1 && v <= max) set({ [key]: v });
+        }}
+        className="bg-ui-bg border-ui-border w-16 rounded border px-1 py-0.5"
+      />
+    </label>
+  );
+  return (
+    <>
+      <div role="group" aria-label="Selection mode" className="flex gap-0.5">
+        {MODES.map(([mode, text, title]) => (
+          <Button
+            key={mode}
+            aria-pressed={o.mode === mode}
+            active={o.mode === mode}
+            title={title}
+            onClick={() => set({ mode })}
+          >
+            {text}
+          </Button>
+        ))}
+      </div>
+      <Select
+        label="Shape"
+        value={o.shape}
+        options={[
+          ['rect', 'Rectangle'],
+          ['ellipse', 'Ellipse'],
+        ]}
+        onChange={(shape) => set({ shape })}
+      />
+      <Select
+        label="Style"
+        value={o.style}
+        options={[
+          ['normal', 'Normal'],
+          ['ratio', 'Fixed ratio'],
+          ['size', 'Fixed size'],
+        ]}
+        onChange={(style) => set({ style })}
+      />
+      {o.style === 'ratio' && (
+        <>
+          {number('Ratio width', 'ratioW', 1000)}
+          {number('Ratio height', 'ratioH', 1000)}
+        </>
+      )}
+      {o.style === 'size' && (
+        <>
+          {number('Fixed width', 'width', 20_000)}
+          {number('Fixed height', 'height', 20_000)}
+        </>
+      )}
+      {o.shape === 'ellipse' && (
+        <Toggle
+          label="Anti-alias"
+          title="Smooth the ellipse's edge"
+          checked={o.antiAlias}
+          onChange={(antiAlias) => set({ antiAlias })}
+        />
+      )}
+    </>
+  );
+}
+
 export function OptionsBar({
   tool,
   options,
@@ -297,6 +386,7 @@ export function OptionsBar({
       <span className="font-semibold">{TOOL_NAMES[tool]}</span>
       {isPaintTool(tool) && <PaintOptions tool={tool} options={options} onOptions={onOptions} />}
       {tool === 'crop' && <CropOptions options={options} crop={crop} onOptions={onOptions} onCrop={onCrop} />}
+      {tool === 'marquee' && <MarqueeOptions options={options} onOptions={onOptions} />}
       {tool === 'eyedropper' && (
         <>
           <Select

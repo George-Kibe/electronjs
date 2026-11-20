@@ -63,6 +63,9 @@
 6. Batch: folder of 10 → resize + WebP → outputs verified.
 7. Undo/redo via the History panel. Snapshot and restore.
 
+Selections (M2 slice 1a): `e2e/selections.spec.ts` drags marquees in every mode, paints across the edge of
+a selection, clears it with Delete, and drives the Select menu and its keys.
+
 As built for the M1 exit: `e2e/journeys.spec.ts` runs journey 1 without the text step (M3) and journey 2
 without the Levels adjustment layer (M2), and checks the exported files' pixels, size and metadata.
 

@@ -10,6 +10,7 @@ import {
 import { IMPLEMENTED_BLEND_MODES } from '../doc/blend';
 import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
 import { compositePixel, liveLayers } from '../doc/flatten';
+import { ellipseMask } from '../doc/selection';
 import { translateLayer } from '../doc/translate';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
@@ -273,6 +274,67 @@ describe('blend modes and groups: GPU vs CPU (T-BLD-01, M1 subset)', () => {
       }
     }
     expect(maxErr).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('selection clips painting: GPU preview vs CPU commit (FR-SEL-06)', () => {
+  it('a stroke across a soft-edged selection previews exactly as it commits', () => {
+    const size = 300; // two tiles across: one full, one partial, one outside the selection
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      createRasterLayer('p'),
+    ]);
+    const layer = doc.raster(doc.layers[1]!.id);
+    const selection = ellipseMask({ x0: 20.5, y0: 20.5, x1: 240.5, y1: 200.5 }, size, size);
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    const settings: BrushSettings = {
+      ...DEFAULT_BRUSH,
+      color: [200, 0, 40],
+      opacity: 1,
+      hardness: 1,
+      mode: 'paint',
+    };
+    stroke.hardness = 1;
+    const strokeDabs: Dab[] = [10, 70, 130, 190, 250, 290].map((x) => ({ x, y: 110, radius: 30, alpha: 1 }));
+    stroke.addDabs(strokeDabs, size, size);
+    compositor.render(
+      doc,
+      new Viewport(),
+      { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+      { buffer: stroke, layerId: layer.id, settings, preserveAlpha: false, selection },
+    );
+    const pixels = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    // The CPU commit, as Editor.commitStroke does it.
+    for (const key of stroke.keys()) {
+      const mask = selection.tile(key);
+      if (!mask) continue;
+      const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+      const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+      accumulateDabs(cov, tileX, tileY, strokeDabs, 1);
+      if (!mask.full) for (let i = 0; i < cov.length; i++) cov[i]! *= mask.data[i]! / 255;
+      layer.tiles.set(
+        key,
+        applyStroke(layer.tiles.get(key), cov, settings, { tileX, tileY, docWidth: size, docHeight: size }),
+      );
+    }
+    let maxErr = 0;
+    let painted = 0;
+    for (let x = 0; x < size; x += 2) {
+      const y = 110;
+      const expected = compositePixel(liveLayers(doc.layers), x, y);
+      const i = ((size - 1 - y) * size + x) * 4;
+      for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+      if (expected[1]! < 128) painted++;
+    }
+    expect(maxErr).toBeLessThanOrEqual(2);
+    // Painted inside the ellipse only: nothing at x < 20 or x > 241.
+    expect(painted).toBeGreaterThan(80);
+    expect(compositePixel(liveLayers(doc.layers), 5, 110)).toEqual([255, 255, 255, 255]);
+    expect(compositePixel(liveLayers(doc.layers), 280, 110)).toEqual([255, 255, 255, 255]);
   });
 });
 

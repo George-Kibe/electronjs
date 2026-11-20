@@ -18,7 +18,7 @@ interface Document {
   colorSpace: 'sRGB';                          // working space (ADR-0004)
   root: GroupLayer;                            // layer tree root (not shown)
   activeLayerId: string; selectedLayerIds: string[];
-  selection: Mask | null;
+  selection: Mask | null;                      // as built: engine/doc/selection.ts (not saved in .iep yet)
   guides: { horizontal: number[]; vertical: number[] };
   meta: { exif?: ExifSummary; sourceProfile?: string; createdAt: number; modifiedAt: number };
 }

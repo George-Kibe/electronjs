@@ -91,7 +91,10 @@ export function menuTemplate(
         cmd('Copy Merged', 'edit.copyMerged', 'CmdOrCtrl+Shift+C'),
         { role: 'paste' },
         cmd('Paste as New Document', 'edit.pasteNewDocument'),
-        { role: 'selectAll' },
+        cmd('Clear', 'edit.clear', 'Delete'),
+        // Hidden but active: Ctrl/⌘+A in text fields (macOS needs the role). On the canvas the renderer
+        // handles the key and Select › All selects every pixel instead.
+        { role: 'selectAll', visible: false },
         ...(mac
           ? []
           : [
@@ -148,6 +151,15 @@ export function menuTemplate(
             cmd('Bottom Edges', 'layer.alignBottom'),
           ],
         },
+      ],
+    },
+    {
+      label: 'Select',
+      submenu: [
+        cmd('All', 'select.all', 'CmdOrCtrl+A'),
+        cmd('Deselect', 'select.deselect', 'CmdOrCtrl+D'),
+        cmd('Reselect', 'select.reselect', 'CmdOrCtrl+Shift+D'),
+        cmd('Inverse', 'select.inverse', 'CmdOrCtrl+Shift+I'),
       ],
     },
     {

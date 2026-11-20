@@ -1,6 +1,7 @@
 import type { Tile, TileKey } from '../tiles/tile';
 import { TILE_BYTES } from '../tiles/tile';
 import { createRasterLayer, type Document, type Layer, type LayerProps } from './document';
+import type { Mask } from './selection';
 
 export type DirtySet = { layerIds: string[]; tiles: TileKey[] | 'all' };
 
@@ -225,7 +226,8 @@ export type CanvasGeometry = {
  * they are exact inverses and cost O(layers), never O(pixels).
  */
 export class TreeCommand implements Command {
-  private before: { root: Layer[]; active: string; canvas: CanvasGeometry } | null = null;
+  private before: { root: Layer[]; active: string; canvas: CanvasGeometry; selection: Mask | null } | null =
+    null;
   private after: TreeEdit | null = null;
 
   constructor(
@@ -233,13 +235,21 @@ export class TreeCommand implements Command {
     private readonly build: (doc: Document) => TreeEdit,
   ) {}
 
-  private install(doc: Document, root: Layer[], active: string, canvas?: CanvasGeometry): DirtySet {
+  private install(
+    doc: Document,
+    root: Layer[],
+    active: string,
+    canvas?: CanvasGeometry,
+    selection: Mask | null = null,
+  ): DirtySet {
     doc.layers.splice(0, doc.layers.length, ...root);
     doc.activeLayerId = active;
     if (canvas) {
       doc.width = canvas.width;
       doc.height = canvas.height;
       doc.meta.guides = canvas.guides;
+      // A new canvas size invalidates the selection's coordinates: it is dropped (undo brings it back).
+      doc.selection = selection;
     }
     return { layerIds: [], tiles: 'all' };
   }
@@ -250,6 +260,7 @@ export class TreeCommand implements Command {
         root: [...doc.layers],
         active: doc.activeLayerId,
         canvas: { width: doc.width, height: doc.height, guides: doc.meta.guides },
+        selection: doc.selection,
       };
       this.after = this.build(doc);
       if (this.after.root.length === 0) throw new Error('A document needs at least one layer');
@@ -259,10 +270,38 @@ export class TreeCommand implements Command {
 
   undo(doc: Document): DirtySet {
     const b = this.before!;
-    return this.install(doc, b.root, b.active, this.after?.canvas ? b.canvas : undefined);
+    return this.install(doc, b.root, b.active, this.after?.canvas ? b.canvas : undefined, b.selection);
   }
 
   sizeBytes(): number {
     return 512 + (this.after?.newTileBytes ?? 0);
+  }
+}
+
+/**
+ * Replaces the selection (marquee, lasso, wand, Select All/None/Inverse, Reselect; FR-SEL-01..05). Masks are
+ * immutable, so before/after are references. Selection changes are history steps, as in Photoshop.
+ */
+export class SetSelectionCommand implements Command {
+  private before: Mask | null = null;
+
+  constructor(
+    readonly label: string,
+    private readonly after: Mask | null,
+  ) {}
+
+  do(doc: Document): DirtySet {
+    this.before = doc.selection;
+    doc.selection = this.after && !this.after.isEmpty ? this.after : null;
+    return { layerIds: [], tiles: [] };
+  }
+
+  undo(doc: Document): DirtySet {
+    doc.selection = this.before;
+    return { layerIds: [], tiles: [] };
+  }
+
+  sizeBytes(): number {
+    return 64 + (this.after?.sizeBytes() ?? 0);
   }
 }

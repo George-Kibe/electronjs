@@ -1,4 +1,5 @@
 import { TileGrid } from '../tiles/tile';
+import type { Mask } from './selection';
 
 /** The 18 blend modes of FR-LAY-03 (docs/05 §1). The compositor implements them per milestone. */
 export const BLEND_MODES = [
@@ -184,6 +185,11 @@ export class Document {
   readonly layers: Layer[] = [];
   activeLayerId: string;
   readonly meta: DocumentMeta;
+  /**
+   * The selection (FR-SEL-01..06); null = nothing selected, so every pixel is editable. Changed only by
+   * SetSelectionCommand and by commands that change the canvas size (which drop it).
+   */
+  selection: Mask | null = null;
 
   constructor(
     /** Canvas size in px. Changed only by commands (crop, image/canvas size, rotate: TreeCommand). */

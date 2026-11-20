@@ -2,6 +2,7 @@ import type { BrushSettings } from '../brush/brush';
 import { GRAIN_SIZE, tipGrain, type BrushTip } from '../brush/tips';
 import { blendModeIndex } from '../doc/blend';
 import type { Document, Layer } from '../doc/document';
+import type { Mask, MaskTile } from '../doc/selection';
 import { PIXEL_GRID_ZOOM, type Viewport } from '../render/viewport';
 import { parseTileKey, TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
 import { createProgram, createUnitQuad, type Program } from './program';
@@ -22,6 +23,8 @@ export type StrokePreview = {
   settings: BrushSettings;
   /** Transparency lock: the preview keeps each pixel's alpha (FR-LAY-02). */
   preserveAlpha: boolean;
+  /** The stroke only reaches selected pixels (FR-SEL-06); null or absent = everywhere. */
+  selection?: Mask | null;
 };
 
 /** Move tool drag in progress (FR-TRF-07): these raster layers are drawn shifted by whole pixels. */
@@ -67,6 +70,9 @@ export class Compositor {
   private readonly presentProgram: Program;
   private readonly gridProgram: Program;
   private readonly grains = new Map<BrushTip, WebGLTexture>();
+  /** Selection mask textures (R8) of the stroke preview, for the selection in `maskOwner`. */
+  private readonly masks = new Map<MaskTile, WebGLTexture>();
+  private maskOwner: Mask | null = null;
   private readonly vao: WebGLVertexArrayObject;
   private readonly linearSampler: WebGLSampler;
   private readonly nearestSampler: WebGLSampler;
@@ -294,12 +300,23 @@ export class Compositor {
     } else {
       gl.uniform1i(p.uniform('u_hasGrain'), 0);
     }
+    gl.uniform1i(p.uniform('u_mask'), 4);
+    gl.uniform1i(p.uniform('u_hasMask'), 0);
+    const selection = preview?.selection ?? null;
     const moving = ctx.move?.layerIds.has(layer.id) ? ctx.move : undefined;
     const [ox, oy] = moving ? [moving.dx, moving.dy] : [0, 0];
     for (const key of moving ? this.movedTiles(layer, moving, ctx.rect) : ctx.visible) {
       const tile = layer.tiles.get(key);
-      const strokeTex = preview?.buffer.texture(key);
+      const mask = selection?.tile(key);
+      // Outside the selection the stroke shows nothing; fully selected tiles need no mask.
+      const strokeTex = selection && !mask ? undefined : preview?.buffer.texture(key);
       if (!tile && !strokeTex) continue;
+      const partial = strokeTex && mask && !mask.full ? mask : null;
+      gl.uniform1i(p.uniform('u_hasMask'), partial ? 1 : 0);
+      if (partial) {
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this.maskTexture(selection!, partial));
+      }
       const [tx, ty] = parseTileKey(key);
       gl.uniform2f(p.uniform('u_tileOrigin'), tx * TILE_SIZE + ox, ty * TILE_SIZE + oy);
       gl.uniform1i(p.uniform('u_hasTile'), tile ? 1 : 0);
@@ -352,6 +369,28 @@ export class Compositor {
   }
 
   /** R8 grain map of a textured brush tip (null for round), uploaded once. */
+  /** R8 texture of a partly selected tile; the cache belongs to one selection and is dropped with it. */
+  private maskTexture(selection: Mask, tile: MaskTile): WebGLTexture {
+    if (this.maskOwner !== selection) {
+      for (const tex of this.masks.values()) this.gl.deleteTexture(tex);
+      this.masks.clear();
+      this.maskOwner = selection;
+    }
+    let tex = this.masks.get(tile);
+    if (tex) return tex;
+    const gl = this.gl;
+    tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, TILE_SIZE, TILE_SIZE);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TILE_SIZE, TILE_SIZE, gl.RED, gl.UNSIGNED_BYTE, tile.data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this.masks.set(tile, tex);
+    return tex;
+  }
+
   private grainTexture(tip: BrushTip): WebGLTexture | null {
     const data = tipGrain(tip);
     if (!data) return null;
@@ -399,6 +438,8 @@ export class Compositor {
   dispose(): void {
     for (const tex of this.grains.values()) this.gl.deleteTexture(tex);
     this.grains.clear();
+    for (const tex of this.masks.values()) this.gl.deleteTexture(tex);
+    this.masks.clear();
     this.disposePool();
     this.textures.dispose();
   }

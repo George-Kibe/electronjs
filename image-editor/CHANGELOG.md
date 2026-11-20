@@ -6,6 +6,11 @@ All notable changes to ImageEditor are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Selections: Rectangular and Elliptical Marquee (M, Shift+M) with New, Add (Shift), Subtract (Alt) and
+  Intersect (Shift+Alt), Shift for a square or circle, Alt to draw from the centre, a fixed ratio or size,
+  and smooth ellipse edges. Select › All (Ctrl+A), Deselect (Ctrl+D), Reselect (Ctrl+Shift+D) and Inverse
+  (Ctrl+Shift+I). The selection shows as marching ants. Brush, pencil and eraser paint only inside it, and
+  Delete clears the selected pixels.
 - Automatic updates: new versions download in the background and install when you quit, or straight away
   with Restart Now. An update never restarts the app while a document has unsaved changes. Help › Check for
   Updates, and a Stable or Beta channel in Preferences › Updates.

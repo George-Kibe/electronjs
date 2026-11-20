@@ -148,6 +148,18 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
 - Feather = separable Gaussian on the mask (GPU). Grow/shrink = distance-transform-based morphology (worker).
 - Marching ants: an edge-detect shader on the mask with an animated dash, drawn in the overlay pass.
 
+**As built (M2 slice 1a):** `engine/doc/selection.ts` keeps the mask as immutable 256 px A8 tiles (fully
+selected tiles share one buffer; coverage outside the canvas is always 0). Marquee shapes rasterize on the
+CPU, row by row into tiles: rectangles are exact, the ellipse and (1b) lasso polygons use 5 sub-scanlines
+with exact horizontal span coverage, so no canvas-sized buffer is allocated. This is the CPU reference the
+GPU path will be checked against if it is ever needed. The marching ants are an SVG path of the pixel
+edges at 50 % coverage (`selection-outline.ts`) under the view transform, recomputed only when the mask
+changes. Painting is clipped twice in the same way: `layer.frag` multiplies the stroke preview's coverage
+by the tile's R8 mask texture, and `Editor.commitStroke` multiplies the read-back coverage by the same
+mask (`gpu.gpu.test.ts` checks that they agree). Measured on a 6000 × 4000 canvas (Node 24, one core): a full-canvas ellipse
+rasterizes in about 190 ms and its outline takes about 130 ms, both on the UI thread; moving them to the
+ops worker is the next step if larger selections feel slow.
+
 ### 5.5 Filters & adjustments
 
 | Kind | Implementation |

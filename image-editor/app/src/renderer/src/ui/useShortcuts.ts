@@ -62,6 +62,10 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && key === 'e') return run(() => (e.shiftKey ? editor.mergeVisible() : editor.mergeDown()));
         if (mod && e.code === 'BracketRight') return run(() => editor.nudgeActiveLayer(1));
         if (mod && e.code === 'BracketLeft') return run(() => editor.nudgeActiveLayer(-1));
+        // Select menu (FR-SEL-05). In text fields these keys keep their usual meaning (see `typing`).
+        if (mod && !e.shiftKey && key === 'a') return run(() => editor.selectAll());
+        if (mod && key === 'd') return run(() => (e.shiftKey ? editor.reselect() : editor.deselect()));
+        if (mod && e.shiftKey && key === 'i') return run(() => editor.invertSelection());
         if (mod && key === '0') return run(() => editor.fitToScreen());
         if (mod && key === '1') return run(() => editor.zoomTo(1));
         if (mod && (key === '=' || key === '+')) return run(() => editor.zoomStep(1));
@@ -99,8 +103,13 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         )
           return run(() => actions.toggleUi());
         if (e.shiftKey && key === 'b') return run(() => editor.selectBrushTool(true));
+        if (e.shiftKey && key === 'm') return run(() => editor.selectMarqueeTool(true));
         if (e.shiftKey) return false;
         if (key === 'v') return run(() => editor.setTool('move'));
+        if (key === 'm') return run(() => editor.selectMarqueeTool());
+        // Edit › Clear: the selected pixels of the active layer.
+        if ((e.key === 'Delete' || e.key === 'Backspace') && editor.hasSelection)
+          return run(() => editor.clearSelection());
         if (key === 'c') return run(() => editor.setTool('crop'));
         if (tool === 'crop' && e.key === 'Enter') return run(() => editor.commitCrop());
         if (tool === 'crop' && e.key === 'Escape') return run(() => editor.resetCrop());

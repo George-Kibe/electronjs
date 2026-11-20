@@ -55,6 +55,11 @@ export const MENU_COMMANDS = [
   'window.photography',
   'window.resetWorkspace',
   'help.checkForUpdates',
+  'select.all',
+  'select.deselect',
+  'select.reselect',
+  'select.inverse',
+  'edit.clear',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 
