@@ -104,9 +104,16 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
           return run(() => actions.toggleUi());
         if (e.shiftKey && key === 'b') return run(() => editor.selectBrushTool(true));
         if (e.shiftKey && key === 'm') return run(() => editor.selectMarqueeTool(true));
+        if (e.shiftKey && key === 'l') return run(() => editor.selectLassoTool(true));
         if (e.shiftKey) return false;
         if (key === 'v') return run(() => editor.setTool('move'));
         if (key === 'm') return run(() => editor.selectMarqueeTool());
+        if (key === 'l') return run(() => editor.selectLassoTool());
+        if (key === 'w') return run(() => editor.setTool('wand'));
+        // A polygonal lasso in progress takes Enter, Esc and Backspace (before Edit › Clear below).
+        if (editor.lassoActive && e.key === 'Enter') return run(() => editor.finishLasso());
+        if (editor.lassoActive && e.key === 'Escape') return run(() => editor.cancelLasso());
+        if (editor.lassoActive && e.key === 'Backspace') return run(() => editor.removeLassoPoint());
         // Edit › Clear: the selected pixels of the active layer.
         if ((e.key === 'Delete' || e.key === 'Backspace') && editor.hasSelection)
           return run(() => editor.clearSelection());

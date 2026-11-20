@@ -5,6 +5,7 @@ type Props = {
   editor: Editor;
   selection: EditorSnapshot['selection'];
   marquee: EditorSnapshot['marquee'];
+  lasso: EditorSnapshot['lasso'];
 };
 
 /** Black dashes over white, 1 screen px at any zoom (FR-SEL-06). */
@@ -23,9 +24,11 @@ function Ants({ children }: { children: (props: React.SVGProps<SVGElement>) => R
  * in document pixels under the view transform, so the outline stays crisp at any zoom. The dashes stop
  * moving with prefers-reduced-motion (docs/03 §7). Display only: the editor handles input.
  */
-export function SelectionOverlay({ editor, selection, marquee }: Props) {
+export function SelectionOverlay({ editor, selection, marquee, lasso }: Props) {
   const { zoom, panX, panY } = useSyncExternalStore(editor.subscribeView, editor.getView);
-  if (!selection && !marquee) return null;
+  if (!selection && !marquee && !lasso) return null;
+  // The outline drawn so far; a polygon also shows the edge to the pointer.
+  const lassoPoints = lasso ? [...lasso.points, ...(lasso.hover ? [lasso.hover] : [])] : [];
   const r = marquee?.rect;
   return (
     <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
@@ -55,6 +58,16 @@ export function SelectionOverlay({ editor, selection, marquee }: Props) {
                 rx={(r.x1 - r.x0) / 2}
                 ry={(r.y1 - r.y0) / 2}
                 {...(p as React.SVGProps<SVGEllipseElement>)}
+              />
+            )}
+          </Ants>
+        )}
+        {lassoPoints.length > 1 && (
+          <Ants>
+            {(p) => (
+              <polyline
+                points={lassoPoints.map(([x, y]) => `${x},${y}`).join(' ')}
+                {...(p as React.SVGProps<SVGPolylineElement>)}
               />
             )}
           </Ants>

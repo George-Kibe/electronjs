@@ -384,8 +384,13 @@ export function App() {
             />
             {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
             {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
-            {editor && (snap?.selection || snap?.marquee) && (
-              <SelectionOverlay editor={editor} selection={snap.selection} marquee={snap.marquee} />
+            {editor && (snap?.selection || snap?.marquee || snap?.lasso) && (
+              <SelectionOverlay
+                editor={editor}
+                selection={snap.selection}
+                marquee={snap.marquee}
+                lasso={snap.lasso}
+              />
             )}
             {snap?.doc && editor && (
               <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />

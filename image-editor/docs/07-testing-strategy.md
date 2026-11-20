@@ -41,7 +41,7 @@
 | T-GPU-01 | Simulated `WEBGL_lose_context` mid-stroke → context restored. Document pixels identical to CPU truth. The stroke is either committed or cleanly cancelled. |
 | T-BLD-01 | All 18 blend modes (Dissolve with a fixed noise seed) × opacity {0.3, 1} × mask on/off match the CPU reference within ±2/255 |
 | T-BRU-01 | Brush stroke with pressure 0→1 produces a size taper. Spacing is consistent at zoom levels 25 %–800 %. |
-| T-SEL-01 | Magic wand tolerance 32 contiguous vs non-contiguous against a fixture with known regions |
+| T-SEL-01 | Magic wand tolerance 32 contiguous vs non-contiguous against a fixture with known regions. As built: `engine/ops/wand.test.ts` (exact areas for contiguous, non-contiguous, tolerance 0/32/80, transparent pixels, anti-aliasing) and the wand journey in `e2e/selections.spec.ts` |
 | T-TRF-01 | Rotate 90° × 4 = identity (bit-exact). Free transform scale 50 % then 200 % stays within the bicubic tolerance. |
 | T-IO-01 | JPEG with EXIF orientation 6 opens upright. Display-P3 fixture converts to sRGB with ΔE < 2 against a reference conversion (LittleCMS). |
 | T-IO-02 | Export JPEG with "Remove location": output has no GPS tags and has an sRGB ICC profile |

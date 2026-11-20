@@ -114,3 +114,106 @@ test(`[${target}] selections: marquee, modes, Select menu, painting and Delete s
   await expect(history(win)).toContainText('Elliptical Marquee');
   await close();
 });
+
+test(`[${target}] lasso: freehand and polygonal outlines become selections (FR-SEL-02)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win, 300, 200);
+  const at = await docToPage(win, 300, 200);
+
+  // Freehand (L): a loop around a box; it closes itself on release.
+  await win.keyboard.press('l');
+  const loop: Array<[number, number]> = [
+    [40, 30],
+    [140, 30],
+    [140, 110],
+    [40, 110],
+  ];
+  await win.mouse.move(...at.edge(...loop[0]!));
+  await win.mouse.down();
+  for (const [i, p] of [...loop.slice(1), loop[0]!].entries()) {
+    const from = loop[i]!;
+    for (let k = 1; k <= 10; k++)
+      await win.mouse.move(
+        ...at.edge(from[0] + ((p[0] - from[0]) * k) / 10, from[1] + ((p[1] - from[1]) * k) / 10),
+      );
+  }
+  await win.mouse.up();
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 100 by 80 at 40, 30$/);
+  await expect(history(win)).toContainText('Lasso');
+
+  // Polygonal (Shift+L): click the corners, Enter closes.
+  await win.keyboard.press('Shift+l');
+  await expect(
+    win.getByRole('toolbar', { name: 'Tool options' }).getByRole('combobox', { name: 'Kind' }),
+  ).toHaveValue('polygon');
+  const corners: Array<[number, number]> = [
+    [160, 40],
+    [260, 40],
+    [260, 160],
+  ];
+  for (const [x, y] of corners) await win.mouse.click(...at.edge(x, y));
+  await expect(win.locator('svg polyline.marching-ants')).toHaveCount(1); // the outline so far
+  await win.keyboard.press('Enter');
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 100 by 120 at 160, 40$/);
+  await expect(history(win)).toContainText('Polygonal Lasso');
+
+  // Shift adds; clicking the first vertex closes; Esc abandons; Backspace removes the last point.
+  await win.keyboard.down('Shift');
+  await win.mouse.click(...at.edge(20, 150));
+  await win.keyboard.up('Shift');
+  await win.mouse.click(...at.edge(60, 150));
+  await win.mouse.click(...at.edge(60, 190));
+  await win.mouse.click(...at.edge(20, 150)); // back on the first vertex
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 240 by 150 at 20, 40$/);
+  await win.mouse.click(...at.edge(100, 120));
+  await win.mouse.click(...at.edge(120, 120));
+  await win.keyboard.press('Backspace');
+  await win.keyboard.press('Escape');
+  await expect(win.locator('svg polyline')).toHaveCount(0);
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 240 by 150 at 20, 40$/); // unchanged
+  await close();
+});
+
+test(`[${target}] magic wand: contiguous and not, in the ops worker (FR-SEL-03)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win, 300, 200);
+  const at = await docToPage(win, 300, 200);
+  const options = win.getByRole('toolbar', { name: 'Tool options' });
+
+  // Two exact black rectangles: a big brush dab clipped by a marquee selection, twice.
+  for (const [box, centre] of [
+    [
+      [50, 50, 150, 120],
+      [100, 85],
+    ],
+    [
+      [200, 130, 260, 180],
+      [230, 155],
+    ],
+  ] as Array<[[number, number, number, number], [number, number]]>) {
+    await win.keyboard.press('m');
+    await drag(win, at.edge(box[0], box[1]), at.edge(box[2], box[3]));
+    await win.keyboard.press('b');
+    await options.getByRole('slider', { name: 'Size' }).fill('200');
+    await options.getByRole('slider', { name: 'Size' }).blur();
+    await win.mouse.click(...at(...centre));
+  }
+  await win.keyboard.press('ControlOrMeta+d');
+
+  await win.keyboard.press('w');
+  await options.getByRole('button', { name: "Smooth the selection's edge" }).click(); // anti-alias off
+  await win.mouse.click(...at(100, 85));
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 100 by 70 at 50, 50$/);
+  await expect(history(win)).toContainText('Magic Wand');
+
+  await options.getByRole('button', { name: 'Only the connected area around the click' }).click(); // off
+  await win.mouse.click(...at(100, 85));
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 210 by 130 at 50, 50$/);
+
+  // Shift adds: the white background joins the two rectangles, so everything is selected.
+  await win.keyboard.down('Shift');
+  await win.mouse.click(...at(10, 10));
+  await win.keyboard.up('Shift');
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 300 by 200 at 0, 0$/);
+  await close();
+});

@@ -28,6 +28,8 @@ type Props = {
 const TOOL_NAMES: Record<Tool, string> = {
   move: 'Move',
   marquee: 'Marquee',
+  lasso: 'Lasso',
+  wand: 'Magic Wand',
   crop: 'Crop',
   brush: 'Brush',
   pencil: 'Pencil',
@@ -364,6 +366,103 @@ function MarqueeOptions({ options, onOptions }: { options: ToolOptions; onOption
   );
 }
 
+/** Lasso options (FR-SEL-02): kind, selection mode, anti-alias. */
+function LassoOptions({ options, onOptions }: { options: ToolOptions; onOptions: Props['onOptions'] }) {
+  const o = options.lasso;
+  return (
+    <>
+      <div role="group" aria-label="Selection mode" className="flex gap-0.5">
+        {MODES.map(([mode, text, title]) => (
+          <Button
+            key={mode}
+            aria-pressed={o.mode === mode}
+            active={o.mode === mode}
+            title={title}
+            onClick={() => onOptions('lasso', { mode })}
+          >
+            {text}
+          </Button>
+        ))}
+      </div>
+      <Select
+        label="Kind"
+        value={o.kind}
+        options={[
+          ['freehand', 'Freehand'],
+          ['polygon', 'Polygonal'],
+        ]}
+        onChange={(kind) => onOptions('lasso', { kind })}
+      />
+      <Toggle
+        label="Anti-alias"
+        title="Smooth the selection's edge"
+        checked={o.antiAlias}
+        onChange={(antiAlias) => onOptions('lasso', { antiAlias })}
+      />
+      {o.kind === 'polygon' && (
+        <span className="text-ui-muted">
+          Click to add points · Enter or double-click to close · Esc to cancel
+        </span>
+      )}
+    </>
+  );
+}
+
+/** Magic Wand options (FR-SEL-03): mode, tolerance, contiguous, anti-alias, sample all layers. */
+function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: Props['onOptions'] }) {
+  const o = options.wand;
+  return (
+    <>
+      <div role="group" aria-label="Selection mode" className="flex gap-0.5">
+        {MODES.map(([mode, text, title]) => (
+          <Button
+            key={mode}
+            aria-pressed={o.mode === mode}
+            active={o.mode === mode}
+            title={title}
+            onClick={() => onOptions('wand', { mode })}
+          >
+            {text}
+          </Button>
+        ))}
+      </div>
+      <label className="flex items-center gap-1">
+        <span className="text-ui-muted">Tolerance</span>
+        <input
+          type="number"
+          aria-label="Tolerance"
+          min={0}
+          max={255}
+          value={o.tolerance}
+          onChange={(e) => {
+            const v = Math.round(Number(e.target.value));
+            if (v >= 0 && v <= 255) onOptions('wand', { tolerance: v });
+          }}
+          className="bg-ui-bg border-ui-border w-14 rounded border px-1 py-0.5"
+        />
+      </label>
+      <Toggle
+        label="Contiguous"
+        title="Only the connected area around the click"
+        checked={o.contiguous}
+        onChange={(contiguous) => onOptions('wand', { contiguous })}
+      />
+      <Toggle
+        label="Anti-alias"
+        title="Smooth the selection's edge"
+        checked={o.antiAlias}
+        onChange={(antiAlias) => onOptions('wand', { antiAlias })}
+      />
+      <Toggle
+        label="Sample all layers"
+        title="Pick colours from the whole image, not just the active layer"
+        checked={o.sampleAll}
+        onChange={(sampleAll) => onOptions('wand', { sampleAll })}
+      />
+    </>
+  );
+}
+
 export function OptionsBar({
   tool,
   options,
@@ -387,6 +486,8 @@ export function OptionsBar({
       {isPaintTool(tool) && <PaintOptions tool={tool} options={options} onOptions={onOptions} />}
       {tool === 'crop' && <CropOptions options={options} crop={crop} onOptions={onOptions} onCrop={onCrop} />}
       {tool === 'marquee' && <MarqueeOptions options={options} onOptions={onOptions} />}
+      {tool === 'lasso' && <LassoOptions options={options} onOptions={onOptions} />}
+      {tool === 'wand' && <WandOptions options={options} onOptions={onOptions} />}
       {tool === 'eyedropper' && (
         <>
           <Select
