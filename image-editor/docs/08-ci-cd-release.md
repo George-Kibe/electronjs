@@ -34,7 +34,7 @@ and memory soak tests. Failures open an issue.
 Regenerates the golden baselines in CI and opens a PR that shows before/after/diff images in the PR body,
 for human visual review. This is the **only** way baselines change.
 
-### `image-editor-release.yml` (release-please tag)
+### `image-editor-release.yml` (`image-editor-v*` tag; as built in §3.1)
 
 | Job | Output |
 | --- | --- |
@@ -96,10 +96,45 @@ Preferences › Updates show each step. The channel (Stable = `latest`, Beta = p
 report "unavailable" and never check: deb/rpm users update through their package manager. E2E scripts the
 feed with `E2E_FAKE_UPDATE` (`none` by default in `e2e/app.ts`, so tests never contact GitHub).
 
-Still to do for the M1 exit ("signed installers with auto-update"): `image-editor-release.yml` (build,
-sign and notarize, upload installers and `latest*.yml`/`beta*.yml` into the draft `image-editor-v<version>`
-release, upload source maps, and publish the draft only after every platform is uploaded), the signing
-secrets, and the crash-report DSN secret (`CRASH_REPORT_DSN` → `MAIN_VITE_CRASH_REPORT_DSN` at build).
+### 3.1 Release workflow as built (`image-editor-release.yml`)
+
+- **Trigger:** a pushed tag `image-editor-v<version>`. It must match `app/package.json`, or the build stops.
+  Pull requests that change the workflow, `electron-builder.yml` or `scripts/check-packaged.mjs` run the
+  same builds **unsigned** as a dry run and publish nothing.
+- **Builds:** one job per OS, building every architecture.
+  - Windows: one NSIS installer with x64 + arm64 inside, because electron-updater's Windows updater does
+    not choose by architecture.
+  - macOS: dmg + zip for x64 and arm64 in one run, so `latest-mac.yml` lists both zips (Squirrel.Mac
+    installs from the zip).
+  - Linux: AppImage, deb and rpm for x64 and arm64.
+  - The install step writes a temporary `pnpm-workspace.yaml` with `supportedArchitectures`, so both
+    architectures' sharp prebuilds are present. `scripts/check-packaged.mjs` then fails the job if any
+    packaged app lacks `@img/sharp-<platform>-<arch>`. A packaged smoke test (decode a fixture, security
+    baseline) runs on the native architecture.
+- **Signing:** on tag builds only. Signing secrets are empty in every other run, so pull-request code never
+  sees them, and a tag build without them fails.
+  - Windows uses Azure Artifact Signing (`azureSignOptions`). The publisher name also goes into
+    `app-update.yml`, so updates install only with the same publisher.
+  - macOS uses a Developer ID certificate, hardened runtime and notarization with an App Store Connect API
+    key.
+  - Linux packages are not code-signed; `SHA256SUMS` is published.
+- **Publish:** a separate job with `contents: write` downloads every build, writes `SHA256SUMS`, and creates
+  (or adds to) a **draft** release for the tag. The draft holds the installers, update zips, blockmaps
+  (differential updates) and `latest*.yml`. A maintainer publishes it after the release QA checklist
+  (docs/07 §8). Updaters ignore drafts (ADR-0010), so nothing is offered before that.
+- **Secrets and variables to configure:**
+
+  | Name | Kind | Used for |
+  | --- | --- | --- |
+  | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | secret | Windows signing |
+  | `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERTIFICATE_PROFILE`, `WIN_PUBLISHER_NAME` | variable | Windows signing |
+  | `CSC_LINK` (base64 .p12), `CSC_KEY_PASSWORD` | secret | macOS signing |
+  | `APPLE_API_KEY` (.p8 contents), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | secret | macOS notarization |
+  | `CRASH_REPORT_DSN` | secret | Opt-in crash reports (ADR-0009), baked in as `MAIN_VITE_CRASH_REPORT_DSN` |
+
+- **Not yet:** release-please (tags are pushed by hand until it is set up), SBOM and license bundle,
+  source-map upload to the crash-report project, staged rollout percentages (`stagingPercentage` is edited
+  in the published `latest*.yml`), and the arm64 smoke tests (no native arm64 runner in the matrix yet).
 
 ## 4. Distribution (later)
 

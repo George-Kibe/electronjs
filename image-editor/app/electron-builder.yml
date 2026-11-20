@@ -23,6 +23,8 @@ win:
     - target: nsis
       arch: [x64, arm64]
 nsis:
+  # No spaces: GitHub renames uploaded files with spaces, and latest.yml must name the asset exactly.
+  artifactName: ${productName}-Setup-${version}.${ext}
   oneClick: false
   perMachine: false
   allowElevation: true
@@ -31,6 +33,9 @@ mac:
   hardenedRuntime: true
   target:
     - target: dmg
+      arch: [x64, arm64]
+    # Squirrel.Mac installs updates from the zip (latest-mac.yml lists it); the dmg is for first installs.
+    - target: zip
       arch: [x64, arm64]
 linux:
   category: Graphics
