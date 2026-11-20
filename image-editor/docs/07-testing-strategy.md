@@ -46,7 +46,7 @@
 | T-IO-01 | JPEG with EXIF orientation 6 opens upright. Display-P3 fixture converts to sRGB with ΔE < 2 against a reference conversion (LittleCMS). |
 | T-IO-02 | Export JPEG with "Remove location": output has no GPS tags and has an sRGB ICC profile |
 | T-IO-03 | `.iep` round trip of a document containing every layer type → identical model and pixels. v1 fixture files load forever. |
-| T-IO-04 | Atomic save: kill the process during write → the original file is intact |
+| T-IO-04 | Atomic save: kill the process during write → the original file is intact. As built: `main/services/atomic-write.test.ts` SIGKILLs a separate Node process running the real `writeAtomic` at 8 moments of a 32 MB save; the file is always exactly the old or the new bytes |
 | T-IO-05 | PSD fixture corpus: groups, masks, clipping, text and blend modes are preserved. Unsupported features are listed in the notice. |
 | T-REC-01 | Kill the app with unsaved changes → the next launch offers recovery with ≤ 2 min of lost edits |
 | T-AI-01 | Remove background on 5 fixture photos → mask IoU ≥ 0.9 vs a stored reference matte (WASM provider in CI) |
@@ -62,6 +62,9 @@
 5. Open PSD → edit a text layer → export PSD → reopen.
 6. Batch: folder of 10 → resize + WebP → outputs verified.
 7. Undo/redo via the History panel. Snapshot and restore.
+
+As built for the M1 exit: `e2e/journeys.spec.ts` runs journey 1 without the text step (M3) and journey 2
+without the Levels adjustment layer (M2), and checks the exported files' pixels, size and metadata.
 
 **Harness note (M0):** `app://` is cross-origin isolated, so the window's first navigation swaps renderer
 processes. If that swap races Playwright's attach to the new window, the `firstWindow()` Page can stay on
