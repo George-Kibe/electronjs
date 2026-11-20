@@ -39,6 +39,8 @@ mac:
       arch: [x64, arm64]
 linux:
   category: Graphics
+  # deb/rpm need a maintainer; without it electron-builder asks for an author e-mail in package.json.
+  maintainer: George Kibe
   target: [AppImage, deb, rpm]
   mimeTypes: [image/png, image/jpeg, image/webp, image/avif, image/gif, image/bmp, image/tiff]
 # Releases live in this monorepo next to the other products', tagged per component by release-please, so

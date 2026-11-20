@@ -6,6 +6,7 @@
   "description": "Approachable cross-platform raster image editor (working name).",
   "license": "MIT",
   "author": "George Kibe",
+  "homepage": "https://github.com/George-Kibe/electronjs/tree/master/image-editor",
   "type": "module",
   "main": "./out/main/index.js",
   "engines": {
