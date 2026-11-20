@@ -12,7 +12,7 @@ export default tseslint.config(
       'src/main/**/*.ts',
       'src/preload/**/*.ts',
       'src/codec-host/**/*.ts',
-      'scripts/**/*.ts',
+      'scripts/**/*.{ts,mjs}',
       '*.config.ts',
       'test/**/*.ts',
       'e2e/**/*.ts',
@@ -40,8 +40,8 @@ export default tseslint.config(
     },
   },
   {
-    // Build scripts may run tools directly.
-    files: ['scripts/**/*.ts'],
+    // Build scripts may run tools directly. T-IO-04 kills a separate process in the middle of a save.
+    files: ['scripts/**/*.{ts,mjs}', 'src/main/services/atomic-write.test.ts'],
     rules: { 'no-restricted-imports': 'off' },
   },
   {

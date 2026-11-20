@@ -23,6 +23,8 @@ win:
     - target: nsis
       arch: [x64, arm64]
 nsis:
+  # No spaces: GitHub renames uploaded files with spaces, and latest.yml must name the asset exactly.
+  artifactName: ${productName}-Setup-${version}.${ext}
   oneClick: false
   perMachine: false
   allowElevation: true
@@ -32,8 +34,13 @@ mac:
   target:
     - target: dmg
       arch: [x64, arm64]
+    # Squirrel.Mac installs updates from the zip (latest-mac.yml lists it); the dmg is for first installs.
+    - target: zip
+      arch: [x64, arm64]
 linux:
   category: Graphics
+  # deb/rpm need a maintainer; without it electron-builder asks for an author e-mail in package.json.
+  maintainer: George Kibe
   target: [AppImage, deb, rpm]
   mimeTypes: [image/png, image/jpeg, image/webp, image/avif, image/gif, image/bmp, image/tiff]
 # Releases live in this monorepo next to the other products', tagged per component by release-please, so

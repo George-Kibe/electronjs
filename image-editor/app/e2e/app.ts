@@ -18,7 +18,9 @@ function packagedExecutable(): string {
   const dist = join(appRoot, 'dist');
   if (process.platform === 'win32') return join(dist, 'win-unpacked', 'ImageEditor.exe');
   if (process.platform === 'darwin') {
-    const dir = readdirSync(dist).find((d) => d.startsWith('mac'));
+    // A release build has both `mac` (x64) and `mac-arm64`: run the one native to this machine.
+    const dirs = readdirSync(dist).filter((d) => d.startsWith('mac'));
+    const dir = dirs.find((d) => d === (process.arch === 'arm64' ? 'mac-arm64' : 'mac')) ?? dirs[0];
     if (!dir) throw new Error(`No mac build in ${dist}`);
     return join(dist, dir, 'ImageEditor.app', 'Contents', 'MacOS', 'ImageEditor');
   }

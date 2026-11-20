@@ -122,6 +122,21 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
 **Exit:** journeys 1–2 (minus adjustments) pass E2E on 3 OSes. T-HIS-01, T-GPU-01, T-IO-01..04, T-REC-01
 green. Signed installers with auto-update. 10 testers use it for a week with no data loss.
 
+M1 exit status:
+
+- [x] Journeys 1–2 without the later-milestone steps (text: M3, adjustments: M2), end to end with the
+      exported file checked: `e2e/journeys.spec.ts`. Green on 3 OSes, dev and packaged (run 44811768362).
+- [x] Critical tests in CI: T-HIS-01 (`history.test.ts`), T-GPU-01 (context loss in `gpu.gpu.test.ts`),
+      T-IO-01 (`decode.test.ts`, `exif.test.ts`), T-IO-02 (`encode.test.ts`, `files.spec.ts`), T-IO-03
+      (`iep.test.ts` with the v1 golden fixture), T-IO-04 (`atomic-write.test.ts`, new), T-REC-01
+      (`recovery.spec.ts`). Green in the same run.
+- [x] Auto-update in the app (slice 6.6).
+- [x] Release workflow (docs/08 §3.1): signed, draft-first releases with update manifests. The unsigned
+      dry run builds, checks and smoke-tests every installer on 3 OSes (run 44811768359).
+- [ ] **Maintainer:** signing certificates and the secrets in docs/08 §3.1, the crash-report project and
+      its DSN, then a first tagged release, and an update from it to a second one on each OS (docs/07 §8).
+- [ ] **Maintainer:** 10 testers use it for a week with no data loss.
+
 ## M2 — Selections, masks, transforms, adjustments & filters
 
 FR-SEL-01..06 · FR-LAY-03 (all modes), 04, 05, 08 · FR-TRF-04, 06 · FR-ADJ-01..03 · FR-FLT-01 ·
