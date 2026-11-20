@@ -1,4 +1,5 @@
 import type { UpdateChannel } from '@shared/settings';
+import type { Feed } from './release-feed';
 import type { Updater, UpdaterEvents } from './updater';
 
 type Logger = {
@@ -9,11 +10,16 @@ type Logger = {
 };
 
 /**
- * electron-updater with the GitHub provider (publish config in electron-builder.yml, docs/08 §3). It
- * verifies the download's SHA-512 from the release manifest, and on Windows the installer's Authenticode
- * publisher; macOS (Squirrel.Mac) requires a signed app. Imported on first use, so startup does not load it.
+ * electron-updater with the generic provider, pointed at this product's newest release for the channel
+ * (`resolveFeed`, ADR-0010; docs/08 §3). It verifies the download's SHA-512 from the release manifest, and
+ * on Windows the installer's Authenticode publisher (from app-update.yml); macOS (Squirrel.Mac) requires a
+ * signed app. Imported on first use, so startup does not load it.
  */
-export async function loadElectronUpdater(events: UpdaterEvents, logger: Logger): Promise<Updater> {
+export async function loadElectronUpdater(
+  events: UpdaterEvents,
+  logger: Logger,
+  resolveFeed: (channel: UpdateChannel) => Promise<Feed | null>,
+): Promise<Updater> {
   // CommonJS package whose `autoUpdater` export is a lazy getter, so only the default import works from ESM.
   const { default: electronUpdater } = await import('electron-updater');
   const u = electronUpdater.autoUpdater;
@@ -26,14 +32,20 @@ export async function loadElectronUpdater(events: UpdaterEvents, logger: Logger)
   u.on('download-progress', (p) => events.progress(p.percent));
   u.on('update-downloaded', (info) => events.downloaded(info.version));
   u.on('error', (err) => events.error(err));
+  let channel: UpdateChannel = 'latest';
   return {
-    setChannel: (channel: UpdateChannel) => {
-      u.channel = channel;
+    setChannel: (c) => {
+      channel = c;
+    },
+    check: async () => {
+      const feed = await resolveFeed(channel);
+      // No release of this product for the channel yet: up to date.
+      if (!feed) return events.notAvailable();
+      u.setFeedURL({ provider: 'generic', url: feed.url, channel: feed.channel });
+      u.channel = feed.channel;
       u.allowPrerelease = channel === 'beta';
       // Setting `channel` turns downgrades on; leaving beta must keep the newer version installed.
       u.allowDowngrade = false;
-    },
-    check: async () => {
       await u.checkForUpdates();
     },
     // Silent install (the assisted installer reuses the chosen folder), then start the new version.

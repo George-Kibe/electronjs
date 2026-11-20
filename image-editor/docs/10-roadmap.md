@@ -109,6 +109,7 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         Restart Now is refused while any window has unsaved changes; Help › Check for Updates; Stable/Beta
         channel (docs/08 §3). Crash reports are opt-in (Preferences › Privacy), scrubbed of paths, file
         names and user data, sent as Sentry envelopes to a build-time DSN, without minidumps (ADR-0009).
+        Updates come from this repo's `image-editor-v*` releases, found through the GitHub API (ADR-0010).
         E2E covers the update flow with a scripted feed and the crash reports with a local ingest server.
         The release workflow, code signing and the DSN secret remain for the M1 exit.
   - [x] 6.7 Panel dock and workspaces (FR-GEN-01): collapsible panels, reorder by dragging a header or

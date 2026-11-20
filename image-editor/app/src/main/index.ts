@@ -16,6 +16,7 @@ import { writeAtomic } from './services/atomic-write';
 import { CodecHost } from './services/codec-host';
 import { CrashReporter } from './services/crash-reports';
 import { fakeUpdater, loadElectronUpdater } from './services/electron-updater';
+import { releaseFeedResolver } from './services/release-feed';
 import { FileRefRegistry } from './services/file-refs';
 import { launchPaths } from './services/launch-args';
 import { logger } from './services/logger';
@@ -123,7 +124,21 @@ const updates = new UpdateService({
           quit: () => app.quit(),
           markInstalled: () => writeFileSync(join(app.getPath('userData'), 'e2e-update-installed'), ''),
         })
-      : loadElectronUpdater(events, logger),
+      : loadElectronUpdater(
+          events,
+          logger,
+          releaseFeedResolver(async (url) => {
+            const res = await net.fetch(url, {
+              headers: {
+                Accept: 'application/vnd.github+json',
+                'User-Agent': `${PRODUCT_NAME}/${app.getVersion()}`,
+              },
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!res.ok) throw new Error(`GitHub releases API answered HTTP ${res.status}`);
+            return res.json();
+          }),
+        ),
   channel: settings.get().updates.channel,
   hasUnsavedWork: () => [...guards.values()].some((g) => g.isEdited),
   onStatus: (status) => {

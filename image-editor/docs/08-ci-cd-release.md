@@ -67,7 +67,7 @@ linux:
   target: [AppImage, deb, rpm]
   category: Graphics
   mimeTypes: [application/x-imageeditor-project, image/png, image/jpeg, image/webp, image/avif, image/gif, image/bmp, image/tiff, image/vnd.adobe.photoshop]
-publish: { provider: github }
+publish: { provider: github, owner: George-Kibe, repo: electronjs, tagNamePrefix: image-editor-v, releaseType: draft }  # ADR-0010
 ```
 
 Installing sharp for each target platform and arch uses `pnpm install --config.supportedArchitectures`
@@ -83,7 +83,10 @@ Same as the other projects (electron-updater, latest/beta channels, staged rollo
   app version pins a new model hash.
 
 **As built (M1 slice 6.6):** `main/services/updater.ts` (`UpdateService`, unit-tested with a fake backend) over
-`electron-updater` (GitHub provider from `publish` in `electron-builder.yml`, loaded on the first check).
+`electron-updater` (loaded on the first check). This repository releases several products, so the stock GitHub
+provider cannot find ours. Before each check, `release-feed.ts` picks the newest `image-editor-v*` release for
+the channel from the GitHub API, and electron-updater's generic provider reads that release's manifest
+([ADR-0010](adr/0010-update-feed-in-a-monorepo.md)).
 The first check runs 10 s after startup, then every 4 h; a found update downloads in the background
 (`autoDownload`) and installs at the next normal quit (`autoInstallOnAppQuit`), i.e. after every
 unsaved-changes prompt. A non-modal banner offers **Restart Now** (disabled, and refused by main, while any
@@ -94,7 +97,8 @@ report "unavailable" and never check: deb/rpm users update through their package
 feed with `E2E_FAKE_UPDATE` (`none` by default in `e2e/app.ts`, so tests never contact GitHub).
 
 Still to do for the M1 exit ("signed installers with auto-update"): `image-editor-release.yml` (build,
-sign, notarize, publish the draft release with `latest*.yml`/`beta*.yml`, upload source maps), the signing
+sign and notarize, upload installers and `latest*.yml`/`beta*.yml` into the draft `image-editor-v<version>`
+release, upload source maps, and publish the draft only after every platform is uploaded), the signing
 secrets, and the crash-report DSN secret (`CRASH_REPORT_DSN` → `MAIN_VITE_CRASH_REPORT_DSN` at build).
 
 ## 4. Distribution (later)
