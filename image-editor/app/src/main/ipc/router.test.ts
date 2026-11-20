@@ -30,6 +30,7 @@ describe('registerIpc', () => {
       'app.takeHandover',
       'codec.decode',
       'codec.encode',
+      'crash.report',
       'dialog.openImage',
       'dialog.saveAs',
       'file.readBytes',
@@ -46,6 +47,9 @@ describe('registerIpc', () => {
       'recovery.write',
       'settings.get',
       'settings.update',
+      'update.check',
+      'update.getStatus',
+      'update.install',
       'window.moveDocument',
     ]);
   });

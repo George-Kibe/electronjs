@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from 'react';
+import { PRODUCT_NAME } from '@shared/constants';
 import { memoryBudgetBytes, type Settings, type SettingsPatch } from '@shared/settings';
+import { describeUpdate } from '../update-text';
+import type { Updates } from '../useUpdates';
 import { Button } from './Button';
 import { Modal } from './Modal';
 
@@ -8,6 +11,10 @@ type Props = {
   totalMemoryBytes: number;
   onChange: (patch: SettingsPatch) => void;
   onClose: () => void;
+  updates: Updates;
+  version: string;
+  /** The build has a crash-report address (FR-GEN-07). */
+  crashReportsAvailable: boolean;
 };
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -23,7 +30,7 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 }
 
 const selectClass = 'bg-ui-bg border-ui-border rounded border px-1.5 py-1';
-const SECTIONS = ['General', 'Performance', 'Files'] as const;
+const SECTIONS = ['General', 'Performance', 'Files', 'Updates', 'Privacy'] as const;
 type Section = (typeof SECTIONS)[number];
 
 /**
@@ -31,7 +38,15 @@ type Section = (typeof SECTIONS)[number];
  * "GPU off" takes effect at the next launch. Settings appear with the features that use them: units with
  * rulers and the scratch-space limit with disk history (M2).
  */
-export function PreferencesDialog({ settings, totalMemoryBytes, onChange, onClose }: Props) {
+export function PreferencesDialog({
+  settings,
+  totalMemoryBytes,
+  onChange,
+  onClose,
+  updates,
+  version,
+  crashReportsAvailable,
+}: Props) {
   const [section, setSection] = useState<Section>('General');
   const { general, performance } = settings;
   const autoBudgetGB =
@@ -214,6 +229,72 @@ export function PreferencesDialog({ settings, totalMemoryBytes, onChange, onClos
                 <option value={0}>Off</option>
               </select>
             </Row>
+          )}
+          {section === 'Updates' && (
+            <>
+              <Row
+                label="Version"
+                hint={describeUpdate(updates.status, PRODUCT_NAME, version).detail ?? undefined}
+              >
+                <span aria-label="Update status">
+                  {describeUpdate(updates.status, PRODUCT_NAME, version).title}
+                </span>
+              </Row>
+              <Row label="">
+                <Button
+                  onClick={updates.check}
+                  disabled={['unavailable', 'checking', 'downloading', 'ready'].includes(
+                    updates.status.state,
+                  )}
+                >
+                  Check Now
+                </Button>
+              </Row>
+              <Row
+                label="Update channel"
+                hint="Beta gets new features first and may be less stable. Leaving beta keeps your version until the next stable release passes it."
+              >
+                <select
+                  aria-label="Update channel"
+                  value={settings.updates.channel}
+                  onChange={(e) =>
+                    onChange({ updates: { channel: e.target.value as Settings['updates']['channel'] } })
+                  }
+                  className={selectClass}
+                >
+                  <option value="latest">Stable</option>
+                  <option value="beta">Beta</option>
+                </select>
+              </Row>
+            </>
+          )}
+          {section === 'Privacy' && (
+            <>
+              <Row
+                label="Crash reports"
+                hint={
+                  crashReportsAvailable
+                    ? 'Off unless you turn it on. A report holds the error message and where in the code it happened (with file paths and names removed), the app version and your operating system. It never holds images, file names or anything from your documents.'
+                    : 'This build has no crash-report address, so nothing is ever sent.'
+                }
+              >
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={crashReportsAvailable && settings.privacy.crashReports}
+                    disabled={!crashReportsAvailable}
+                    onChange={(e) => onChange({ privacy: { crashReports: e.target.checked } })}
+                  />
+                  Send crash reports
+                </label>
+              </Row>
+              <Row
+                label="Usage data"
+                hint="The only network use is the update check and, if you turn them on, crash reports."
+              >
+                <span>None. {PRODUCT_NAME} collects no usage statistics.</span>
+              </Row>
+            </>
           )}
         </div>
       </div>

@@ -7,7 +7,8 @@ describe('settings schema (docs/05 §3)', () => {
     expect(DEFAULT_SETTINGS.general.theme).toBe('dark');
     expect(DEFAULT_SETTINGS.performance.historySteps).toBe(100);
     expect(DEFAULT_SETTINGS.files.autosaveMinutes).toBe(2);
-    expect(DEFAULT_SETTINGS.privacy.crashReports).toBe(false);
+    expect(DEFAULT_SETTINGS.privacy.crashReports).toBe(false); // opt-in (FR-GEN-07)
+    expect(DEFAULT_SETTINGS.updates.channel).toBe('latest');
     expect(Settings.parse({ general: { theme: 'light' } }).general.interfaceScale).toBe(1);
   });
 
@@ -24,6 +25,8 @@ describe('settings schema (docs/05 §3)', () => {
     expect(() => applyPatch(DEFAULT_SETTINGS, { performance: { historySteps: 5 } })).toThrow();
     expect(() => applyPatch(DEFAULT_SETTINGS, { general: { canvasColor: 'red' } })).toThrow();
     expect(() => applyPatch(DEFAULT_SETTINGS, { evil: {} } as never)).toThrow();
+    expect(() => applyPatch(DEFAULT_SETTINGS, { updates: { channel: 'nightly' } } as never)).toThrow();
+    expect(applyPatch(DEFAULT_SETTINGS, { updates: { channel: 'beta' } }).updates.channel).toBe('beta');
   });
 
   it('keeps fields written by a newer version', () => {

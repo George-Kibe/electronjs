@@ -31,6 +31,7 @@ import { SwatchesPanel } from './components/SwatchesPanel';
 import { TabBar } from './components/TabBar';
 import { ToolBar } from './components/ToolBar';
 import { UnsavedDialog } from './components/UnsavedDialog';
+import { UpdateBanner } from './components/UpdateBanner';
 import { Welcome } from './components/Welcome';
 import { useFileActions, type NewDocumentSpec } from './useFileActions';
 import { useShortcuts, type ShortcutActions } from './useShortcuts';
@@ -38,6 +39,7 @@ import { useClipboard } from './useClipboard';
 import { useRecent } from './useRecent';
 import { useRecovery } from './useRecovery';
 import { useSettings } from './useSettings';
+import { useUpdates } from './useUpdates';
 import { useWorkspace } from './useWorkspace';
 import { applyPreset, toggleVisible } from './workspace';
 import { useSwatches } from './useSwatches';
@@ -62,10 +64,11 @@ export function App() {
   const swatches = useSwatches();
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [totalMemoryBytes, setTotalMemoryBytes] = useState(8 * 1024 ** 3);
-  const [appInfo, setAppInfo] = useState<{ version: string; autosaveSecondsOverride: number | null }>({
-    version: '0.0.0',
-    autosaveSecondsOverride: null,
-  });
+  const [appInfo, setAppInfo] = useState<{
+    version: string;
+    autosaveSecondsOverride: number | null;
+    crashReportsAvailable: boolean;
+  }>({ version: '0.0.0', autosaveSecondsOverride: null, crashReportsAvailable: false });
   useEffect(() => {
     api.app.getInfo().then(
       (info) => {
@@ -118,6 +121,7 @@ export function App() {
   }, [engineNotice]);
 
   const prefs = useSettings(editor, totalMemoryBytes);
+  const updates = useUpdates();
   const autosaveMs =
     appInfo.autosaveSecondsOverride !== null
       ? appInfo.autosaveSecondsOverride * 1000
@@ -246,10 +250,11 @@ export function App() {
           'view.pixelGrid': () => editor?.togglePixelGrid(),
           'view.fit': () => editor?.fitToScreen(),
           'view.actualSize': () => editor?.zoomTo(1),
+          'help.checkForUpdates': updates.check,
         };
         run[id]();
       }),
-    [actions, files, editor, clipboard, workspace, setWorkspace],
+    [actions, files, editor, clipboard, workspace, setWorkspace, updates.check],
   );
 
   const onDrop = async (e: DragEvent) => {
@@ -469,6 +474,7 @@ export function App() {
           )}
         </div>
       )}
+      <UpdateBanner updates={updates} version={appInfo.version} />
       {files.unsaved && <UnsavedDialog name={files.unsaved.name} onChoose={files.unsaved.resolve} />}
       {files.exporting && editor && (
         <ExportDialog
@@ -527,6 +533,9 @@ export function App() {
           totalMemoryBytes={totalMemoryBytes}
           onChange={(patch) => void prefs.update(patch)}
           onClose={() => setPreferencesOpen(false)}
+          updates={updates}
+          version={appInfo.version}
+          crashReportsAvailable={appInfo.crashReportsAvailable}
         />
       )}
       {newOpen && <NewDocumentDialog onCancel={() => setNewOpen(false)} {...newDocumentForm} />}

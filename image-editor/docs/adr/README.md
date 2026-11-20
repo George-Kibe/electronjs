@@ -12,3 +12,5 @@ Format and process: see [`0000-template.md`](0000-template.md) and the root [CON
 | [0006](0006-on-device-ai-models.md) | On-device AI with onnxruntime-web and permissively licensed models | Proposed (model choice at M4) |
 | [0007](0007-native-project-format-iep.md) | Native project format `.iep` (zip + JSON manifest + sparse tiles) | Accepted |
 | [0008](0008-codec-host-utility-process.md) | Decode/encode with sharp in an isolated utilityProcess; PSD and zip in workers | Accepted |
+| [0009](0009-opt-in-crash-reports.md) | Opt-in crash reports with a small in-app reporter (Sentry envelope format, no minidumps) | Accepted |
+| [0010](0010-update-feed-in-a-monorepo.md) | Find this product's release through the GitHub API (update feed in a monorepo) | Accepted |

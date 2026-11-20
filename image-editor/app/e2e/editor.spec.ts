@@ -123,6 +123,7 @@ test(`[${target}] runs cross-origin isolated with the security baseline`, async 
     apiKeys: [
       'app',
       'codec',
+      'crash',
       'dialog',
       'events',
       'file',
@@ -130,6 +131,7 @@ test(`[${target}] runs cross-origin isolated with the security baseline`, async 
       'recent',
       'recovery',
       'settings',
+      'update',
       'window',
     ],
     networkBlocked: true,

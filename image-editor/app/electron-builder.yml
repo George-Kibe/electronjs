@@ -36,5 +36,12 @@ linux:
   category: Graphics
   target: [AppImage, deb, rpm]
   mimeTypes: [image/png, image/jpeg, image/webp, image/avif, image/gif, image/bmp, image/tiff]
+# Releases live in this monorepo next to the other products', tagged per component by release-please, so
+# electron-builder uploads to `image-editor-v<version>` and the app finds its own release through the
+# GitHub API (main/services/release-feed.ts, ADR-0010). Keep owner/repo/prefix in sync with RELEASE_SOURCE.
 publish:
   provider: github
+  owner: George-Kibe
+  repo: electronjs
+  tagNamePrefix: image-editor-v
+  releaseType: draft

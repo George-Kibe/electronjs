@@ -7,6 +7,7 @@ import { FileRefRegistry } from '../services/file-refs';
 import { RecentFiles } from '../services/recent-files';
 import { RecoveryStore } from '../services/recovery';
 import { SettingsStore } from '../services/settings-store';
+import { UpdateBlockedError } from '../services/updater';
 import { createHandlers, type HandlerDeps } from './handlers';
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-handlers-'));
@@ -36,6 +37,7 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
       arch: 'x64',
       totalMemoryBytes: 16 * 1024 ** 3,
       autosaveSecondsOverride: null,
+      crashReportsAvailable: false,
     },
     recovery: new RecoveryStore({ dir: join(mkdtempSync(join(dir, 'rec-')), 'recovery'), writeAtomic }),
     settings: new SettingsStore({ path: join(dir, `settings-${crypto.randomUUID()}.json`), writeAtomic }),
@@ -47,6 +49,12 @@ function setup(over: Partial<HandlerDeps> = {}, launchPaths: string[] = []) {
     defaultDir: dir,
     setDocumentEdited: vi.fn(),
     closeWindow: vi.fn(),
+    updates: {
+      getStatus: vi.fn(() => ({ state: 'idle' as const, checkedAt: null })),
+      check: vi.fn(async () => undefined),
+      install: vi.fn(async () => undefined),
+    },
+    crash: { rendererError: vi.fn(async () => undefined) },
     ...over,
   };
   return { refs, codec, dialog, deps, handlers: createHandlers(deps), event: { sender: { id: 1 } } as never };
@@ -225,5 +233,30 @@ describe('IPC handlers', () => {
     const sender = (event as { sender: unknown }).sender;
     expect(deps.setDocumentEdited).toHaveBeenCalledWith(true, sender);
     expect(deps.closeWindow).toHaveBeenCalledWith(sender);
+  });
+
+  it('installs an update only through the service, mapping refusals to IPC errors (FR-GEN-05)', async () => {
+    const install = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new UpdateBlockedError('unsaved-work'))
+      .mockRejectedValueOnce(new UpdateBlockedError('not-ready'))
+      .mockResolvedValueOnce(undefined);
+    const { handlers, event } = setup({
+      updates: { getStatus: vi.fn(), check: vi.fn(async () => undefined), install },
+    });
+    await expect(handlers['update.install'](undefined, event)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Save your work to restart. The update will install when you quit.',
+    });
+    await expect(handlers['update.install'](undefined, event)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await handlers['update.install'](undefined, event);
+    expect(install).toHaveBeenCalledTimes(3);
+  });
+
+  it('hands renderer errors to the crash reporter without waiting for it (FR-GEN-07)', async () => {
+    const { handlers, deps, event } = setup();
+    const report = { kind: 'error' as const, name: 'Error', message: 'boom', stack: null };
+    expect(handlers['crash.report'](report, event)).toBeUndefined();
+    expect(deps.crash.rendererError).toHaveBeenCalledWith(report);
   });
 });

@@ -3,6 +3,7 @@ import { ExportFormat } from './export-options';
 import type { MenuCommandId } from './menu';
 import { AppInfo, FileRef, type IpcError } from './schemas';
 import { Settings, SettingsPatch } from './settings';
+import { CrashReportInput, UpdateStatus } from './update';
 
 /** Largest project or export the app reads or writes in one piece (bytes). */
 export const MAX_FILE_BYTES = 2 * 1024 ** 3;
@@ -116,6 +117,14 @@ export const ipcContract = {
   'settings.get': { request: z.void(), response: Settings },
   /** Validated patch; the saved settings come back and every window gets 'settings.changed'. */
   'settings.update': { request: SettingsPatch, response: Settings },
+  /** Auto-update (FR-GEN-05): the current status; changes arrive as 'update.status'. */
+  'update.getStatus': { request: z.void(), response: UpdateStatus },
+  /** Checks now (Help › Check for Updates); a found update downloads in the background. */
+  'update.check': { request: z.void(), response: z.void() },
+  /** Quits and installs a downloaded update. FORBIDDEN while any window has unsaved changes. */
+  'update.install': { request: z.void(), response: z.void() },
+  /** An uncaught renderer error for an opt-in crash report (FR-GEN-07); dropped when reports are off. */
+  'crash.report': { request: CrashReportInput, response: z.void() },
 } as const;
 
 export type IpcContract = typeof ipcContract;
@@ -135,6 +144,8 @@ export interface ImageEditorEvents {
   onOpenRecent(cb: (id: string) => void): () => void;
   /** Settings changed (from this or another window). */
   onSettingsChanged(cb: (settings: Settings) => void): () => void;
+  /** The auto-updater's status changed (FR-GEN-05). */
+  onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
 }
 
 /** Unwrapped API used by renderer code (renderer/src/lib/api.ts). */
@@ -179,6 +190,12 @@ export interface ImageEditorApi {
     get(): Promise<Settings>;
     update(patch: RequestOf<'settings.update'>): Promise<Settings>;
   };
+  update: {
+    getStatus(): Promise<UpdateStatus>;
+    check(): Promise<void>;
+    install(): Promise<void>;
+  };
+  crash: { report(report: CrashReportInput): Promise<void> };
 }
 
 /**

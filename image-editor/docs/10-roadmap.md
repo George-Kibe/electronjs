@@ -81,7 +81,7 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
       undoable step; snapshots last for the session and are not saved in `.iep` (FR-HIS-02). T-HIS-01 covers
       every command kind. E2E green on Linux, Windows and macOS (image-editor-ci run 38310262376,
       2026-10-13).
-- [ ] Slice 6 — app shell, in parts:
+- [x] Slice 6 — app shell, in parts:
   - [x] 6.1 Preferences (Ctrl+, / ⌘,): theme light/dark/system, interface scale, canvas surround, painting
         cursor, history steps, memory budget (automatic = a quarter of RAM, 1–8 GB), GPU off (FR-GEN-02/04).
         Settings store in main (docs/05 §3). E2E launches now use a fresh profile each.
@@ -104,7 +104,15 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         New Window (FR-DOC-03): main manages several windows (a close guard each, menu commands to the
         focused one), the document travels as `.iep` bytes with its file, id and unsaved state; undo history
         stays behind. E2E green on 3 OSes (run 38622991684).
-  - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
+  - [x] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07): electron-updater checks 10 s after
+        start and every 4 h, downloads in the background and installs at the next quit; the banner's
+        Restart Now is refused while any window has unsaved changes; Help › Check for Updates; Stable/Beta
+        channel (docs/08 §3). Crash reports are opt-in (Preferences › Privacy), scrubbed of paths, file
+        names and user data, sent as Sentry envelopes to a build-time DSN, without minidumps (ADR-0009).
+        Updates come from this repo's `image-editor-v*` releases, found through the GitHub API (ADR-0010).
+        E2E covers the update flow with a scripted feed and the crash reports with a local ingest server.
+        The release workflow, code signing and the DSN secret remain for the M1 exit. E2E green on 3 OSes
+        (run 44807850616).
   - [x] 6.7 Panel dock and workspaces (FR-GEN-01): collapsible panels, reorder by dragging a header or
         Alt+↑/↓, resize between panels and the dock's width, show/hide from the Window menu, Essentials and
         Photography presets, Reset Workspace, Tab hides the interface (from the canvas only, so keyboard

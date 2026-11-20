@@ -32,6 +32,7 @@ export function menuTemplate(
             label: PRODUCT_NAME,
             submenu: [
               { role: 'about' },
+              cmd('Check for Updates…', 'help.checkForUpdates'),
               { type: 'separator' },
               cmd('Settings…', 'app.preferences', 'Cmd+,'),
               { type: 'separator' },
@@ -186,5 +187,18 @@ export function menuTemplate(
           : []),
       ],
     },
+    // macOS keeps these in the app menu (above), as its apps do.
+    ...(mac
+      ? []
+      : [
+          {
+            label: 'Help',
+            submenu: [
+              cmd('Check for Updates…', 'help.checkForUpdates'),
+              { type: 'separator' },
+              { role: 'about', label: `About ${PRODUCT_NAME}` },
+            ],
+          } as MenuItemConstructorOptions,
+        ]),
   ];
 }

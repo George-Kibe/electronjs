@@ -25,7 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu-24.04, not ubuntu-latest: that image is now 26.04, which Playwright 1.56 cannot install browsers on.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       CI: 'true'
@@ -58,7 +59,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu-24.04, not ubuntu-latest: that image is now 26.04, which Playwright 1.56 cannot install browsers on.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       CI: 'true'
@@ -76,19 +78,27 @@ jobs:
       - name: Allow Chromium's sandbox on Ubuntu 24.04 (AppArmor restricts unprivileged user namespaces)
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The image pipes core dumps to a collector; a piped dump of a crashed renderer streams its whole
+      # reserved address space (V8 cage, WASM guard regions: tens of GB), so the process is not reaped for
+      # minutes and the crash-report E2E never sees it go. A plain pattern honours `ulimit -c 0`: no dump.
+      - name: Don't dump cores of crashed test processes
+        if: runner.os == 'Linux'
+        run: |
+          echo "core_pattern was: $(cat /proc/sys/kernel/core_pattern); ulimit -c: $(ulimit -c)"
+          sudo sysctl -w kernel.core_pattern=core
       - run: pnpm install --frozen-lockfile
       - name: Build and package (electron-builder --dir)
         run: pnpm pack:dir
       - name: E2E against the built app
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a pnpm exec playwright test; else pnpm exec playwright test; fi
+          if [ "$RUNNER_OS" = "Linux" ]; then ulimit -c 0; xvfb-run -a pnpm exec playwright test; else pnpm exec playwright test; fi
       - name: E2E against the packaged app
         shell: bash
         env:
           E2E_TARGET: packaged
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a pnpm exec playwright test; else pnpm exec playwright test; fi
+          if [ "$RUNNER_OS" = "Linux" ]; then ulimit -c 0; xvfb-run -a pnpm exec playwright test; else pnpm exec playwright test; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

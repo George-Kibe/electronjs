@@ -67,6 +67,15 @@ export const WorkspaceSettings = z.looseObject({
   width: z.number().int().min(200).max(480).default(240),
 });
 
+/** Release channel for auto-update (FR-GEN-05, docs/08 §3). */
+export const UpdateChannel = z.enum(['latest', 'beta']);
+export type UpdateChannel = z.infer<typeof UpdateChannel>;
+
+export const UpdatesSettings = z.looseObject({
+  /** 'beta' also offers pre-releases. Leaving beta never downgrades: the next stable release takes over. */
+  channel: UpdateChannel.default('latest'),
+});
+
 export const PrivacySettings = z.looseObject({
   /** Opt-in crash reports without image content or file names (FR-GEN-07). */
   crashReports: z.boolean().default(false),
@@ -77,6 +86,7 @@ export const Settings = z.looseObject({
   general: GeneralSettings.default(() => GeneralSettings.parse({})),
   performance: PerformanceSettings.default(() => PerformanceSettings.parse({})),
   files: FilesSettings.default(() => FilesSettings.parse({})),
+  updates: UpdatesSettings.default(() => UpdatesSettings.parse({})),
   privacy: PrivacySettings.default(() => PrivacySettings.parse({})),
   workspace: WorkspaceSettings.default(() => WorkspaceSettings.parse({})),
 });
@@ -101,6 +111,7 @@ export const SettingsPatch = z.strictObject({
   general: patchOf(GeneralSettings).optional(),
   performance: patchOf(PerformanceSettings).optional(),
   files: patchOf(FilesSettings).optional(),
+  updates: patchOf(UpdatesSettings).optional(),
   privacy: patchOf(PrivacySettings).optional(),
   workspace: patchOf(WorkspaceSettings).optional(),
 });
@@ -108,6 +119,7 @@ export type SettingsPatch = {
   general?: Partial<Settings['general']>;
   performance?: Partial<Settings['performance']>;
   files?: Partial<Settings['files']>;
+  updates?: Partial<Settings['updates']>;
   privacy?: Partial<Settings['privacy']>;
   workspace?: Partial<Settings['workspace']>;
 };
@@ -122,6 +134,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
     general: { ...settings.general, ...p.general },
     performance: { ...settings.performance, ...p.performance },
     files: { ...settings.files, ...p.files },
+    updates: { ...settings.updates, ...p.updates },
     privacy: { ...settings.privacy, ...p.privacy },
     workspace: { ...settings.workspace, ...p.workspace },
   });

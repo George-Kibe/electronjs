@@ -3,6 +3,7 @@ import { CODEC_PORT_MESSAGE } from '../shared/constants';
 import type { Channel, ImageEditorBridge, IpcResult, RequestOf, ResponseOf } from '../shared/ipc-contract';
 import { isMenuCommand, type MenuCommandId } from '../shared/menu';
 import type { Settings } from '../shared/settings';
+import type { UpdateStatus } from '../shared/update';
 
 /** Returns the `{ ok, data | error }` envelope as-is (thrown errors lose their code across contextBridge). */
 function call<C extends Channel>(channel: C, request?: RequestOf<C>): Promise<IpcResult<ResponseOf<C>>> {
@@ -62,6 +63,14 @@ const api: ImageEditorBridge = {
     get: () => call('settings.get'),
     update: (patch) => call('settings.update', patch),
   },
+  update: {
+    getStatus: () => call('update.getStatus'),
+    check: () => call('update.check'),
+    install: () => call('update.install'),
+  },
+  crash: {
+    report: (report) => call('crash.report', report),
+  },
   events: {
     onCloseRequested: (cb) => on('app.closeRequested', () => cb()),
     onMenuCommand: (cb) =>
@@ -75,6 +84,8 @@ const api: ImageEditorBridge = {
       }),
     // Main validated these settings before sending; the renderer re-validates in lib/settings.ts.
     onSettingsChanged: (cb) => on('settings.changed', (_e, settings) => cb(settings as Settings)),
+    // Built by main from the UpdateStatus schema; the renderer re-validates it in useUpdates.
+    onUpdateStatus: (cb) => on('update.status', (_e, status) => cb(status as UpdateStatus)),
   },
 };
 

@@ -86,7 +86,12 @@ with these specifics:
 
 ## 5. Privacy
 
-- **No telemetry by default.** Opt-in crash reports scrub file paths, image data and EXIF.
+- **No telemetry by default.** Opt-in crash reports scrub file paths, image data and EXIF. As built
+  ([ADR-0009](adr/0009-opt-in-crash-reports.md)): off until Preferences › Privacy › "Send crash reports" is on,
+  and never sent by a build without a DSN. A report holds the error type, a scrubbed message (home folder,
+  user and host name, paths, image/project file names, data URLs, e-mail addresses and non-identifier quoted
+  values removed), bundle-relative stack frames, the app version and channel, and the OS and architecture.
+  No minidumps, breadcrumbs, user/install ids or host names; at most 10 per session, never stored.
 - **Metadata on export:** default "Remove location (GPS)". "Remove all" strips EXIF/XMP/IPTC except the ICC
   profile and orientation-normalised pixels. The policy is shown in the export dialog every time.
 - **AI stays local:** the model runs in-process. The only network call is the model download (which sends
@@ -96,7 +101,9 @@ with these specifics:
 
 ## 6. Integrity: updates & models
 
-- Code-signed builds. electron-updater verifies signatures and hashes.
+- Code-signed builds. electron-updater verifies signatures and hashes: the SHA-512 from the release manifest
+  for every download, the installer's Authenticode publisher on Windows, and the app signature via
+  Squirrel.Mac on macOS (an unsigned Mac build cannot update, by design).
 - AI models: the URL, version, size and SHA-256 are pinned in `app/src/shared/models.json` (reviewed like
   code). Main downloads over HTTPS to a temp file, verifies the hash, then moves it into `models/`. The
   renderer loads models only via `app://models/` after a hash check at startup (cached).

@@ -79,6 +79,8 @@ interface Api {
 | `recovery.write({ id, name, project, thumbnail? })`, `recovery.list()`, `recovery.read({ id })`, `recovery.discard({ id })` | Autosave recovery in `<userData>/recovery/` (FR-DOC-10). Ids are UUIDs (validated, so never a path); the project bytes are written by the file worker's `.iep` writer and parsed only by it on recovery |
 | `window.moveDocument({ project, document, at })`, `app.takeHandover()` | A tab moved out (FR-DOC-03): main opens a window near `at` and hands the new renderer the project once. The document's file ref is kept only if main issued it, so a renderer cannot grant itself write access |
 | `settings.get()`, `settings.update(patch)` | User settings (docs/05 §3). The patch is validated field by field; every window then gets `settings.changed` |
+| `update.getStatus()`, `update.check()`, `update.install()` | Auto-update (FR-GEN-05, docs/08 §3). Main owns the `UpdateStatus` (`unavailable` / `idle` / `checking` / `downloading` / `ready` / `error`) and sends every change to all windows as `update.status`. `update.install` is `FORBIDDEN` while any window has unsaved changes and `NOT_FOUND` before a download finishes |
+| `crash.report({ kind, name, message, stack })` | An uncaught window error for an opt-in crash report (FR-GEN-07, ADR-0009). Fire and forget: main scrubs it, and drops it unless the user opted in and the build has a DSN |
 
 Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks.
 The clipboard needs no IPC: Edit › Copy / Paste keep their native roles (so text fields work), which fire DOM

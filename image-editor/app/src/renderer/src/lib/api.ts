@@ -50,6 +50,12 @@ export const api: ImageEditorApi = {
     get: () => unwrap(bridge.settings.get()),
     update: (patch) => unwrap(bridge.settings.update(patch)),
   },
+  update: {
+    getStatus: () => unwrap(bridge.update.getStatus()),
+    check: () => unwrap(bridge.update.check()),
+    install: () => unwrap(bridge.update.install()),
+  },
+  crash: { report: (report) => unwrap(bridge.crash.report(report)) },
 };
 
 export const events: ImageEditorEvents = bridge.events;
