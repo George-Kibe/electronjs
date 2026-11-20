@@ -132,7 +132,9 @@ feed with `E2E_FAKE_UPDATE` (`none` by default in `e2e/app.ts`, so tests never c
   | `APPLE_API_KEY` (.p8 contents), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | secret | macOS notarization |
   | `CRASH_REPORT_DSN` | secret | Opt-in crash reports (ADR-0009), baked in as `MAIN_VITE_CRASH_REPORT_DSN` |
 
-- **Not yet:** release-please (tags are pushed by hand until it is set up), SBOM and license bundle,
+- **Not yet:** pruning the other architecture's sharp binaries from each app (an `afterPack` hook; today
+  every app carries both, about 10–20 MB extra), release-please (tags are pushed by hand until it is set up),
+  SBOM and license bundle,
   source-map upload to the crash-report project, staged rollout percentages (`stagingPercentage` is edited
   in the published `latest*.yml`), and the arm64 smoke tests (no native arm64 runner in the matrix yet).
 

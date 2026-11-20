@@ -124,15 +124,15 @@ green. Signed installers with auto-update. 10 testers use it for a week with no 
 
 M1 exit status:
 
-- [ ] Journeys 1–2 without the later-milestone steps (text: M3, adjustments: M2), end to end with the
-      exported file checked: `e2e/journeys.spec.ts`. To be ticked with its CI run on 3 OSes.
-- [ ] Critical tests in CI: T-HIS-01 (`history.test.ts`), T-GPU-01 (context loss in `gpu.gpu.test.ts`),
+- [x] Journeys 1–2 without the later-milestone steps (text: M3, adjustments: M2), end to end with the
+      exported file checked: `e2e/journeys.spec.ts`. Green on 3 OSes, dev and packaged (run 44811768362).
+- [x] Critical tests in CI: T-HIS-01 (`history.test.ts`), T-GPU-01 (context loss in `gpu.gpu.test.ts`),
       T-IO-01 (`decode.test.ts`, `exif.test.ts`), T-IO-02 (`encode.test.ts`, `files.spec.ts`), T-IO-03
       (`iep.test.ts` with the v1 golden fixture), T-IO-04 (`atomic-write.test.ts`, new), T-REC-01
-      (`recovery.spec.ts`). To be ticked with the same CI run.
+      (`recovery.spec.ts`). Green in the same run.
 - [x] Auto-update in the app (slice 6.6).
-- [ ] Release workflow (docs/08 §3.1): signed, draft-first releases with update manifests. To be ticked when
-      its pull-request dry run builds on 3 OSes.
+- [x] Release workflow (docs/08 §3.1): signed, draft-first releases with update manifests. The unsigned
+      dry run builds, checks and smoke-tests every installer on 3 OSes (run 44811768359).
 - [ ] **Maintainer:** signing certificates and the secrets in docs/08 §3.1, the crash-report project and
       its DSN, then a first tagged release, and an update from it to a second one on each OS (docs/07 §8).
 - [ ] **Maintainer:** 10 testers use it for a week with no data loss.
