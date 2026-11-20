@@ -54,6 +54,7 @@ export const MENU_COMMANDS = [
   'window.essentials',
   'window.photography',
   'window.resetWorkspace',
+  'help.checkForUpdates',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 

@@ -4,10 +4,12 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { FORMAT_INFO } from '@shared/export-options';
 import { MAX_FILE_BYTES } from '@shared/ipc-contract';
+import type { CrashReporter } from '../services/crash-reports';
 import type { FileRefRegistry } from '../services/file-refs';
 import type { RecentFiles } from '../services/recent-files';
 import type { RecoveryStore } from '../services/recovery';
 import type { SettingsStore } from '../services/settings-store';
+import { UpdateBlockedError, type UpdateService } from '../services/updater';
 import { HandlerError, type Handlers } from './router';
 
 export type HandlerDeps = {
@@ -24,6 +26,7 @@ export type HandlerDeps = {
     arch: string;
     totalMemoryBytes: number;
     autosaveSecondsOverride: number | null;
+    crashReportsAvailable: boolean;
   };
   recovery: Pick<RecoveryStore, 'write' | 'list' | 'read' | 'discard'>;
   settings: Pick<SettingsStore, 'get' | 'update'>;
@@ -44,6 +47,8 @@ export type HandlerDeps = {
   ): void;
   /** The handover waiting for this window, if any (handed out once). */
   takeHandover(sender: WebContents): { project: Uint8Array; document: MovedDocument } | null;
+  updates: Pick<UpdateService, 'getStatus' | 'check' | 'install'>;
+  crash: Pick<CrashReporter, 'rendererError'>;
 };
 
 const OPEN_FILTERS = [
@@ -218,5 +223,22 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         throw new HandlerError('WRITE_FAILED', 'Could not save your preferences. They apply until you quit.');
       }
     },
+
+    'update.getStatus': () => deps.updates.getStatus(),
+
+    'update.check': () => deps.updates.check(),
+
+    'update.install': async () => {
+      try {
+        await deps.updates.install();
+      } catch (err) {
+        if (err instanceof UpdateBlockedError)
+          throw new HandlerError(err.reason === 'unsaved-work' ? 'FORBIDDEN' : 'NOT_FOUND', err.message);
+        throw err;
+      }
+    },
+
+    // Fire and forget: the window must not wait on the network, and a failed send is only logged.
+    'crash.report': (report) => void deps.crash.rendererError(report),
   };
 }

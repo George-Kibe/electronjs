@@ -42,7 +42,8 @@ function start(
   userDataDir: string,
   extraEnv: Record<string, string>,
 ): Promise<ElectronApplication> {
-  const env = { ...(process.env as Record<string, string>), ...extraEnv };
+  // A scripted "no update" feed unless a test sets one: E2E never contacts the real update server.
+  const env = { ...(process.env as Record<string, string>), E2E_FAKE_UPDATE: 'none', ...extraEnv };
   // Our port comes after Playwright's own --remote-debugging-port=0, and Chromium uses the last one.
   // Each launch gets its own profile, so settings and recent files never leak between tests (or into the
   // developer's real profile).

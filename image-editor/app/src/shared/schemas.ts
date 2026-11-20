@@ -27,6 +27,8 @@ export const AppInfo = z.object({
   totalMemoryBytes: z.number().nonnegative(),
   /** E2E only (env E2E_AUTOSAVE_SECONDS): a short autosave interval, so recovery can be tested. */
   autosaveSecondsOverride: z.number().positive().nullable(),
+  /** This build has a crash-report address (FR-GEN-07); without one, nothing is ever sent. */
+  crashReportsAvailable: z.boolean(),
 });
 export type AppInfo = z.infer<typeof AppInfo>;
 

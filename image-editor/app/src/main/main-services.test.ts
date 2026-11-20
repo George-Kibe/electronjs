@@ -103,4 +103,19 @@ describe('menu', () => {
   it('adds the app menu on macOS', () => {
     expect(menuTemplate('darwin', () => undefined)[0]!.label).toBe('ImageEditor');
   });
+
+  it('offers Check for Updates in the app menu on macOS and in Help elsewhere (FR-GEN-05)', () => {
+    const find = (platform: NodeJS.Platform) => {
+      const sent: string[] = [];
+      const menu = menuTemplate(platform, (id) => sent.push(id));
+      const holder = menu.find(
+        (m) => Array.isArray(m.submenu) && m.submenu.some((i) => i.label === 'Check for Updates…'),
+      );
+      return holder?.label;
+    };
+    expect(find('darwin')).toBe('ImageEditor');
+    expect(find('win32')).toBe('Help');
+    expect(find('linux')).toBe('Help');
+    expect(menuTemplate('darwin', () => undefined).some((m) => m.label === 'Help')).toBe(false);
+  });
 });

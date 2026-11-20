@@ -6,6 +6,12 @@ All notable changes to ImageEditor are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Automatic updates: new versions download in the background and install when you quit, or straight away
+  with Restart Now. An update never restarts the app while a document has unsaved changes. Help › Check for
+  Updates, and a Stable or Beta channel in Preferences › Updates.
+- Optional crash reports (Preferences › Privacy, off by default). A report holds the error and where it
+  happened in the code, the app version and your operating system. It never holds images, file names or
+  anything from your documents. The app collects no usage statistics.
 - Save and open projects (`.iep`) with every layer, its opacity, blend mode and locks; Save, Save As and
   Revert. Saving is atomic, so a crash never damages the previous file.
 - Export As (PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF) with quality and format options, resize on export, a live

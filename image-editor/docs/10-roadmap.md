@@ -104,7 +104,13 @@ Progress (built in vertical slices, each E2E-tested on 3 OSes):
         New Window (FR-DOC-03): main manages several windows (a close guard each, menu commands to the
         focused one), the document travels as `.iep` bytes with its file, id and unsaved state; undo history
         stays behind. E2E green on 3 OSes (run 38622991684).
-  - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07)
+  - [ ] 6.6 Auto-update and opt-in crash reports (FR-GEN-05/07): electron-updater checks 10 s after
+        start and every 4 h, downloads in the background and installs at the next quit; the banner's
+        Restart Now is refused while any window has unsaved changes; Help › Check for Updates; Stable/Beta
+        channel (docs/08 §3). Crash reports are opt-in (Preferences › Privacy), scrubbed of paths, file
+        names and user data, sent as Sentry envelopes to a build-time DSN, without minidumps (ADR-0009).
+        E2E covers the update flow with a scripted feed and the crash reports with a local ingest server.
+        The release workflow, code signing and the DSN secret remain for the M1 exit.
   - [x] 6.7 Panel dock and workspaces (FR-GEN-01): collapsible panels, reorder by dragging a header or
         Alt+↑/↓, resize between panels and the dock's width, show/hide from the Window menu, Essentials and
         Photography presets, Reset Workspace, Tab hides the interface (from the canvas only, so keyboard

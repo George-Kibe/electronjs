@@ -108,6 +108,10 @@ engine `doc/` + `history/` + `tiles/` 90 % · CPU references 95 % · renderer ov
 - [ ] Journeys 1–7 manually on real GPUs
 - [ ] GPU-off mode (Preferences) still works
 - [ ] Recovery after a forced kill
+- [ ] Auto-update from the previous release (signed build): banner, Restart Now blocked while a document
+      has unsaved changes, install on Restart Now and on quit; Beta channel offers the pre-release
+- [ ] Crash reports: off on a fresh install; after opting in, a forced renderer crash (`chrome://crash` from
+      a debug build) reaches the crash-report project with no paths or file names
 - [ ] Drag a document tab out of the window: it opens in a new window at the drop point (E2E covers
       Window › Move Tab to New Window; the drag gesture leaves the browser, so it is checked by hand)
 - [ ] AI model download → offline use afterwards (network disabled)

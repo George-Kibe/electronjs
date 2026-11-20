@@ -82,6 +82,21 @@ Same as the other projects (electron-updater, latest/beta channels, staged rollo
 - AI models are **not** part of app updates. They update independently through `models.json`, when a new
   app version pins a new model hash.
 
+**As built (M1 slice 6.6):** `main/services/updater.ts` (`UpdateService`, unit-tested with a fake backend) over
+`electron-updater` (GitHub provider from `publish` in `electron-builder.yml`, loaded on the first check).
+The first check runs 10 s after startup, then every 4 h; a found update downloads in the background
+(`autoDownload`) and installs at the next normal quit (`autoInstallOnAppQuit`), i.e. after every
+unsaved-changes prompt. A non-modal banner offers **Restart Now** (disabled, and refused by main, while any
+window has unsaved changes) and **Later**. Help › Check for Updates (the app menu on macOS) and
+Preferences › Updates show each step. The channel (Stable = `latest`, Beta = pre-releases) is
+`updates.channel`; leaving beta never downgrades. Development builds and deb/rpm installs (no `APPIMAGE`)
+report "unavailable" and never check: deb/rpm users update through their package manager. E2E scripts the
+feed with `E2E_FAKE_UPDATE` (`none` by default in `e2e/app.ts`, so tests never contact GitHub).
+
+Still to do for the M1 exit ("signed installers with auto-update"): `image-editor-release.yml` (build,
+sign, notarize, publish the draft release with `latest*.yml`/`beta*.yml`, upload source maps), the signing
+secrets, and the crash-report DSN secret (`CRASH_REPORT_DSN` → `MAIN_VITE_CRASH_REPORT_DSN` at build).
+
 ## 4. Distribution (later)
 
 winget, Homebrew cask, Flathub (the portal file chooser fits this app well), and possibly the Microsoft
