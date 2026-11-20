@@ -65,8 +65,22 @@ input[type='range'].hue-slider::-webkit-slider-thumb {
   background: #fff;
 }
 
+/* Marching ants (FR-SEL-06): the dashes crawl along the selection's edge. */
+.marching-ants {
+  animation: marching-ants 0.6s linear infinite;
+}
+@keyframes marching-ants {
+  to {
+    stroke-dashoffset: -8;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+  }
+  /* A still dashed outline instead (docs/03 §7). */
+  .marching-ants {
+    animation: none;
   }
 }

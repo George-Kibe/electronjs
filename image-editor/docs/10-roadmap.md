@@ -144,6 +144,29 @@ FR-NAV-04, 05 · FR-HIS-03
 
 **Exit:** T-BLD-01, T-SEL-01, T-TRF-01, T-HIS-02 green. The full golden set is baselined. NFR-PERF-04/05 met on the matrix.
 
+Progress (vertical slices, each E2E-tested on 3 OSes):
+
+- [ ] Slice 1 — selections (FR-SEL-01..06), in parts:
+  - [ ] 1a Selection model (8-bit mask tiles, shared full tiles, never off the canvas), Rectangular and
+        Elliptical Marquee (M, Shift+M) with new/add/subtract/intersect (options bar, Shift/Alt at
+        mouse-down), Shift to constrain and Alt from the centre, fixed ratio and fixed size, ellipse
+        anti-aliasing; Select › All / Deselect / Reselect / Inverse; marching ants (still with reduced
+        motion); painting and erasing reach only selected pixels, in proportion to their coverage (GPU
+        preview and CPU commit agree); Edit › Clear (Delete). Canvas changes drop the selection (undo
+        restores it). The selection is not yet saved in `.iep`, recovery snapshots or a moved tab.
+  - [ ] 1b Lasso and Polygonal Lasso (L), Magic Wand (W) with tolerance/contiguous/anti-alias/sample all
+        layers in the ops worker (T-SEL-01).
+  - [ ] 1c Select › Modify (feather, expand/contract, border, smooth), Color Range (basic), Quick Mask (Q),
+        Copy/Cut of the selection, Image › Crop to the selection, saving the selection in `.iep`.
+- [ ] Slice 2 — layer masks and clipping masks (FR-LAY-04/05), multi-layer selection (FR-LAY-08)
+- [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
+- [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
+      (FR-ADJ-01..03), NFR-PERF-04
+- [ ] Slice 5 — filters with live preview, respecting the selection (FR-FLT-01), NFR-PERF-05, journey 4
+- [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
+- [ ] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
+- [ ] Slice 8 — history beyond the RAM budget spills to OPFS (FR-HIS-03, T-HIS-02)
+
 ## M3 — Text, shapes, painting extras, PSD
 
 FR-LAY-01 (text/shape), 07 · FR-TXT-01..03 · FR-PNT-03..05, 08, 10 · FR-DOC-07, 08

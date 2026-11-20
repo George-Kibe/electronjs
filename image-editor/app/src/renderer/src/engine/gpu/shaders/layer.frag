@@ -2,7 +2,7 @@
 // Layer tile with optional live brush preview, composited onto the backdrop. Formula source: W3C
 // Compositing and Blending Level 1 — §5.1 source-over (Normal, via GL blending) and, for other modes, the
 // general formula in blend.glsl reading the backdrop copy. Must match brush/brush.ts applyStroke() and
-// doc/blend.ts.
+// doc/blend.ts. The selection clips the preview exactly as Editor.commitStroke clips the commit.
 precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_tile;   // premultiplied RGBA8
@@ -15,6 +15,8 @@ uniform int u_mode;         // 0 = paint, 1 = erase
 uniform bool u_preserveAlpha; // transparency lock: painting keeps the existing alpha
 uniform bool u_hasGrain;
 uniform sampler2D u_grain;  // R8 GRAIN_SIZE² brush grain (brush/tips.ts), sampled at whole document pixels
+uniform bool u_hasMask;
+uniform sampler2D u_mask;   // R8 selection coverage of this tile (doc/selection.ts), sampled at whole pixels
 uniform float u_layerOpacity;
 uniform int u_blendMode;    // 0 = Normal (GL blending), else index into blend.glsl
 uniform sampler2D u_backdrop; // premultiplied copy of the target (only when u_blendMode != 0)
@@ -26,10 +28,9 @@ void main() {
   vec4 d = u_hasTile ? texture(u_tile, v_uv) : vec4(0.0);
   if (u_hasStroke) {
     float a = texture(u_stroke, v_uv).a * u_brushOpacity;
-    if (u_hasGrain) {
-      ivec2 px = min(ivec2(floor(v_uv * 256.0)), ivec2(255)); // tile-local pixel; tile origins are multiples of 128
-      a *= texelFetch(u_grain, px % 128, 0).r;
-    }
+    ivec2 px = min(ivec2(floor(v_uv * 256.0)), ivec2(255)); // tile-local pixel
+    if (u_hasGrain) a *= texelFetch(u_grain, px % 128, 0).r; // tile origins are multiples of 128
+    if (u_hasMask) a *= texelFetch(u_mask, px, 0).r;
     if (u_preserveAlpha) {
       d = u_mode == 0 ? vec4(mix(d.rgb, u_color * d.a, a), d.a) : d;
     } else {

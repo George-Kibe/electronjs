@@ -272,13 +272,18 @@ export function polygonMask(points: readonly Point[], width: number, height: num
   }
 
   const rowW = bx1 - bx0;
+  // Fractional coverage at span ends goes to `acc`; whole-pixel runs go to `delta` as +w/-w marks and are
+  // summed once per row (so a wide span costs O(1) per sub-scanline, not O(width)).
   const acc = new Float32Array(rowW);
+  const delta = new Float32Array(rowW + 1);
   const crossings: number[] = [];
   const tiles = new Map<TileKey, Uint8ClampedArray>();
   const samples = antiAlias ? SUBSAMPLES : 1;
+  const w = 1 / samples;
+  const tx0 = Math.floor(bx0 / TILE_SIZE);
+  const tx1 = Math.floor((bx1 - 1) / TILE_SIZE);
 
   for (let py = by0; py < by1; py++) {
-    acc.fill(0);
     const rowEdges = edges.filter((e) => e.y1 > py && e.y0 < py + 1);
     for (let s = 0; s < samples; s++) {
       const sy = py + (s + 0.5) / samples;
@@ -296,10 +301,12 @@ export function polygonMask(points: readonly Point[], width: number, height: num
           // Pixel centres x + 0.5 in [xa, xb).
           const c0 = Math.max(bx0, Math.ceil(xa - 0.5));
           const c1 = Math.min(bx1, Math.ceil(xb - 0.5));
-          for (let x = c0; x < c1; x++) acc[x - bx0]! += 1;
+          if (c1 > c0) {
+            delta[c0 - bx0]! += 1;
+            delta[c1 - bx0]! -= 1;
+          }
           continue;
         }
-        const w = 1 / samples;
         const ia = Math.floor(xa);
         const ib = Math.floor(xb);
         if (ia === ib) {
@@ -307,22 +314,36 @@ export function polygonMask(points: readonly Point[], width: number, height: num
           continue;
         }
         acc[ia - bx0]! += (ia + 1 - xa) * w;
-        for (let x = ia + 1; x < ib; x++) acc[x - bx0]! += w;
+        delta[ia + 1 - bx0]! += w;
+        delta[ib - bx0]! -= w;
         if (ib < bx1) acc[ib - bx0]! += (xb - ib) * w;
       }
     }
-    // Row → tiles.
+    // Row → tiles, one tile span at a time; buffers and keys are created only where something is selected.
     const ty = Math.floor(py / TILE_SIZE);
-    const ly = py - ty * TILE_SIZE;
-    for (let x = bx0; x < bx1; x++) {
-      const v = acc[x - bx0]!;
-      if (v <= 0) continue;
-      const tx = Math.floor(x / TILE_SIZE);
-      const key = tileKey(tx, ty);
-      let data = tiles.get(key);
-      if (!data) tiles.set(key, (data = new Uint8ClampedArray(MASK_TILE_BYTES)));
-      data[ly * TILE_SIZE + (x - tx * TILE_SIZE)] = Math.round(Math.min(1, v) * 255);
+    const row = (py - ty * TILE_SIZE) * TILE_SIZE;
+    let run = 0;
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const ox = tx * TILE_SIZE;
+      const a = Math.max(bx0, ox);
+      const b = Math.min(bx1, ox + TILE_SIZE);
+      let data: Uint8ClampedArray | undefined;
+      for (let x = a; x < b; x++) {
+        const i = x - bx0;
+        run += delta[i]!;
+        delta[i] = 0;
+        const v = acc[i]! + run;
+        acc[i] = 0;
+        if (v <= 1e-6) continue;
+        if (!data) {
+          const key = tileKey(tx, ty);
+          data = tiles.get(key);
+          if (!data) tiles.set(key, (data = new Uint8ClampedArray(MASK_TILE_BYTES)));
+        }
+        data[row + x - ox] = Math.round(Math.min(1, v) * 255);
+      }
     }
+    delta[rowW] = 0;
   }
 
   const out = new Map<TileKey, MaskTile>();

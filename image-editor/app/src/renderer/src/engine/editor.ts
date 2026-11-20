@@ -14,6 +14,7 @@ import {
   PaintTilesCommand,
   SetActiveLayerCommand,
   SetLayerPropsCommand,
+  SetSelectionCommand,
   type Command,
 } from './doc/commands';
 import {
@@ -38,6 +39,8 @@ import {
   ungroupLayer,
 } from './doc/layer-ops';
 import { sampleColor, type RGB, type SampleSize, type SampleSource } from './doc/sample';
+import { ellipseMask, Mask, rectMask, type Bounds, type SelectionOp } from './doc/selection';
+import { selectionOutline } from './doc/selection-outline';
 import {
   alignOffset,
   layerAt,
@@ -73,12 +76,29 @@ import {
   type CropRatio,
   type Handle,
 } from './tools/crop';
+import {
+  DEFAULT_MARQUEE,
+  dragMode,
+  marqueeLabel,
+  marqueeRect,
+  type MarqueeOptions,
+  type MarqueeShape,
+} from './tools/marquee';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
 import { nextZoomStep, Viewport } from './render/viewport';
-import { parseTileKey, TILE_BYTES, TileGrid, type Tile, type TileKey } from './tiles/tile';
+import {
+  createTile,
+  parseTileKey,
+  TILE_BYTES,
+  TILE_SIZE,
+  TileGrid,
+  type Tile,
+  type TileKey,
+} from './tiles/tile';
 
-export type Tool = 'move' | 'crop' | 'brush' | 'pencil' | 'eraser' | 'eyedropper' | 'hand' | 'zoom';
+export type Tool =
+  'move' | 'marquee' | 'crop' | 'brush' | 'pencil' | 'eraser' | 'eyedropper' | 'hand' | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
 export const isPaintTool = (t: Tool): t is PaintTool => t === 'brush' || t === 'pencil' || t === 'eraser';
 
@@ -105,6 +125,8 @@ export type ToolOptions = {
   move: { autoSelect: boolean; autoSelectMode: 'layer' | 'group' };
   /** Crop tool (FR-TRF-01): ratio preset, "Delete cropped pixels", and Straighten (draw a line) mode. */
   crop: { ratio: CropRatio; deletePixels: boolean; straighten: boolean };
+  /** Rectangular / Elliptical Marquee (FR-SEL-01/04). */
+  marquee: MarqueeOptions;
 };
 
 const brushDefaults = (o: Partial<BrushOptions> = {}): BrushOptions => ({
@@ -127,6 +149,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   eyedropper: { size: 1, source: 'all' },
   move: { autoSelect: false, autoSelectMode: 'layer' },
   crop: { ratio: 'free', deletePixels: true, straighten: false },
+  marquee: DEFAULT_MARQUEE,
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
@@ -202,6 +225,12 @@ export type EditorSnapshot = {
     /** Handle under the pointer, for the cursor. */
     hover: Handle | null;
   } | null;
+  /** The selection's outline for the marching ants (doc px SVG path) and its bounds; null = none. */
+  selection: { outline: string; bounds: Bounds } | null;
+  /** A marquee being dragged: the shape it will add (doc px), before it becomes a selection. */
+  marquee: { shape: MarqueeShape; rect: Bounds } | null;
+  /** Select › Reselect has something to bring back. */
+  canReselect: boolean;
   options: ToolOptions;
   colors: Colors;
   /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
@@ -348,6 +377,22 @@ export class Editor {
     | { kind: 'line'; line: { x0: number; y0: number; x1: number; y1: number }; pointerId: number }
     | null = null;
   private cropHover: Handle | null = null;
+  private marqueeDrag: {
+    pointerId: number;
+    start: { x: number; y: number };
+    current: { x: number; y: number };
+    op: SelectionOp;
+    shape: MarqueeShape;
+    /** Shift/Alt held at mouse-down choose the mode; pressed again later they constrain / centre. */
+    shiftFree: boolean;
+    altFree: boolean;
+    constrain: boolean;
+    fromCentre: boolean;
+  } | null = null;
+  /** Outline of the current selection, recomputed only when the mask changes. */
+  private outline: { mask: Mask; path: string } | null = null;
+  /** The last selection removed by Deselect, per document (Select › Reselect). */
+  private readonly lastSelection = new WeakMap<Document, Mask>();
   /** Canvas size the view was last fitted to (refit when a command changes it). */
   private shownSize = { width: 0, height: 0 };
   private snapshots: DocSnapshotEntry[] = [];
@@ -793,6 +838,9 @@ export class Editor {
       tool: this.tool,
       activeTool: this.effectiveTool(this.modifiers),
       crop: this.cropState(),
+      selection: this.selectionState(),
+      marquee: this.marqueeState(),
+      canReselect: doc !== null && !doc.selection && this.lastSelection.has(doc),
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
@@ -813,7 +861,7 @@ export class Editor {
 
   /** A pointer gesture or a pixel job is changing the document (undo and other commands wait). */
   private get busy(): boolean {
-    return this.stroke !== null || this.moving !== null || this.job !== null;
+    return this.stroke !== null || this.moving !== null || this.job !== null || this.marqueeDrag !== null;
   }
 
   undo(): void {
@@ -1065,6 +1113,14 @@ export class Editor {
     else if (cycle) this.setTool(this.tool === 'brush' ? 'pencil' : 'brush');
   }
 
+  /** M: the marquee with its last shape; Shift+M switches between rectangle and ellipse (docs/03 §4). */
+  selectMarqueeTool(cycle = false): void {
+    if (this.tool === 'marquee' && cycle) {
+      const shape = this.toolOptions.marquee.shape === 'rect' ? 'ellipse' : 'rect';
+      this.setToolOptions('marquee', { shape });
+    } else this.setTool('marquee');
+  }
+
   setToolOptions<T extends keyof ToolOptions>(tool: T, patch: Partial<ToolOptions[T]>): void {
     const next = { ...this.toolOptions[tool], ...patch };
     if ('size' in next) next.size = Math.min(2500, Math.max(1, Math.round(next.size)));
@@ -1163,9 +1219,170 @@ export class Editor {
   /** Alt turns the brush and pencil into the eyedropper; Ctrl/⌘ turns painting tools into Move (docs/03 §4). */
   private effectiveTool(mods: { alt: boolean; ctrl: boolean }): Tool {
     const t = this.tool;
-    if (mods.ctrl && (isPaintTool(t) || t === 'eyedropper')) return 'move';
+    if (mods.ctrl && (isPaintTool(t) || t === 'eyedropper' || t === 'marquee')) return 'move';
     if (mods.alt && (t === 'brush' || t === 'pencil')) return 'eyedropper';
     return t;
+  }
+
+  // ---- selection (FR-SEL-01..06) ---------------------------------------------------------------
+
+  private selectionState(): EditorSnapshot['selection'] {
+    const mask = this.doc?.selection;
+    if (!mask) return null;
+    if (this.outline?.mask !== mask) this.outline = { mask, path: selectionOutline(mask) };
+    return { outline: this.outline.path, bounds: mask.bounds()! };
+  }
+
+  private marqueeState(): EditorSnapshot['marquee'] {
+    const d = this.marqueeDrag;
+    if (!d) return null;
+    return { shape: d.shape, rect: marqueeRect(d, this.toolOptions.marquee) };
+  }
+
+  /** True when something is selected (Delete, Copy and painting then act on it only). */
+  get hasSelection(): boolean {
+    return Boolean(this.doc?.selection);
+  }
+
+  /** The selection mask, for workers and the clipboard (null = everything). */
+  get selectionMask(): Mask | null {
+    return this.doc?.selection ?? null;
+  }
+
+  private setSelection(mask: Mask | null, label: string): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const next = mask && !mask.isEmpty ? mask : null;
+    if (next === doc.selection) return;
+    if (doc.selection && !next) this.lastSelection.set(doc, doc.selection);
+    this.exec(new SetSelectionCommand(label, next));
+  }
+
+  /** Select › All (Ctrl+A). */
+  selectAll(): void {
+    if (this.doc) this.setSelection(Mask.all(this.doc.width, this.doc.height), 'Select All');
+  }
+
+  /** Select › Deselect (Ctrl+D). */
+  deselect(): void {
+    if (this.doc?.selection) this.setSelection(null, 'Deselect');
+  }
+
+  /** Select › Reselect (Ctrl+Shift+D): the selection the last Deselect removed. */
+  reselect(): void {
+    const doc = this.doc;
+    const last = doc && this.lastSelection.get(doc);
+    if (!doc || !last || doc.selection) return;
+    // A canvas change since then makes the old mask meaningless.
+    if (last.width !== doc.width || last.height !== doc.height) {
+      this.lastSelection.delete(doc);
+      return;
+    }
+    this.setSelection(last, 'Reselect');
+  }
+
+  /** Select › Inverse (Ctrl+Shift+I). With no selection, everything becomes selected. */
+  invertSelection(): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const current = doc.selection ?? Mask.empty(doc.width, doc.height);
+    this.setSelection(current.invert(), 'Inverse');
+  }
+
+  /**
+   * Edit › Clear (Delete / Backspace): removes the selected pixels from the active layer, in proportion to
+   * their coverage. Without a selection nothing happens (Photoshop deletes the layer's content only from a
+   * selection too).
+   */
+  clearSelection(): void {
+    const doc = this.doc;
+    const mask = doc?.selection;
+    if (!doc || !mask || this.busy) return;
+    const layer = doc.activeLayer;
+    if (layer.type !== 'raster') return this.notice('Select a layer to clear (groups have no pixels).');
+    if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
+    if (layer.locks.transparency) return this.notice('This layer’s transparency is locked.');
+    const before = new Map<TileKey, Tile | undefined>();
+    const after = new Map<TileKey, Tile | undefined>();
+    for (const [key, m] of mask.entries()) {
+      const old = layer.tiles.get(key);
+      if (!old) continue;
+      let next: Tile | undefined;
+      if (m.full) next = undefined;
+      else {
+        const data = new Uint8ClampedArray(old.data);
+        let any = false;
+        for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
+          const k = m.data[i]!;
+          if (k === 0) continue;
+          const a = i * 4 + 3;
+          data[a] = Math.round((data[a]! * (255 - k)) / 255);
+          any = true;
+        }
+        if (!any) continue;
+        next = data.some((v, i) => i % 4 === 3 && v !== 0) ? createTile(data) : undefined;
+      }
+      before.set(key, old);
+      after.set(key, next);
+    }
+    if (after.size) this.exec(new PaintTilesCommand('Clear', layer.id, before, after));
+  }
+
+  private beginMarquee(e: PointerEvent): void {
+    const p = this.docPoint(e);
+    const o = this.toolOptions.marquee;
+    const op = dragMode(o.mode, e.shiftKey, e.altKey);
+    this.marqueeDrag = {
+      pointerId: e.pointerId,
+      start: { x: p.x, y: p.y },
+      current: { x: p.x, y: p.y },
+      op,
+      shape: o.shape,
+      shiftFree: !e.shiftKey,
+      altFree: !e.altKey,
+      constrain: false,
+      fromCentre: false,
+    };
+    this.changed();
+  }
+
+  private moveMarquee(e: PointerEvent): void {
+    const d = this.marqueeDrag!;
+    const p = this.docPoint(e);
+    // A modifier held since mouse-down only chose the mode; released and pressed again, it shapes the box.
+    const shiftFree = d.shiftFree || !e.shiftKey;
+    const altFree = d.altFree || !e.altKey;
+    this.marqueeDrag = {
+      ...d,
+      current: { x: p.x, y: p.y },
+      shiftFree,
+      altFree,
+      constrain: shiftFree && e.shiftKey,
+      fromCentre: altFree && e.altKey,
+    };
+    this.changed();
+  }
+
+  private endMarquee(): void {
+    const d = this.marqueeDrag;
+    const doc = this.doc;
+    this.marqueeDrag = null;
+    if (!d || !doc) return this.changed();
+    const o = this.toolOptions.marquee;
+    const rect = marqueeRect(d, o);
+    const empty = rect.x1 - rect.x0 < 1 || rect.y1 - rect.y0 < 1;
+    if (empty && o.style !== 'size') {
+      // A click without a drag deselects (Photoshop), unless it was meant to add to or cut the selection.
+      if (d.op === 'replace') this.deselect();
+      return this.changed();
+    }
+    const shape =
+      d.shape === 'rect'
+        ? rectMask(rect, doc.width, doc.height)
+        : ellipseMask(rect, doc.width, doc.height, o.antiAlias);
+    const base = doc.selection ?? Mask.empty(doc.width, doc.height);
+    this.setSelection(base.combine(d.op, shape), marqueeLabel(d.shape));
+    this.changed();
   }
 
   // ---- crop tool (FR-TRF-01) ---------------------------------------------------------------------
@@ -1543,6 +1760,7 @@ export class Editor {
     }
     if (tool === 'move') return this.beginMove(e, this.tool === 'move' && ctrl);
     if (tool === 'crop') return this.beginCrop(e);
+    if (tool === 'marquee') return this.beginMarquee(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,
@@ -1651,6 +1869,7 @@ export class Editor {
       return;
     }
     if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
+    if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
     if (this.tool === 'crop') return this.moveCrop(e);
     const stroke = this.stroke;
     if (!stroke || e.pointerId !== stroke.pointerId) return;
@@ -1671,6 +1890,7 @@ export class Editor {
     }
     if (this.sampling && e.pointerId === this.sampling.pointerId) this.sampling = null;
     if (this.cropDrag && e.pointerId === this.cropDrag.pointerId) this.endCrop();
+    if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
     if (this.moving && e.pointerId === this.moving.pointerId) {
       const { layerId, dx, dy } = this.moving;
       this.moving = null;
@@ -1741,12 +1961,18 @@ export class Editor {
     const preserveAlpha = layer.locks.transparency;
     const before = new Map<TileKey, Tile | undefined>();
     const after = new Map<TileKey, Tile | undefined>();
+    const selection = doc.selection;
     for (const key of this.strokeBuffer.keys()) {
       const [tileX, tileY] = parseTileKey(key);
       const old = layer.tiles.get(key);
+      // Painting only reaches selected pixels, in proportion to their coverage (FR-SEL-06).
+      const mask = selection?.tile(key);
+      if (selection && !mask) continue;
+      const coverage = this.strokeBuffer.readCoverage(key);
+      if (mask && !mask.full) for (let i = 0; i < coverage.length; i++) coverage[i]! *= mask.data[i]! / 255;
       const next = applyStroke(
         old,
-        this.strokeBuffer.readCoverage(key),
+        coverage,
         stroke.settings,
         {
           tileX,
@@ -1806,6 +2032,7 @@ export class Editor {
           layerId: this.stroke.layerId,
           settings: this.stroke.settings,
           preserveAlpha: strokeLayer?.locks.transparency ?? false,
+          selection: this.doc?.selection ?? null,
         }
       : undefined;
     const move = this.moving
