@@ -26,7 +26,7 @@ const eventOf = (r: Received) => JSON.parse(r.body.trimEnd().split('\n')[2]!);
 
 test(`[${target}] crash reports are off by default, opt-in, and carry no paths or file names (FR-GEN-07)`, async () => {
   const ingest = await ingestServer();
-  const { app, win, close } = await launch([], undefined, {
+  const { win, close } = await launch([], undefined, {
     E2E_CRASH_REPORT_DSN: `http://e2ekey@127.0.0.1:${ingest.port}/42`,
   });
   try {
@@ -71,10 +71,12 @@ test(`[${target}] crash reports are off by default, opt-in, and carry no paths o
     for (const f of frames) expect(f.filename).toMatch(/^(app:\/\/\/|node:|<external>)/);
     expect(report!.body).not.toMatch(/bob|alice|kenya|Holiday|beach|art\.iep/i);
 
-    // A crashed window is reported as well (from main, which survives it).
-    await app.evaluate(({ BrowserWindow }) => {
-      void BrowserWindow.getAllWindows()[0]!.webContents.loadURL('chrome://crash');
-    });
+    // A crashed window is reported as well (from main, which survives it). CDP Page.crash crashes this
+    // page's own renderer; navigating to chrome://crash can instead crash a speculative process for the
+    // cross-origin-isolated navigation, which Electron does not report as the window's (seen on Linux CI).
+    const cdp = await win.context().newCDPSession(win);
+    // Not awaited: the reply never comes, because the session dies with the page.
+    void cdp.send('Page.crash').catch(() => undefined);
     await expect.poll(() => ingest.received.length, { timeout: 15_000 }).toBe(2);
     expect(eventOf(ingest.received[1]!)).toMatchObject({
       level: 'fatal',
