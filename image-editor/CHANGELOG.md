@@ -27,8 +27,9 @@ All notable changes to ImageEditor are documented here. The format follows
   white adds, black removes. Press Q again to see the selection as marching ants.
 - Clipping masks: Layer › Create Clipping Mask (Ctrl+Alt+G) shows a layer only where the layer below it has
   pixels; Release Clipping Mask undoes it.
-- Free Transform (Ctrl+T): drag inside the box to move the layer, drag a handle to scale it (Shift keeps the
-  proportions), drag outside to rotate it (Shift: 15° steps), or Ctrl-drag an edge to skew it. You can also
+- Free Transform (Ctrl+T): drag inside the box to move the layer, drag a corner to scale it in proportion
+  (Shift scales freely, Alt scales from the centre) or an edge to stretch it, drag outside to rotate it
+  (Shift: 15° steps), or Ctrl-drag an edge to skew it. You can also
   type the position, size, angle and skew in the options bar. Enter applies and Esc cancels. It works on
   several selected layers at once, and masks follow their layers. Edit › Transform rotates by 180° or 90° and
   flips the layer straight away. With a selection, only the selected pixels are transformed, and the

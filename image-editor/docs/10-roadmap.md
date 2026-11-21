@@ -201,8 +201,9 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         44849927215).
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
   - [ ] 3a Free Transform of layers (Ctrl+T): the active layer or every selected layer (linked masks too)
-        gets a box with 8 handles. Drag inside to move, a handle to scale (Shift: proportional), outside to
-        rotate (Shift: 15° steps), Ctrl+edge to skew; arrows nudge the box. The options bar shows centre X/Y,
+        gets a box with 8 handles. Drag inside to move, a corner to scale in proportion (Shift: free, Alt:
+        from the centre; docs/03 §5.4), an edge to stretch, outside to rotate (Shift: 15° steps), Ctrl+edge
+        to skew; arrows nudge the box. The options bar shows centre X/Y,
         W/H %, angle and skew, Flip H/V, Cancel (Esc) and Apply (Enter). The preview runs on the GPU and the
         commit runs in the ops worker as one undo step. Edit › Transform › Rotate 180°/90° and Flip
         Horizontal/Vertical apply at once, bit-exact. T-TRF-01 (affine half) is covered by unit and GPU tests.

@@ -97,8 +97,10 @@ export function hitTransform(box: Box, p: TransformParams, pt: [number, number],
 }
 
 /**
- * The parameters after dragging `hit` from `from` to `to` (document px), starting at `start`. `shift`
- * constrains (proportional scale, 15° rotation steps, horizontal/vertical moves); `ctrl` on an edge skews.
+ * The parameters after dragging `hit` from `from` to `to` (document px), starting at `start` (docs/03 §5.4).
+ * Corners scale proportionally unless `shift` is held (as in current Photoshop); edges scale one axis. `alt`
+ * scales about the centre instead of the opposite handle. `shift` also gives 15° rotation steps and
+ * horizontal/vertical moves; `ctrl` on an edge skews.
  */
 export function dragTransform(
   box: Box,
@@ -106,7 +108,7 @@ export function dragTransform(
   hit: TransformHit,
   from: [number, number],
   to: [number, number],
-  mods: { shift: boolean; ctrl: boolean },
+  mods: { shift: boolean; ctrl: boolean; alt?: boolean },
 ): TransformParams {
   const [cx, cy] = centre(box);
   if (hit === 'move') {
@@ -142,14 +144,14 @@ export function dragTransform(
     const lever = (hu - 0.5) * w * start.sx || 1;
     return { ...start, skewY: start.skewY + Math.atan2(ly - fy, lever) * Math.sign(lever) };
   }
-  // Scale: the opposite handle stays where it is.
-  const ou = 1 - hu;
-  const ov = 1 - hv;
+  // Scale: the opposite handle (or with Alt the centre) stays where it is.
+  const ou = mods.alt ? 0.5 : 1 - hu;
+  const ov = mods.alt ? 0.5 : 1 - hv;
   const anchor = map(transformMatrix(box, start), at(box, ou, ov));
   const [ax, ay] = map(rs, [anchor[0] - c[0], anchor[1] - c[1]]);
   let sx = hu === 0.5 ? start.sx : (lx - ax) / ((hu - ou) * w || 1);
   let sy = hv === 0.5 ? start.sy : (ly - ay) / ((hv - ov) * h || 1);
-  if (mods.shift && hu !== 0.5 && hv !== 0.5) {
+  if (!mods.shift && hu !== 0.5 && hv !== 0.5) {
     const k = Math.max(Math.abs(sx / start.sx), Math.abs(sy / start.sy));
     sx = Math.sign(sx || 1) * Math.abs(start.sx) * k;
     sy = Math.sign(sy || 1) * Math.abs(start.sy) * k;

@@ -2733,7 +2733,7 @@ export class Editor {
     const p = this.docPoint(e);
     const at: [number, number] = [p.x, p.y];
     if (t.drag && e.pointerId === t.drag.pointerId) {
-      const mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
+      const mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey };
       const params = dragTransform(t.box, t.drag.start, t.drag.hit, t.drag.from, at, mods);
       this.transform = { ...t, params };
       this.changed();
