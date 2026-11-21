@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { MAX_DOCUMENT_SIDE } from '@shared/constants';
 import type { Anchor } from '../../engine/doc/geometry';
 import { FILTER_LABELS, RESAMPLE_FILTERS, type ResampleFilter } from '../../engine/ops/resample';
+import type { TrimBasis } from '../../engine/ops/trim';
 import { Button } from './Button';
 import { Modal } from './Modal';
 
@@ -221,6 +222,59 @@ export function RotateDialog(props: { onApply: (clockwiseDegrees: number) => voi
         ))}
       </div>
       <p className="text-ui-muted">The canvas grows to fit; new corners are transparent.</p>
+    </FormDialog>
+  );
+}
+
+export type TrimSides = { top: boolean; bottom: boolean; left: boolean; right: boolean };
+
+/** Image › Trim (FR-TRF-06): what counts as empty, and which edges to trim. */
+export function TrimDialog(props: {
+  onApply: (basis: TrimBasis, sides: TrimSides) => void;
+  onCancel: () => void;
+}) {
+  const [basis, setBasis] = useState<TrimBasis>('transparent');
+  const [sides, setSides] = useState<TrimSides>({ top: true, bottom: true, left: true, right: true });
+  return (
+    <FormDialog
+      title="Trim"
+      valid={Object.values(sides).some(Boolean)}
+      onApply={() => props.onApply(basis, sides)}
+      onCancel={props.onCancel}
+    >
+      <div role="radiogroup" aria-label="Based on" className="flex flex-col gap-1">
+        <span className="text-ui-muted">Based on</span>
+        {(
+          [
+            ['transparent', 'Transparent pixels'],
+            ['topLeft', 'Top left pixel colour'],
+            ['bottomRight', 'Bottom right pixel colour'],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value} className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              name="trim-basis"
+              checked={basis === value}
+              onChange={() => setBasis(value)}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      <fieldset className="flex gap-4">
+        <legend className="text-ui-muted mb-1">Trim away</legend>
+        {(['top', 'bottom', 'left', 'right'] as const).map((side) => (
+          <label key={side} className="flex items-center gap-1.5 capitalize">
+            <input
+              type="checkbox"
+              checked={sides[side]}
+              onChange={(e) => setSides({ ...sides, [side]: e.target.checked })}
+            />
+            {side}
+          </label>
+        ))}
+      </fieldset>
     </FormDialog>
   );
 }

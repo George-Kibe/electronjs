@@ -73,6 +73,8 @@ export const MENU_COMMANDS = [
   'select.inverse',
   'edit.clear',
   'image.cropToSelection',
+  'image.trim',
+  'image.revealAll',
   'select.colorRange',
   'select.feather',
   'select.expand',

@@ -762,6 +762,43 @@ describe('editor canvas geometry (FR-TRF-01..03)', () => {
     expect(editor.getSnapshot().doc).toMatchObject({ width: 200, height: 100 });
     editor.dispose();
   });
+
+  it('Reveal All grows the canvas to every pixel; Trim crops to the content (FR-TRF-06)', async () => {
+    const notices: string[] = [];
+    const editor = new Editor(editorCanvas(), { onNotice: (m) => notices.push(m) });
+    editor.newDocument(200, 100);
+    await editor.trim('topLeft', { top: true, bottom: true, left: true, right: true });
+    expect(notices.at(-1)).toMatch(/whole image/); // all white
+    editor.revealAll();
+    expect(notices.at(-1)).toMatch(/already on the canvas/);
+
+    editor.pasteAsLayer(
+      40,
+      20,
+      new Uint8Array(40 * 20 * 4).fill(255).map((v, i) => (i % 4 === 1 ? 0 : v)),
+    );
+    const box = contentBounds([editor.exportState().doc!.raster(editor.getSnapshot().activeLayerId!).tiles])!;
+    // Against the white background, only the magenta rectangle is kept; only the chosen sides move.
+    await editor.trim('bottomRight', { top: true, bottom: false, left: true, right: true });
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 40, height: 100 - box.y0 });
+    await editor.trim('transparent', { top: true, bottom: true, left: true, right: true });
+    expect(notices.at(-1)).toBe('Nothing to trim.'); // the background is opaque
+    editor.undo();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 200, height: 100 });
+
+    editor.setTool('move');
+    editor.nudge(-(box.x0 + 15), 0); // 15 px off the left edge
+    editor.revealAll();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 215, height: 100 });
+    expect(editor.getSnapshot().history.entries.map((e) => e.label)).toEqual([
+      'Paste',
+      'Nudge',
+      'Reveal All',
+    ]);
+    editor.undo();
+    expect(editor.getSnapshot().doc).toMatchObject({ width: 200, height: 100 });
+    editor.dispose();
+  });
 });
 
 describe('Free Transform (FR-TRF-04, T-TRF-01)', () => {

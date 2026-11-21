@@ -33,6 +33,9 @@ All notable changes to ImageEditor are documented here. The format follows
   several selected layers at once, and masks follow their layers. Edit › Transform rotates by 180° or 90° and
   flips the layer straight away. With a selection, only the selected pixels are transformed, and the
   selection moves with them.
+- Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
+  pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
+  edge is visible again.
 - Automatic updates: new versions download in the background and install when you quit, or straight away
   with Restart Now. An update never restarts the app while a document has unsaved changes. Help › Check for
   Updates, and a Stable or Beta channel in Preferences › Updates.

@@ -211,7 +211,9 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         coverage), drawn through the matrix in a preview-only copy of the document, and put back over what
         stayed (source-over) on Apply. The selection moves with them, and undo restores both. Layer masks
         stay where they are. Preview and commit agree to ±1/255 (GPU test).
-  - [ ] 3c Image › Trim and Image › Reveal All (FR-TRF-06)
+  - [ ] 3c Image › Trim… crops away edges that are transparent, or the colour of the top-left or bottom-right
+        pixel of the composite, on the chosen sides (the ops worker finds them; pixels outside are deleted).
+        Image › Reveal All grows the canvas to show every layer's pixels outside it. Each is one undo step.
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04
 - [ ] Slice 5 — filters with live preview, respecting the selection (FR-FLT-01), NFR-PERF-05, journey 4
