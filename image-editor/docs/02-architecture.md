@@ -160,6 +160,12 @@ mask (`gpu.gpu.test.ts` checks that they agree). Measured on a 6000 × 4000 canv
 rasterizes in about 190 ms and its outline takes about 130 ms, both on the UI thread; moving them to the
 ops worker is the next step if larger selections feel slow.
 
+**Magic wand as built (slice 1b):** `engine/ops/wand.ts` runs as an `OpsJob` in the ops worker. It
+composites the sampled layers tile by tile (`compositeTile`), marks pixels within tolerance of the seed
+in a one-byte canvas bitmap (worker memory only), flood-fills it with a 4-connected scanline fill (or
+keeps every match), and returns one-byte mask tiles. "Sample all layers" sends the document's layers as
+a snapshot (a structured copy per click; caching the composite in the worker is a later optimisation).
+
 ### 5.5 Filters & adjustments
 
 | Kind | Implementation |

@@ -9,6 +9,8 @@ type ToolInfo = { id: Tool; label: string; key: string; icon: string };
 const GROUPS: ToolInfo[][] = [
   [{ id: 'move', label: 'Move', key: 'V', icon: '✥' }],
   [{ id: 'marquee', label: 'Marquee', key: 'M', icon: '⬚' }],
+  [{ id: 'lasso', label: 'Lasso', key: 'L', icon: '➰' }],
+  [{ id: 'wand', label: 'Magic Wand', key: 'W', icon: '🪄' }],
   [{ id: 'crop', label: 'Crop', key: 'C', icon: '⛶' }],
   [
     { id: 'brush', label: 'Brush', key: 'B', icon: '🖌' },

@@ -11,6 +11,9 @@ All notable changes to ImageEditor are documented here. The format follows
   and smooth ellipse edges. Select › All (Ctrl+A), Deselect (Ctrl+D), Reselect (Ctrl+Shift+D) and Inverse
   (Ctrl+Shift+I). The selection shows as marching ants. Brush, pencil and eraser paint only inside it, and
   Delete clears the selected pixels.
+- Lasso (L) and Polygonal Lasso (Shift+L): draw around an area, or click its corners and press Enter. Magic
+  Wand (W) selects similar colours, touching the click or anywhere in the image, from the active layer or
+  all layers, with an adjustable tolerance.
 - Automatic updates: new versions download in the background and install when you quit, or straight away
   with Restart Now. An update never restarts the app while a document has unsaved changes. Help › Check for
   Updates, and a Stable or Beta channel in Preferences › Updates.

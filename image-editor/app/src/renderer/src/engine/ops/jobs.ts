@@ -1,6 +1,8 @@
 import { tileRange } from '@shared/iep-schema';
 import { createTile, TILE_BYTES, TileGrid, type TileKey } from '../tiles/tile';
+import { snapshotLayers, type LayerSnapshot } from '../io/snapshot';
 import { resampleGrid, rotateArbitraryGrid, type ResampleFilter } from './resample';
+import { magicWand, type WandOptions } from './wand';
 
 /**
  * Pixel jobs too heavy for the UI thread (docs/02 §5.6): Image Size and arbitrary rotation. Pure, so the ops
@@ -11,7 +13,9 @@ export type LayerTiles = { id: string; tiles: Array<[TileKey, Uint8Array]> };
 
 export type OpsJob =
   | { op: 'resample'; layers: LayerTiles[]; src: Size; dst: Size; filter: ResampleFilter }
-  | { op: 'rotate'; layers: LayerTiles[]; src: Size; dst: Size; degrees: number };
+  | { op: 'rotate'; layers: LayerTiles[]; src: Size; dst: Size; degrees: number }
+  /** Magic Wand (FR-SEL-03): the result is one LayerTiles, id 'mask', of 256×256 one-byte mask tiles. */
+  | { op: 'wand'; layers: LayerSnapshot[]; size: Size; seed: { x: number; y: number }; options: WandOptions };
 
 export function toGrid(tiles: LayerTiles['tiles']): TileGrid {
   const grid = new TileGrid();
@@ -34,6 +38,11 @@ export function fromGrid(id: string, grid: TileGrid): LayerTiles {
 
 /** Runs a job; `onProgress` gets 0..1. */
 export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerTiles[] {
+  if (job.op === 'wand') {
+    const tiles = magicWand(snapshotLayers(job.layers), job.size, job.seed, job.options);
+    onProgress?.(1);
+    return [{ id: 'mask', tiles }];
+  }
   const range = tileRange(job.dst.width, job.dst.height);
   const total = Math.max(1, job.layers.length);
   return job.layers.map((layer, i) => {

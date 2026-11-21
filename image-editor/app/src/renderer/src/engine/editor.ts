@@ -39,7 +39,15 @@ import {
   ungroupLayer,
 } from './doc/layer-ops';
 import { sampleColor, type RGB, type SampleSize, type SampleSource } from './doc/sample';
-import { ellipseMask, Mask, rectMask, type Bounds, type SelectionOp } from './doc/selection';
+import {
+  ellipseMask,
+  Mask,
+  polygonMask,
+  rectMask,
+  type Bounds,
+  type Point,
+  type SelectionOp,
+} from './doc/selection';
 import { selectionOutline } from './doc/selection-outline';
 import {
   alignOffset,
@@ -50,7 +58,7 @@ import {
   translateLayer,
   type AlignEdge,
 } from './doc/translate';
-import { fromSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
+import { fromSnapshot, layerToSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
 import { Compositor } from './gpu/compositor';
 import { StrokeBuffer } from './gpu/stroke-buffer';
 import {
@@ -84,7 +92,17 @@ import {
   type MarqueeOptions,
   type MarqueeShape,
 } from './tools/marquee';
+import {
+  addPoint,
+  closesPolygon,
+  DEFAULT_LASSO,
+  lassoLabel,
+  lassoOutline,
+  type LassoKind,
+  type LassoOptions,
+} from './tools/lasso';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
+import type { WandOptions } from './ops/wand';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
 import { nextZoomStep, Viewport } from './render/viewport';
 import {
@@ -98,7 +116,17 @@ import {
 } from './tiles/tile';
 
 export type Tool =
-  'move' | 'marquee' | 'crop' | 'brush' | 'pencil' | 'eraser' | 'eyedropper' | 'hand' | 'zoom';
+  | 'move'
+  | 'marquee'
+  | 'lasso'
+  | 'wand'
+  | 'crop'
+  | 'brush'
+  | 'pencil'
+  | 'eraser'
+  | 'eyedropper'
+  | 'hand'
+  | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
 export const isPaintTool = (t: Tool): t is PaintTool => t === 'brush' || t === 'pencil' || t === 'eraser';
 
@@ -127,6 +155,10 @@ export type ToolOptions = {
   crop: { ratio: CropRatio; deletePixels: boolean; straighten: boolean };
   /** Rectangular / Elliptical Marquee (FR-SEL-01/04). */
   marquee: MarqueeOptions;
+  /** Lasso / Polygonal Lasso (FR-SEL-02). */
+  lasso: LassoOptions;
+  /** Magic Wand (FR-SEL-03): tolerance, contiguous, anti-alias, and sampling the active layer or all. */
+  wand: WandOptions & { mode: SelectionOp; sampleAll: boolean };
 };
 
 const brushDefaults = (o: Partial<BrushOptions> = {}): BrushOptions => ({
@@ -150,6 +182,8 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   move: { autoSelect: false, autoSelectMode: 'layer' },
   crop: { ratio: 'free', deletePixels: true, straighten: false },
   marquee: DEFAULT_MARQUEE,
+  lasso: DEFAULT_LASSO,
+  wand: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false, mode: 'replace' },
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
@@ -229,6 +263,8 @@ export type EditorSnapshot = {
   selection: { outline: string; bounds: Bounds } | null;
   /** A marquee being dragged: the shape it will add (doc px), before it becomes a selection. */
   marquee: { shape: MarqueeShape; rect: Bounds } | null;
+  /** A lasso outline being drawn (doc px), and for the polygonal lasso the pointer's position. */
+  lasso: { kind: LassoKind; points: Point[]; hover: Point | null } | null;
   /** Select › Reselect has something to bring back. */
   canReselect: boolean;
   options: ToolOptions;
@@ -389,6 +425,14 @@ export class Editor {
     constrain: boolean;
     fromCentre: boolean;
   } | null = null;
+  private lassoDraw: {
+    kind: LassoKind;
+    op: SelectionOp;
+    points: Point[];
+    hover: Point | null;
+    /** Freehand: the drawing pointer (released = done). Polygon: null between clicks. */
+    pointerId: number | null;
+  } | null = null;
   /** Outline of the current selection, recomputed only when the mask changes. */
   private outline: { mask: Mask; path: string } | null = null;
   /** The last selection removed by Deselect, per document (Select › Reselect). */
@@ -431,6 +475,10 @@ export class Editor {
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e), { signal });
     canvas.addEventListener('pointercancel', (e) => this.onPointerUp(e), { signal });
     canvas.addEventListener('pointerleave', () => this.setCursor(null), { signal });
+    // A double-click closes a polygonal lasso (its second click added a duplicate vertex, dropped on close).
+    canvas.addEventListener('dblclick', () => this.lassoDraw?.kind === 'polygon' && this.finishLasso(), {
+      signal,
+    });
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { signal, passive: false });
     canvas.addEventListener(
       'webglcontextlost',
@@ -840,6 +888,9 @@ export class Editor {
       crop: this.cropState(),
       selection: this.selectionState(),
       marquee: this.marqueeState(),
+      lasso: this.lassoDraw
+        ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
+        : null,
       canReselect: doc !== null && !doc.selection && this.lastSelection.has(doc),
       options: this.toolOptions,
       colors: this.colors,
@@ -861,7 +912,13 @@ export class Editor {
 
   /** A pointer gesture or a pixel job is changing the document (undo and other commands wait). */
   private get busy(): boolean {
-    return this.stroke !== null || this.moving !== null || this.job !== null || this.marqueeDrag !== null;
+    return (
+      this.stroke !== null ||
+      this.moving !== null ||
+      this.job !== null ||
+      this.marqueeDrag !== null ||
+      this.lassoDraw?.pointerId != null
+    );
   }
 
   undo(): void {
@@ -1102,6 +1159,7 @@ export class Editor {
 
   setTool(tool: Tool): void {
     if (tool === 'crop' && this.tool !== 'crop') this.resetCrop(false);
+    if (tool !== 'lasso') this.lassoDraw = null; // an unfinished polygon is abandoned
     this.tool = tool;
     if (tool === 'brush' || tool === 'pencil') this.lastBrushTool = tool;
     this.changed();
@@ -1111,6 +1169,16 @@ export class Editor {
   selectBrushTool(cycle = false): void {
     if (this.tool !== 'brush' && this.tool !== 'pencil') this.setTool(this.lastBrushTool);
     else if (cycle) this.setTool(this.tool === 'brush' ? 'pencil' : 'brush');
+  }
+
+  /** L: the lasso of the last kind; Shift+L switches between freehand and polygonal (docs/03 §4). */
+  selectLassoTool(cycle = false): void {
+    if (this.tool === 'lasso' && cycle) {
+      this.lassoDraw = null;
+      this.setToolOptions('lasso', {
+        kind: this.toolOptions.lasso.kind === 'freehand' ? 'polygon' : 'freehand',
+      });
+    } else this.setTool('lasso');
   }
 
   /** M: the marquee with its last shape; Shift+M switches between rectangle and ellipse (docs/03 §4). */
@@ -1219,7 +1287,8 @@ export class Editor {
   /** Alt turns the brush and pencil into the eyedropper; Ctrl/⌘ turns painting tools into Move (docs/03 §4). */
   private effectiveTool(mods: { alt: boolean; ctrl: boolean }): Tool {
     const t = this.tool;
-    if (mods.ctrl && (isPaintTool(t) || t === 'eyedropper' || t === 'marquee')) return 'move';
+    if (mods.ctrl && (isPaintTool(t) || ['eyedropper', 'marquee', 'lasso', 'wand'].includes(t)))
+      return 'move';
     if (mods.alt && (t === 'brush' || t === 'pencil')) return 'eyedropper';
     return t;
   }
@@ -1326,6 +1395,139 @@ export class Editor {
       after.set(key, next);
     }
     if (after.size) this.exec(new PaintTilesCommand('Clear', layer.id, before, after));
+  }
+
+  /**
+   * Magic Wand click (FR-SEL-03): runs in the ops worker on the active layer (or the composite of all layers)
+   * and applies the region in the mode chosen at the click (Shift add, Alt subtract, both intersect).
+   */
+  private async magicWand(e: PointerEvent): Promise<void> {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const p = this.docPoint(e);
+    const o = this.toolOptions.wand;
+    const op = dragMode(o.mode, e.shiftKey, e.altKey);
+    const active = doc.activeLayer;
+    if (!o.sampleAll && active.type !== 'raster')
+      return this.notice('Select a layer to sample, or turn on "Sample all layers".');
+    // The active layer alone counts as itself (opaque, Normal, visible); all layers as the canvas shows them.
+    const layers = o.sampleAll
+      ? toSnapshot(doc).layers
+      : [
+          {
+            ...layerToSnapshot(active),
+            visible: true,
+            opacity: 1,
+            fillOpacity: 1,
+            blendMode: 'normal' as const,
+          },
+        ];
+    const label = 'Magic Wand';
+    const version = this.version;
+    this.job = { label, progress: 0 };
+    this.changed();
+    const run =
+      this.options.runOps ?? ((j: OpsJob, f: (v: number) => void) => Promise.resolve(runOpsJob(j, f)));
+    try {
+      const { tolerance, contiguous, antiAlias } = o;
+      const job: OpsJob = {
+        op: 'wand',
+        layers,
+        size: { width: doc.width, height: doc.height },
+        seed: { x: p.x, y: p.y },
+        options: { tolerance, contiguous, antiAlias },
+      };
+      const [result] = await run(job, () => undefined);
+      this.job = null;
+      if (this.doc !== doc || this.version !== version)
+        return this.notice(`${label} was cancelled because the document changed.`);
+      const tiles = new Map(
+        (result?.tiles ?? []).map(([key, bytes]) => [
+          key,
+          { data: new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength), full: false },
+        ]),
+      );
+      const shape = Mask.fromTiles(tiles, doc.width, doc.height);
+      const base = doc.selection ?? Mask.empty(doc.width, doc.height);
+      this.setSelection(base.combine(op, shape), label);
+    } catch (err) {
+      this.job = null;
+      this.notice(err instanceof Error ? err.message : `${label} failed.`);
+    } finally {
+      this.changed();
+    }
+  }
+
+  /** A polygon is being drawn: Enter closes it, Esc cancels, Backspace removes the last vertex. */
+  get lassoActive(): boolean {
+    return this.lassoDraw !== null;
+  }
+
+  private lassoDown(e: PointerEvent): void {
+    const p = this.docPoint(e);
+    const point: Point = [p.x, p.y];
+    const kind = this.toolOptions.lasso.kind;
+    const d = this.lassoDraw;
+    if (kind === 'freehand' || !d) {
+      this.lassoDraw = {
+        kind,
+        op: dragMode(this.toolOptions.lasso.mode, e.shiftKey, e.altKey),
+        points: [point],
+        hover: null,
+        pointerId: kind === 'freehand' ? e.pointerId : null,
+      };
+      return this.changed();
+    }
+    // Polygon: a click near the first vertex closes it (a double-click too: see the dblclick listener).
+    if (closesPolygon(d.points, point, this.viewport.zoom)) return this.finishLasso();
+    d.points.push(point);
+    this.changed();
+  }
+
+  private lassoMove(e: PointerEvent): void {
+    const d = this.lassoDraw!;
+    const p = this.docPoint(e);
+    if (d.kind === 'freehand') {
+      if (e.pointerId !== d.pointerId) return;
+      for (const ev of typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [e]) {
+        const q = this.docPoint(ev);
+        addPoint(d.points, [q.x, q.y]);
+      }
+    } else d.hover = [p.x, p.y];
+    this.changed();
+  }
+
+  /** Closes the lasso outline and applies it in the mode chosen at its first point. */
+  finishLasso(): void {
+    const d = this.lassoDraw;
+    const doc = this.doc;
+    this.lassoDraw = null;
+    if (!d || !doc) return this.changed();
+    const outline = lassoOutline(d.points);
+    if (outline.length < 3) {
+      // A click without drawing deselects, as with the marquee.
+      if (d.op === 'replace' && d.kind === 'freehand') this.deselect();
+      return this.changed();
+    }
+    const shape = polygonMask(outline, doc.width, doc.height, this.toolOptions.lasso.antiAlias);
+    const base = doc.selection ?? Mask.empty(doc.width, doc.height);
+    this.setSelection(base.combine(d.op, shape), lassoLabel(d.kind));
+    this.changed();
+  }
+
+  cancelLasso(): void {
+    if (!this.lassoDraw) return;
+    this.lassoDraw = null;
+    this.changed();
+  }
+
+  /** Backspace while drawing a polygon: remove the last vertex (the whole outline when it is the only one). */
+  removeLassoPoint(): void {
+    const d = this.lassoDraw;
+    if (!d || d.kind !== 'polygon') return;
+    d.points.pop();
+    if (d.points.length === 0) this.lassoDraw = null;
+    this.changed();
   }
 
   private beginMarquee(e: PointerEvent): void {
@@ -1761,6 +1963,8 @@ export class Editor {
     if (tool === 'move') return this.beginMove(e, this.tool === 'move' && ctrl);
     if (tool === 'crop') return this.beginCrop(e);
     if (tool === 'marquee') return this.beginMarquee(e);
+    if (tool === 'lasso') return this.lassoDown(e);
+    if (tool === 'wand') return void this.magicWand(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,
@@ -1870,6 +2074,7 @@ export class Editor {
     }
     if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
+    if (this.lassoDraw) return this.lassoMove(e);
     if (this.tool === 'crop') return this.moveCrop(e);
     const stroke = this.stroke;
     if (!stroke || e.pointerId !== stroke.pointerId) return;
@@ -1891,6 +2096,7 @@ export class Editor {
     if (this.sampling && e.pointerId === this.sampling.pointerId) this.sampling = null;
     if (this.cropDrag && e.pointerId === this.cropDrag.pointerId) this.endCrop();
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
+    if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
     if (this.moving && e.pointerId === this.moving.pointerId) {
       const { layerId, dx, dy } = this.moving;
       this.moving = null;

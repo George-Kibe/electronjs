@@ -43,7 +43,8 @@ export type DocSnapshot = {
   extra?: { manifest?: Record<string, unknown>; document?: Record<string, unknown> };
 };
 
-function layerToSnapshot(l: Layer): LayerSnapshot {
+/** One layer (and its children) as plain data, for workers. */
+export function layerToSnapshot(l: Layer): LayerSnapshot {
   const base: SnapshotBase = {
     id: l.id,
     name: l.name,
