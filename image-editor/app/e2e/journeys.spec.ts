@@ -128,3 +128,84 @@ test(`[${target}] journey 2: open photo → crop 4:5 → export JPEG without loc
   expect(Math.abs(r! - 28) + Math.abs(g! - 113) + Math.abs(b! - 188)).toBeLessThan(15);
   await close();
 });
+
+/** Clicks a native menu item by its label path (Playwright cannot open native menus). */
+async function menu(app: import('@playwright/test').ElectronApplication, path: string[]): Promise<void> {
+  await app.evaluate(({ Menu, BrowserWindow }, labels) => {
+    let items = Menu.getApplicationMenu()!.items;
+    let item;
+    for (const label of labels) {
+      item = items.find((i) => i.label === label)!;
+      items = item.submenu?.items ?? [];
+    }
+    item!.click(undefined, BrowserWindow.getAllWindows()[0], undefined as never);
+  }, path);
+}
+
+test(`[${target}] journey 4: marquee → feather → Gaussian blur inside the selection only (FR-FLT-01)`, async () => {
+  const { app, win, close } = await launch();
+  await win.getByRole('spinbutton').nth(0).fill('300');
+  await win.getByRole('spinbutton').nth(1).fill('200');
+  await win.getByRole('button', { name: 'Create' }).click();
+  await expect(win.locator('footer')).toContainText(/strokes RGBA/, { timeout: 15_000 });
+  const at = await docToPage(win, 300, 200);
+  const pixel = (p: [number, number]) => import('./app').then(({ canvasPixel }) => canvasPixel(win, ...p));
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('20');
+  await paintLine(win, at(10, 100), at(290, 100)); // a black bar across the whole width
+  await expect.poll(() => pixel(at(220, 100))).toEqual([0, 0, 0]);
+
+  // Marquee (M) around the left half of the bar, feathered by 5 px.
+  await win.keyboard.press('m');
+  await win.mouse.move(...at(40, 40));
+  await win.mouse.down();
+  await win.mouse.move(...at(160, 160), { steps: 8 });
+  await win.mouse.up();
+  await win.keyboard.press('Shift+F6');
+  const feather = win.getByRole('dialog', { name: 'Feather Selection' });
+  await feather.getByRole('spinbutton', { name: 'Feather radius' }).fill('5');
+  await feather.getByRole('button', { name: 'OK' }).click();
+  await expect(win.getByRole('list', { name: 'History' })).toContainText('Feather'); // feathering is a job
+
+  // Filter › Blur › Gaussian Blur…, radius 10: the canvas previews it; OK applies it.
+  await menu(app, ['Filter', 'Blur', 'Gaussian Blur…']);
+  const dialog = win.getByRole('dialog', { name: 'Gaussian Blur' });
+  await dialog.getByRole('spinbutton', { name: 'Radius' }).fill('10');
+  await expect.poll(async () => (await pixel(at(100, 86)))[0]).toBeLessThan(250); // the preview
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(win.getByRole('list', { name: 'History' })).toContainText('Gaussian Blur', {
+    timeout: 30_000,
+  });
+  // Inside: the bar's edge is soft; outside: untouched.
+  await expect.poll(async () => (await pixel(at(100, 86)))[0]).toBeLessThan(250);
+  await expect.poll(async () => (await pixel(at(100, 86)))[0]).toBeGreaterThan(120);
+  await expect.poll(() => pixel(at(230, 86))).toEqual([255, 255, 255]);
+  await expect.poll(() => pixel(at(230, 100))).toEqual([0, 0, 0]);
+  await close();
+});
+
+test(`[${target}] NFR-PERF-05: Gaussian blur radius 50 on a 24 MP layer`, async () => {
+  const { app, win, close } = await launch();
+  await win.getByRole('spinbutton').nth(0).fill('6000');
+  await win.getByRole('spinbutton').nth(1).fill('4000');
+  await win.getByRole('button', { name: 'Create' }).click();
+  await expect(win.locator('footer')).toContainText('6000 × 4000 px', { timeout: 15_000 });
+  await menu(app, ['Filter', 'Blur', 'Gaussian Blur…']);
+  const dialog = win.getByRole('dialog', { name: 'Gaussian Blur' });
+  await dialog.getByRole('spinbutton', { name: 'Radius' }).fill('50');
+  // The preview (the whole image at this zoom) runs on the same workers: let it finish first.
+  await expect(dialog.getByRole('status')).toHaveText('', { timeout: 60_000 });
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const runs = () =>
+    win.evaluate(() => performance.getEntriesByName('job:Gaussian Blur').map((e) => e.duration));
+  await expect.poll(async () => (await runs()).length, { timeout: 120_000 }).toBe(1);
+  // Again with the workers warm (Filter › Last Filter), as the second and later filters run.
+  await win.keyboard.press('ControlOrMeta+Alt+f');
+  await expect.poll(async () => (await runs()).length, { timeout: 120_000 }).toBe(2);
+  const [first, warm] = await runs();
+  const cores = await win.evaluate(() => navigator.hardwareConcurrency);
+  const line = `${warm!.toFixed(0)} ms (first run ${first!.toFixed(0)} ms) on ${cores} threads`;
+  test.info().annotations.push({ type: 'gaussian-50-24mp', description: line });
+  console.log(`[${process.platform}/${target}] Gaussian blur r=50 on 24 MP: ${line}`);
+  expect(warm).toBeGreaterThan(0);
+  await close();
+});

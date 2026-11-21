@@ -71,7 +71,9 @@ a selection, clears it with Delete, and drives the Select menu and its keys.
 
 As built for the M1 exit: `e2e/journeys.spec.ts` runs journey 1 without the text step (M3) and journey 2
 without the Levels adjustment layer (M2), and checks the exported files' pixels, size and metadata. Journey
-2 includes the Levels adjustment layer since M2 slice 4.
+2 includes the Levels adjustment layer since M2 slice 4. Journey 4 (marquee → feather → Gaussian blur
+inside the selection) is in `journeys.spec.ts` since M2 slice 5a. The same file records NFR-PERF-05
+(`job:Gaussian Blur`, r = 50 on 6000×4000, first and warm runs) as an annotation.
 
 **Harness note (M0):** `app://` is cross-origin isolated, so the window's first navigation swaps renderer
 processes. If that swap races Playwright's attach to the new window, the `firstWindow()` Page can stay on

@@ -11,7 +11,7 @@ import type { MenuCommandId } from '@shared/menu';
 import { Editor, isPaintTool, type EditorSnapshot, type EditorState, type Tool } from '../engine/editor';
 import { api, errorMessage, events } from '../lib/api';
 import { readProject } from '../lib/files';
-import { runOps } from '../lib/ops';
+import { runOps, warmUpOps } from '../lib/ops';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { transformCursor } from '../engine/tools/transform';
 import { ADJUSTMENT_KINDS, type AdjustmentKind } from '../engine/ops/adjust';
@@ -28,6 +28,7 @@ import { OptionsBar } from './components/OptionsBar';
 import { PanelDock } from './components/PanelDock';
 import { AdjustmentDialog, PropertiesPanel } from './components/PropertiesPanel';
 import { HistogramPanel } from './components/HistogramPanel';
+import { FilterDialog } from './components/FilterDialog';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { SelectionOverlay } from './components/SelectionOverlay';
@@ -78,6 +79,13 @@ export function App() {
     autosaveSecondsOverride: number | null;
     crashReportsAvailable: boolean;
   }>({ version: '0.0.0', autosaveSecondsOverride: null, crashReportsAvailable: false });
+  // Filter workers start while the page is idle, so the first filter does not wait for them (NFR-PERF-05).
+  useEffect(() => {
+    const id = window.requestIdleCallback?.(() => warmUpOps(), { timeout: 5000 });
+    return () => {
+      if (id !== undefined) window.cancelIdleCallback?.(id);
+    };
+  }, []);
   useEffect(() => {
     api.app.getInfo().then(
       (info) => {
@@ -222,6 +230,11 @@ export function App() {
           'window.history': () => setWorkspace(toggleVisible(workspace, 'history')),
           'window.properties': () => setWorkspace(toggleVisible(workspace, 'properties')),
           'window.histogram': () => setWorkspace(toggleVisible(workspace, 'histogram')),
+          'filter.last': () => editor?.repeatLastFilter(),
+          'filter.gaussian-blur': () => editor?.beginFilter('gaussian-blur'),
+          'filter.box-blur': () => editor?.beginFilter('box-blur'),
+          'filter.sharpen': () => editor?.beginFilter('sharpen'),
+          'filter.unsharp-mask': () => editor?.beginFilter('unsharp-mask'),
           'image.autoTone': () => void editor?.autoAdjust('tone'),
           'image.autoContrast': () => void editor?.autoAdjust('contrast'),
           'image.autoColor': () => void editor?.autoAdjust('color'),
@@ -621,6 +634,15 @@ export function App() {
             setImageDialog(null);
             void editor.rotateArbitrary(degrees);
           }}
+        />
+      )}
+      {snap?.filtering && editor && (
+        <FilterDialog
+          filtering={snap.filtering}
+          onChange={(f) => editor.setFilter(f)}
+          onPreview={(on) => editor.setFilterPreview(on)}
+          onApply={() => void editor.commitFilter()}
+          onCancel={() => editor.cancelFilter()}
         />
       )}
       {snap?.adjusting && editor && (

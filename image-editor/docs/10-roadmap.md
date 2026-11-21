@@ -244,6 +244,16 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         measure (change → frame) is recorded by E2E on a 24 MP document. Locally the p95 is 14–22 ms on
         Intel Iris Xe (≥ 45 fps).
 - [ ] Slice 5 — filters with live preview, respecting the selection (FR-FLT-01), NFR-PERF-05, journey 4
+  - [ ] 5a The filter framework and the blur and sharpen family: Filter › Blur › Gaussian Blur… and Box
+        Blur…, Filter › Sharpen › Sharpen and Unsharp Mask…, and Filter › Last Filter (Ctrl+Alt+F). A dialog
+        previews on the tiles in view (Preview toggles it), and OK applies to the active layer, within the
+        selection by its coverage, as one undo step. Canvas edges repeat, blurs work in premultiplied alpha,
+        and transparency lock keeps alpha. Journey 4 (marquee → feather → Gaussian blur inside the
+        selection) is E2E-tested. NFR-PERF-05 is measured by E2E: Gaussian r = 50 on 24 MP takes 1.2 s on a
+        4-core laptop, on the CPU (worker pool). That is not yet under 1 s; see 5c.
+  - [ ] 5b Motion Blur, Add Noise, Reduce Noise (median), Mosaic, Emboss, Find Edges and Vignette
+  - [ ] 5c NFR-PERF-05 under 1 s: a GPU path for the separable blurs (docs/02 §5.5), with the CPU code as
+        its reference
 - [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
 - [ ] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
 - [ ] Slice 8 — history beyond the RAM budget spills to OPFS (FR-HIS-03, T-HIS-02)

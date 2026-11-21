@@ -528,7 +528,7 @@ function ColorBalanceControls({ a, change }: { a: AdjustmentOf<'color-balance'>;
 }
 
 /** A labelled range slider with a number field; the slider's drag coalesces into one undo step. */
-function Slider(props: {
+export function Slider(props: {
   label: string;
   value: number;
   min: number;
@@ -574,7 +574,7 @@ function Slider(props: {
   );
 }
 
-function Check(props: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Check(props: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-1.5">
       <input type="checkbox" checked={props.checked} onChange={(e) => props.onChange(e.target.checked)} />

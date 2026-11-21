@@ -144,6 +144,7 @@ import {
   type AdjustmentOf,
 } from './ops/adjust';
 import { autoLevels, unpackHistogram, type Histogram } from './ops/histogram';
+import { defaultFilter, FILTER_LABELS, hasSettings, type Filter, type FilterKind } from './ops/filters';
 import type { ModifyOp } from './ops/modify';
 import type { TrimBasis } from './ops/trim';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
@@ -319,6 +320,10 @@ export type EditorSnapshot = {
   selectedLayerIds: string[];
   /** The active layer's adjustment, when it is an adjustment layer (the Properties panel, FR-ADJ-01). */
   activeAdjustment: { id: string; adjustment: Adjustment } | null;
+  /** Filter › … open for the active layer (FR-FLT-01); `updating` while its preview is computed. */
+  filtering: { layerId: string; filter: Filter; preview: boolean; updating: boolean } | null;
+  /** Filter › Last Filter (Ctrl+Alt+F) has something to repeat. */
+  canRepeatFilter: boolean;
   /** Changes with every document change (the Histogram panel recomputes when it does). */
   docVersion: number;
   /** Image › Adjustments open for the active layer (destructive, FR-ADJ-01): its settings and preview. */
@@ -520,6 +525,19 @@ export class Editor {
   } | null = null;
   /** Drawn instead of the document while a destructive adjustment is previewed or being applied. */
   private adjustPreview: Document | null = null;
+  /** Filter › … in progress (FR-FLT-01): the dialog's settings, and the preview of the tiles in view. */
+  private filtering: {
+    layerId: string;
+    filter: Filter;
+    preview: boolean;
+    /** Bumped by every change; a preview computed for an older one is dropped. */
+    seq: number;
+    running: boolean;
+    timer: number;
+  } | null = null;
+  private filterPreview: Document | null = null;
+  /** Filter › Last Filter (Ctrl+Alt+F) repeats this. */
+  private lastFilter: Filter | null = null;
   /** A committed transform, still drawn until its job replaces the pixels. */
   private transformPreview: TransformShown | null = null;
   private sampling: { pointerId: number; target: 'foreground' | 'background' } | null = null;
@@ -802,6 +820,9 @@ export class Editor {
     this.transform = null;
     this.adjusting = null;
     this.adjustPreview = null;
+    if (this.filtering) window.clearTimeout(this.filtering.timer);
+    this.filtering = null;
+    this.filterPreview = null;
     this.sampling = null;
     this.cropDrag = null;
     this.strokeBuffer.clear();
@@ -946,6 +967,9 @@ export class Editor {
     this.transform = null;
     this.adjusting = null;
     this.adjustPreview = null;
+    if (this.filtering) window.clearTimeout(this.filtering.timer);
+    this.filtering = null;
+    this.filterPreview = null;
     this.strokeBuffer.clear();
     this.doc = doc;
     this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: this.historyBytes }, () =>
@@ -1043,6 +1067,13 @@ export class Editor {
       selectedLayerIds: doc ? this.selectedIds() : [],
       activeAdjustment: this.activeAdjustment,
       docVersion: this.version,
+      filtering: this.filtering && {
+        layerId: this.filtering.layerId,
+        filter: this.filtering.filter,
+        preview: this.filtering.preview,
+        updating: this.filtering.running || this.filtering.timer !== 0,
+      },
+      canRepeatFilter: this.lastFilter !== null,
       adjusting: this.adjusting && {
         layerId: this.adjusting.layerId,
         adjustment: this.adjusting.adjustment,
@@ -1080,6 +1111,7 @@ export class Editor {
       this.moving !== null ||
       this.transform !== null ||
       this.adjusting !== null ||
+      this.filtering !== null ||
       this.job !== null ||
       this.marqueeDrag !== null ||
       this.lassoDraw?.pointerId != null
@@ -1090,6 +1122,7 @@ export class Editor {
     // Undo during Free Transform leaves it without changes (the layers are untouched until it is applied).
     if (this.transform && !this.transform.drag) return this.cancelTransform();
     if (this.adjusting) return this.cancelAdjustment();
+    if (this.filtering) return this.cancelFilter();
     if (!this.busy) this.history?.undo();
   }
 
@@ -1882,6 +1915,161 @@ export class Editor {
     const preview = new Document(doc.width, doc.height, swap(doc.layers));
     preview.selection = doc.selection;
     return preview;
+  }
+
+  // ---- filters (FR-FLT-01) -------------------------------------------------------------------------
+
+  /**
+   * Filter › …: opens `kind` with its defaults for the active layer (within the selection), previewed on
+   * the tiles in view. Filters without settings (Sharpen) apply at once.
+   */
+  beginFilter(kind: FilterKind): void {
+    const doc = this.doc;
+    if (!doc || this.filtering) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const blocker = this.adjustBlocker();
+    if (blocker) return this.notice(blocker);
+    if (!hasSettings(kind)) return void this.applyFilterNow(defaultFilter(kind));
+    this.filtering = {
+      layerId: doc.activeLayerId,
+      filter: defaultFilter(kind),
+      preview: true,
+      seq: 0,
+      running: false,
+      timer: 0,
+    };
+    this.scheduleFilterPreview();
+  }
+
+  /** The dialog's settings changed. */
+  setFilter(filter: Filter): void {
+    const f = this.filtering;
+    if (!f || f.filter.kind !== filter.kind) return;
+    f.filter = filter;
+    f.seq++;
+    this.scheduleFilterPreview();
+  }
+
+  /** The dialog's Preview checkbox. */
+  setFilterPreview(preview: boolean): void {
+    const f = this.filtering;
+    if (!f) return;
+    f.preview = preview;
+    f.seq++;
+    if (preview) return this.scheduleFilterPreview();
+    this.filterPreview = null;
+    this.changed();
+  }
+
+  cancelFilter(): void {
+    if (!this.filtering) return;
+    window.clearTimeout(this.filtering.timer);
+    this.filtering = null;
+    this.filterPreview = null;
+    this.changed();
+  }
+
+  /** OK: the whole layer (within the selection) in the ops worker, as one undo step. */
+  async commitFilter(): Promise<void> {
+    const f = this.filtering;
+    if (!f) return;
+    window.clearTimeout(f.timer);
+    this.filtering = null;
+    await this.runFilterJob(f.layerId, f.filter);
+  }
+
+  /** Applies a filter without a dialog (Sharpen; Filter › Last Filter). */
+  async applyFilterNow(filter: Filter): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const blocker = this.adjustBlocker();
+    if (blocker) return this.notice(blocker);
+    await this.runFilterJob(doc.activeLayerId, filter);
+  }
+
+  /** Filter › Last Filter (Ctrl+Alt+F): the last filter again, with the same settings. */
+  repeatLastFilter(): void {
+    if (this.lastFilter) void this.applyFilterNow(this.lastFilter);
+  }
+
+  private filterJob(layerId: string, filter: Filter, keys: TileKey[] | null): OpsJob {
+    const layer = this.doc!.raster(layerId);
+    return {
+      op: 'filter',
+      layer: fromGrid(layerId, layer.tiles),
+      filter,
+      size: this.size(),
+      selection: this.selectionTiles(),
+      keys,
+      preserveAlpha: layer.locks.transparency,
+    };
+  }
+
+  /** The layer's grid with a filter job's result applied (empty tiles = now transparent). */
+  private filtered(layerId: string, result: LayerTiles[]): TileGrid {
+    const grid = new TileGrid();
+    for (const [k, t] of this.doc!.raster(layerId).tiles.entries()) grid.set(k, t);
+    for (const [k, bytes] of result[0]?.tiles ?? []) {
+      if (bytes.length === 0) grid.set(k, undefined);
+      else grid.set(k, createTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength)));
+    }
+    return grid;
+  }
+
+  private async runFilterJob(layerId: string, filter: Filter): Promise<void> {
+    const doc = this.doc!;
+    const label = FILTER_LABELS[filter.kind];
+    this.lastFilter = filter;
+    try {
+      await this.runJobFor(label, this.filterJob(layerId, filter, null), (result) => {
+        this.exec(replaceLayers(label, new Map([[layerId, this.filtered(layerId, result)]])));
+      });
+    } finally {
+      if (this.doc === doc) this.filterPreview = null;
+      this.changed();
+    }
+  }
+
+  /** Recomputes the preview shortly after the last change, one job at a time, for the tiles in view. */
+  private scheduleFilterPreview(): void {
+    const f = this.filtering;
+    if (!f) return;
+    window.clearTimeout(f.timer);
+    f.timer = window.setTimeout(() => {
+      f.timer = 0;
+      void this.runFilterPreview();
+    }, 120);
+    this.changed();
+  }
+
+  private async runFilterPreview(): Promise<void> {
+    const f = this.filtering;
+    const doc = this.doc;
+    if (!f || !doc || !f.preview) return;
+    if (f.running) return; // the running job starts the next one when it ends
+    f.running = true;
+    const seq = f.seq;
+    const { width, height } = this.cssSize();
+    const view = this.viewport.visibleDocRect(width, height);
+    const keys = tileKeysInRect(
+      Math.max(0, Math.floor(view.x0)),
+      Math.max(0, Math.floor(view.y0)),
+      Math.min(doc.width, Math.ceil(view.x1)),
+      Math.min(doc.height, Math.ceil(view.y1)),
+    );
+    const run = this.options.runOps ?? ((j: OpsJob) => Promise.resolve(runOpsJob(j)));
+    try {
+      const result = await run(this.filterJob(f.layerId, f.filter, keys), () => undefined);
+      if (this.filtering === f && this.doc === doc && f.seq === seq && f.preview)
+        this.filterPreview = withLayerTiles(doc, f.layerId, this.filtered(f.layerId, result));
+    } catch (err) {
+      this.notice(err instanceof Error ? err.message : 'The preview failed.');
+    } finally {
+      f.running = false;
+      if (this.filtering === f && f.seq !== seq) void this.runFilterPreview();
+      this.changed();
+    }
   }
 
   // ---- histograms and Auto (FR-ADJ-02/03) -----------------------------------------------------------
@@ -2678,6 +2866,7 @@ export class Editor {
     const doc = this.doc;
     const version = this.version;
     this.job = { label, progress: 0 };
+    const started = performance.now();
     this.changed();
     const run =
       this.options.runOps ?? ((j: OpsJob, p: (v: number) => void) => Promise.resolve(runOpsJob(j, p)));
@@ -2687,6 +2876,8 @@ export class Editor {
         this.changed();
       });
       this.job = null;
+      // How long pixel jobs take (NFR-PERF-05 reads 'job:Gaussian Blur').
+      performance.measure(`job:${label}`, { start: started, end: performance.now() });
       if (this.doc !== doc || this.version !== version)
         return this.notice(`${label} was cancelled because the document changed.`);
       onResult(result);
@@ -3397,7 +3588,7 @@ export class Editor {
       : undefined;
     const shown = this.transformShown();
     this.compositor.render(
-      shown?.doc ?? this.adjustPreview ?? this.doc,
+      shown?.doc ?? this.adjustPreview ?? this.filterPreview ?? this.doc,
       this.viewport,
       { cssWidth, cssHeight, width, height, dpr },
       preview,
@@ -3456,6 +3647,18 @@ function maskKey(mask: NonNullable<RasterLayerOf['mask']>): string {
     sum = (sum + h) | 0;
   }
   return `m${mask.grid.size}:${sum}`;
+}
+
+/** The document with one raster layer's tiles replaced, for a preview only (the document is not touched). */
+function withLayerTiles(doc: Document, id: string, tiles: TileGrid): Document {
+  const swap = (list: readonly Layer[]): Layer[] =>
+    list.map((l): Layer => {
+      if (l.type === 'group') return { ...l, children: swap(l.children) };
+      return l.id === id && l.type === 'raster' ? { ...l, tiles } : l;
+    });
+  const preview = new Document(doc.width, doc.height, swap(doc.layers));
+  preview.selection = doc.selection;
+  return preview;
 }
 
 /** A layer mask's RGBA grid showing `shown` (coverage in alpha); tiles equal to `background` are left out. */

@@ -696,6 +696,79 @@ describe('Image › Adjustments: destructive, previewed (FR-ADJ-01)', () => {
   });
 });
 
+describe('Filter › … (FR-FLT-01)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+  const previewOf = (editor: Editor) =>
+    (editor as unknown as { filterPreview: Document | null }).filterPreview;
+
+  it('previews exactly what OK applies, inside the selection only, as one undo step', async () => {
+    const notices: string[] = [];
+    const editor = new Editor(editorCanvas(), { onNotice: (m) => notices.push(m) });
+    editor.newDocument(300, 200);
+    const rgba = new Uint8Array(300 * 200 * 4);
+    for (let y = 0; y < 200; y++)
+      for (let x = 0; x < 300; x++)
+        rgba.set(x % 20 < 10 ? [0, 0, 0, 255] : [255, 255, 255, 255], (y * 300 + x) * 4);
+    editor.pasteAsLayer(300, 200, rgba);
+    const doc = () => editor.exportState().doc!;
+    const id = doc().activeLayerId;
+    doc().selection = rectMask({ x0: 50, y0: 40, x1: 200, y1: 160 }, 300, 200);
+    const before = doc().raster(id).tiles;
+
+    editor.beginFilter('gaussian-blur');
+    expect(editor.getSnapshot().filtering).toMatchObject({
+      filter: { kind: 'gaussian-blur', radius: 2 },
+      preview: true,
+    });
+    editor.addLayer(); // refused while the dialog is open
+    expect(editor.getSnapshot().layers).toHaveLength(2);
+    editor.setFilter({ kind: 'gaussian-blur', radius: 6 });
+    await vi.waitFor(() => expect(editor.getSnapshot().filtering?.updating).toBe(false), { timeout: 5000 });
+    const shown = previewOf(editor)!.raster(id).tiles;
+    await editor.commitFilter();
+    expect(editor.getSnapshot().history.entries.at(-1)!.label).toBe('Gaussian Blur');
+    const after = doc().raster(id).tiles;
+    for (const [x, y] of [
+      [100, 100],
+      [55, 45],
+      [195, 150],
+      [20, 20],
+      [250, 180],
+    ] as const)
+      expect(after.pixel(x, y), `${x},${y}`).toEqual(shown.pixel(x, y));
+    expect(after.pixel(105, 100)[0]).toBeGreaterThan(40); // blurred stripes inside
+    expect(after.pixel(105, 100)[0]).toBeLessThan(215);
+    expect(after.pixel(25, 20)).toEqual(before.pixel(25, 20)); // outside the selection: untouched
+    editor.undo();
+    expect(doc().raster(id).tiles).toBe(before);
+
+    // Cancel and Undo close the dialog; Sharpen and Last Filter apply at once.
+    editor.beginFilter('box-blur');
+    editor.cancelFilter();
+    editor.beginFilter('unsharp-mask');
+    editor.undo();
+    expect(editor.getSnapshot().filtering).toBeNull();
+    await editor.applyFilterNow({ kind: 'sharpen' });
+    expect(editor.getSnapshot().history.entries.at(-1)!.label).toBe('Sharpen');
+    editor.repeatLastFilter();
+    await vi.waitFor(() =>
+      expect(
+        editor
+          .getSnapshot()
+          .history.entries.map((e) => e.label)
+          .filter((l) => l === 'Sharpen'),
+      ).toHaveLength(2),
+    );
+    expect(editor.getSnapshot().canRepeatFilter).toBe(true);
+    editor.dispose();
+  });
+});
+
 describe('clipping masks: GPU vs CPU (FR-LAY-05)', () => {
   it('clipped layers composite like the CPU reference (masked, faded base; blend modes)', () => {
     const size = 300;

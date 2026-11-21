@@ -5,6 +5,7 @@ import { resampleGrid, rotateArbitraryGrid, type ResampleFilter } from './resamp
 import { affineGrid, invertAlpha, sourceOver, type Affine } from './affine';
 import { modifySelection, type ClipTiles, type ModifyOp } from './modify';
 import { adjustTiles, prepareAdjustment, type Adjustment } from './adjust';
+import { applyFilter, type Filter } from './filters';
 import { histogramOf, packHistogram } from './histogram';
 import { trimContent, type TrimBasis } from './trim';
 import { colorRange, magicWand, type WandOptions } from './wand';
@@ -48,6 +49,19 @@ export type OpsJob =
       layer: LayerTiles;
       adjustment: Adjustment;
       selection: Array<[TileKey, Uint8Array]> | null;
+    }
+  /**
+   * Filter › … (FR-FLT-01): `keys` limits the output to these tiles (the preview's view; null = the
+   * canvas). Empty tiles in the result mean "now transparent".
+   */
+  | {
+      op: 'filter';
+      layer: LayerTiles;
+      filter: Filter;
+      size: Size;
+      selection: Array<[TileKey, Uint8Array]> | null;
+      keys: TileKey[] | null;
+      preserveAlpha: boolean;
     }
   /** Histogram (FR-ADJ-02/03) of the composite of `layers`, within the selection (one-byte tiles) if any. */
   | {
@@ -99,6 +113,20 @@ export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerT
             : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
     onProgress?.(1);
     return [{ id: 'mask', tiles }];
+  }
+  if (job.op === 'filter') {
+    const tiles = applyFilter(
+      job.filter,
+      {
+        tiles: new Map(job.layer.tiles),
+        size: job.size,
+        selection: job.selection ? new Map(job.selection) : null,
+        keys: job.keys ? new Set(job.keys) : null,
+        preserveAlpha: job.preserveAlpha,
+      },
+      (done, total) => onProgress?.(done / total),
+    );
+    return [{ id: job.layer.id, tiles }];
   }
   if (job.op === 'histogram') {
     const h = histogramOf(
