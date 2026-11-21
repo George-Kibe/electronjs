@@ -21,6 +21,8 @@ All notable changes to ImageEditor are documented here. The format follows
   layer mask button), then click the mask thumbnail and paint: black hides, white shows. Shift-click the
   thumbnail to turn the mask off, Ctrl+I inverts it, and Apply bakes it into the layer. Masks move, crop,
   rotate and resize with their layers and are saved in the project.
+- Clipping masks: Layer › Create Clipping Mask (Ctrl+Alt+G) shows a layer only where the layer below it has
+  pixels; Release Clipping Mask undoes it.
 - Automatic updates: new versions download in the background and install when you quit, or straight away
   with Restart Now. An update never restarts the app while a document has unsaved changes. Help › Check for
   Updates, and a Stable or Beta channel in Preferences › Updates.

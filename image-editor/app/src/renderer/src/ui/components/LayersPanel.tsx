@@ -227,6 +227,15 @@ export function LayersPanel({ editor, snap }: Props) {
                 </button>
               ) : (
                 <>
+                  {row.clipped && (
+                    <span
+                      aria-label="clipped to the layer below"
+                      title="Clipped to the layer below"
+                      className="text-ui-muted -ml-1 shrink-0"
+                    >
+                      ↳
+                    </span>
+                  )}
                   {/* What painting edits: the pixels or the mask (FR-LAY-04). */}
                   <button
                     aria-label={`Edit ${row.name} pixels`}

@@ -13,6 +13,8 @@ export type FlatLayer =
       kind: 'raster';
       tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined;
       mask?: FlatMask | null;
+      /** Clipped to the nearest unclipped layer below it in the same container (FR-LAY-05). */
+      clipped?: boolean;
     })
   | (NodeProps & { kind: 'group'; passThrough: boolean; children: FlatLayer[] });
 
@@ -41,12 +43,26 @@ function compositeSpan(
   count: number,
   depth: number,
 ): void {
+  /** The clipping base for the nodes above it: the last unclipped node seen (FR-LAY-05). */
+  let base: FlatLayer | null = null;
   for (const node of nodes) {
+    const clipped = node.kind === 'raster' && node.clipped && base !== null;
+    if (!clipped) base = node;
     if (!node.visible) continue;
+    // A clipped layer shows only where its base does; a hidden base hides it.
+    if (clipped && !base!.visible) continue;
     if (node.kind === 'raster') {
       const t = node.tile(key);
       const k = node.opacity * node.fillOpacity;
       if (!t || k === 0) continue;
+      // Clipping to a raster base: multiply by the base's alpha × its mask × its opacity and fill (an
+      // approximation of Photoshop's isolated clipping group that matches it wherever the base is opaque).
+      const clip = clipped && base!.kind === 'raster' ? base : null;
+      const clipTile = clip?.tile(key);
+      if (clip && !clipTile) continue;
+      const clipMask = clip?.mask;
+      const clipMaskTile = clipMask?.tile(key);
+      const clipK = clip ? clip.opacity * clip.fillOpacity : 1;
       // The layer mask scales each pixel's alpha (FR-LAY-04), before opacity and blending.
       const mask = node.mask;
       const mt = mask?.tile(key);
@@ -56,7 +72,11 @@ function compositeSpan(
         const s = (first + p) * 4;
         const a = t[s + 3]!;
         if (a === 0) continue;
-        const m = mask ? (mt ? mt[s + 3]! : mask.background) / 255 : 1;
+        let m = mask ? (mt ? mt[s + 3]! : mask.background) / 255 : 1;
+        if (clipTile) {
+          const cm = clipMask ? (clipMaskTile ? clipMaskTile[s + 3]! : clipMask.background) / 255 : 1;
+          m *= (clipTile[s + 3]! / 255) * cm * clipK;
+        }
         if (m === 0) continue;
         blendInto(acc, p * 4, mode, t[s]! / 255, t[s + 1]! / 255, t[s + 2]! / 255, (a / 255) * k * m);
       }
@@ -202,6 +222,7 @@ export function liveLayers(layers: readonly Layer[]): FlatLayer[] {
       kind: 'raster',
       tile: (key) => l.tiles.get(key)?.data,
       mask: m ? { tile: (key) => m.grid.get(key)?.data, background: m.background } : null,
+      clipped: l.clipped,
     };
   });
 }
