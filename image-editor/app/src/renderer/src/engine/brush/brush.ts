@@ -241,3 +241,37 @@ export function applyStroke(
   for (let p = 3; p < out.length; p += 4) if (out[p] !== 0) return createTile(out);
   return undefined;
 }
+
+/**
+ * Paints a layer mask (FR-LAY-04): each pixel's coverage (alpha of the RGBA mask tile) moves toward `value`
+ * (0 hides … 255 reveals) by the stroke's coverage × opacity × grain. Tiles the mask has not stored yet start
+ * at its `background`. The CPU commit of layer.frag's mask preview. Returns undefined when the tile ends up
+ * equal to the background everywhere (nothing to store).
+ */
+export function applyMaskStroke(
+  before: Tile | undefined,
+  background: number,
+  coverage: Float32Array,
+  value: number,
+  settings: { opacity: number; tip?: BrushTip; aliased?: boolean },
+): Tile | undefined {
+  const out = before ? new Uint8ClampedArray(before.data) : new Uint8ClampedArray(TILE_BYTES);
+  if (!before) for (let p = 3; p < out.length; p += 4) out[p] = background;
+  const grain = settings.aliased ? null : tipGrain(settings.tip ?? 'round');
+  let changed = false;
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const i = y * TILE_SIZE + x;
+      const g = grain ? grain[(y % GRAIN_SIZE) * GRAIN_SIZE + (x % GRAIN_SIZE)]! / 255 : 1;
+      const a = coverage[i]! * settings.opacity * g;
+      if (a <= 0) continue;
+      const p = i * 4 + 3;
+      const next = out[p]! + (value - out[p]!) * a;
+      if (next !== out[p]) changed = true;
+      out[p] = next;
+    }
+  }
+  if (!changed) return before;
+  for (let p = 3; p < out.length; p += 4) if (out[p] !== background) return createTile(out);
+  return undefined;
+}

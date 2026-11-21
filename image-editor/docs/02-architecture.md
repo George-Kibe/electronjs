@@ -161,6 +161,13 @@ mask (`gpu.gpu.test.ts` checks that they agree). Measured on a 6000 × 4000 canv
 rasterizes in about 190 ms and its outline takes about 130 ms, both on the UI thread; moving them to the
 ops worker is the next step if larger selections feel slow.
 
+**Layer masks as built (M2 slice 2a):** a raster layer's `mask` keeps its coverage in the alpha channel of
+ordinary RGBA tiles (RGB 0), with a 0/255 background outside them. That way every tile operation (move,
+crop, rotate, flip, resample in the ops worker) transforms masks with their layers, at 4× the memory of
+one-channel tiles. `.iep` stores them as one channel. `layer.frag` multiplies the layer by the mask before
+opacity and blending (the CPU reference is `flatten.ts`); mask painting moves coverage toward the target
+grey in the preview and in `applyMaskStroke` alike.
+
 **Magic wand as built (slice 1b):** `engine/ops/wand.ts` runs as an `OpsJob` in the ops worker. It
 composites the sampled layers tile by tile (`compositeTile`), marks pixels within tolerance of the seed
 in a one-byte canvas bitmap (worker memory only), flood-fills it with a 4-connected scanline fill (or

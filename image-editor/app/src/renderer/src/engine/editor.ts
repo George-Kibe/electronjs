@@ -1,5 +1,6 @@
 import { tileRange } from '@shared/iep-schema';
 import {
+  applyMaskStroke,
   applyStroke,
   DabGenerator,
   DEFAULT_BRUSH,
@@ -14,6 +15,8 @@ import {
   PaintTilesCommand,
   SetActiveLayerCommand,
   SetLayerPropsCommand,
+  ApplyLayerMaskCommand,
+  SetLayerMaskCommand,
   SetSelectionCommand,
   type Command,
 } from './doc/commands';
@@ -21,6 +24,7 @@ import {
   createGroupLayer,
   createRasterLayer,
   Document,
+  type RasterLayer as RasterLayerOf,
   type BlendMode,
   type Layer,
   type LayerLocks,
@@ -113,6 +117,7 @@ import {
   TILE_BYTES,
   TILE_SIZE,
   TileGrid,
+  tileKeysInRect,
   type Tile,
   type TileKey,
 } from './tiles/tile';
@@ -269,6 +274,8 @@ export type EditorSnapshot = {
   lasso: { kind: LassoKind; points: Point[]; hover: Point | null } | null;
   /** Select › Reselect has something to bring back. */
   canReselect: boolean;
+  /** Painting tools edit the active layer's mask, not its pixels (FR-LAY-04). */
+  editingMask: boolean;
   options: ToolOptions;
   colors: Colors;
   /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
@@ -293,6 +300,8 @@ export type LayerRow = {
   parentId: string | null;
   /** Changes whenever the layer's pixels change; key for thumbnails (FR-LAY-06). */
   contentKey: string;
+  /** The layer mask (FR-LAY-04): its state and a key that changes with its contents (for its thumbnail). */
+  mask: { enabled: boolean; linked: boolean; key: string } | null;
 };
 
 type ActiveStroke = {
@@ -304,6 +313,8 @@ type ActiveStroke = {
   /** Last pointer position, for the catch-up at the end of a smoothed stroke. */
   last: BrushPoint;
   pointerId: number;
+  /** Painting the layer mask toward `value` (0..255) instead of the pixels (FR-LAY-04). */
+  mask: { value: number } | null;
 };
 
 type ActiveMove = {
@@ -437,6 +448,8 @@ export class Editor {
   } | null = null;
   /** Outline of the current selection, recomputed only when the mask changes. */
   private outline: { mask: Mask; path: string } | null = null;
+  /** Painting goes to the active layer's mask (its thumbnail was clicked; FR-LAY-04). */
+  private editingMask = false;
   /** The last selection removed by Deselect, per document (Select › Reselect). */
   private readonly lastSelection = new WeakMap<Document, Mask>();
   /** Canvas size the view was last fitted to (refit when a command changes it). */
@@ -894,6 +907,7 @@ export class Editor {
         ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
         : null,
       canReselect: doc !== null && !doc.selection && this.lastSelection.has(doc),
+      editingMask: this.editingMask && doc?.activeLayer.type === 'raster' && Boolean(doc.activeLayer.mask),
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
@@ -1136,9 +1150,51 @@ export class Editor {
       opacity: 1,
       fillOpacity: 1,
       blendMode: 'normal',
+      // The pixel thumbnail shows the pixels themselves; the mask has its own thumbnail.
+      ...(layer.type === 'raster' ? { mask: null } : {}),
     } as Layer;
     if (plain.type === 'group') plain.passThrough = false;
     const thumb = flattenPreview(liveLayers([plain]), doc.width, doc.height, maxSide);
+    if (this.thumbs.size > 500) this.thumbs.clear();
+    this.thumbs.set(key, thumb);
+    return thumb;
+  }
+
+  /** The layer mask as a grey thumbnail: white shows, black hides (FR-LAY-04, FR-LAY-06). */
+  maskThumbnail(
+    id: string,
+    maxSide: number,
+  ): { width: number; height: number; rgba: Uint8ClampedArray } | null {
+    const doc = this.doc;
+    if (!doc || !doc.has(id)) return null;
+    const layer = doc.layer(id);
+    if (layer.type !== 'raster' || !layer.mask) return null;
+    const mask = layer.mask;
+    const key = `mask|${id}|${maskKey(mask)}|${maxSide}`;
+    const cached = this.thumbs.get(key);
+    if (cached) return cached;
+    const grey = (v: (i: number) => number) => {
+      const data = new Uint8ClampedArray(TILE_BYTES);
+      for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
+        const g = v(i);
+        data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = g;
+        data[i * 4 + 3] = 255;
+      }
+      return data;
+    };
+    const background = grey(() => mask.background);
+    const flat = {
+      kind: 'raster' as const,
+      visible: true,
+      opacity: 1,
+      fillOpacity: 1,
+      blendMode: 'normal' as const,
+      tile: (k: TileKey) => {
+        const t = mask.grid.get(k);
+        return t ? grey((i) => t.data[i * 4 + 3]!) : background;
+      },
+    };
+    const thumb = flattenPreview([flat], doc.width, doc.height, maxSide);
     if (this.thumbs.size > 500) this.thumbs.clear();
     this.thumbs.set(key, thumb);
     return thumb;
@@ -1155,6 +1211,7 @@ export class Editor {
   /** Layer selection is UI state, not an undo step (matches common editors). */
   setActiveLayer(id: string): void {
     if (!this.doc) return;
+    if (id !== this.doc.activeLayerId) this.editingMask = false; // painting goes back to pixels
     new SetActiveLayerCommand(id).do(this.doc);
     this.changed();
   }
@@ -1293,6 +1350,132 @@ export class Editor {
       return 'move';
     if (mods.alt && (t === 'brush' || t === 'pencil')) return 'eyedropper';
     return t;
+  }
+
+  // ---- layer masks (FR-LAY-04) ------------------------------------------------------------------
+
+  /** Mask painting: the brush and pencil paint the foreground colour's grey, the eraser the background's. */
+  private maskPaintValue(tool: PaintTool): number {
+    const [r, g, b] = tool === 'eraser' ? this.colors.background : this.colors.foreground;
+    return Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+  }
+
+  private activeRaster(): RasterLayerOf | null {
+    const layer = this.doc?.activeLayer;
+    if (!layer || layer.type !== 'raster') {
+      this.notice('Select a layer (groups get masks in a later version).');
+      return null;
+    }
+    return layer;
+  }
+
+  /** Layer › Layer Mask › Reveal All / Hide All / Reveal Selection / Hide Selection. Painting then edits it. */
+  addLayerMask(kind: 'reveal' | 'hide' | 'revealSelection' | 'hideSelection'): void {
+    const doc = this.doc;
+    const layer = this.activeRaster();
+    if (!doc || !layer || this.busy) return;
+    if (layer.mask) return this.notice('This layer already has a mask.');
+    if (layer.locks.all) return this.notice('This layer is locked.');
+    const sel = doc.selection;
+    const fromSelection = kind === 'revealSelection' || kind === 'hideSelection';
+    if (fromSelection && !sel) return this.notice('Make a selection first.');
+    const grid = new TileGrid();
+    let background: 0 | 255 = kind === 'hide' ? 0 : 255;
+    if (sel && fromSelection) {
+      background = kind === 'revealSelection' ? 0 : 255;
+      const shown = kind === 'revealSelection' ? sel : sel.invert();
+      for (const key of tileKeysInRect(0, 0, doc.width, doc.height)) {
+        const t = shown.tile(key);
+        if ((background === 0 && !t) || (background === 255 && t?.full)) continue;
+        const data = new Uint8ClampedArray(TILE_BYTES);
+        for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) data[i * 4 + 3] = t ? t.data[i]! : 0;
+        grid.set(key, createTile(data));
+      }
+    }
+    const label = {
+      reveal: 'Reveal All',
+      hide: 'Hide All',
+      revealSelection: 'Reveal Selection',
+      hideSelection: 'Hide Selection',
+    }[kind];
+    this.exec(new SetLayerMaskCommand(label, layer.id, { grid, background, enabled: true, linked: true }));
+    this.editingMask = true;
+    this.changed();
+  }
+
+  /** Layer › Layer Mask › Delete. */
+  deleteLayerMask(): void {
+    const layer = this.activeRaster();
+    if (!layer?.mask || this.busy) return;
+    this.exec(new SetLayerMaskCommand('Delete Layer Mask', layer.id, null));
+    this.editingMask = false;
+  }
+
+  /** Layer › Layer Mask › Apply: the mask is baked into the pixels' alpha, then removed (one step). */
+  applyLayerMask(): void {
+    const layer = this.activeRaster();
+    const mask = layer?.mask;
+    if (!layer || !mask || this.busy) return;
+    if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
+    const before = new Map<TileKey, Tile | undefined>();
+    const after = new Map<TileKey, Tile | undefined>();
+    for (const [key, tile] of layer.tiles.entries()) {
+      const m = mask.grid.get(key);
+      if (!m && mask.background === 255) continue;
+      const data = new Uint8ClampedArray(tile.data);
+      for (let p = 3; p < data.length; p += 4)
+        data[p] = Math.round((data[p]! * (m ? m.data[p]! : mask.background)) / 255);
+      before.set(key, tile);
+      after.set(key, data.some((v, i) => i % 4 === 3 && v !== 0) ? createTile(data) : undefined);
+    }
+    this.exec(new ApplyLayerMaskCommand(layer.id, mask, before, after));
+    this.editingMask = false;
+  }
+
+  /** Layer › Layer Mask › Disable / Enable (Shift-click the mask thumbnail). */
+  setLayerMaskEnabled(enabled: boolean): void {
+    const layer = this.activeRaster();
+    if (!layer?.mask || layer.mask.enabled === enabled) return;
+    const label = enabled ? 'Enable Layer Mask' : 'Disable Layer Mask';
+    this.exec(new SetLayerMaskCommand(label, layer.id, { ...layer.mask, enabled }));
+  }
+
+  /** The chain between the thumbnails: a linked mask moves with the layer. */
+  setLayerMaskLinked(linked: boolean): void {
+    const layer = this.activeRaster();
+    if (!layer?.mask || layer.mask.linked === linked) return;
+    const label = linked ? 'Link Layer Mask' : 'Unlink Layer Mask';
+    this.exec(new SetLayerMaskCommand(label, layer.id, { ...layer.mask, linked }));
+  }
+
+  /** Layer › Layer Mask › Disable / Enable, Unlink / Link: flips the active layer's mask flag. */
+  toggleLayerMask(flag: 'enabled' | 'linked'): void {
+    const mask = this.doc?.activeLayer.type === 'raster' ? this.doc.activeLayer.mask : null;
+    if (!mask) return this.notice('This layer has no mask.');
+    if (flag === 'enabled') this.setLayerMaskEnabled(!mask.enabled);
+    else this.setLayerMaskLinked(!mask.linked);
+  }
+
+  /** Invert on a mask (Ctrl+I while the mask is edited). */
+  invertLayerMask(): void {
+    const layer = this.activeRaster();
+    const mask = layer?.mask;
+    if (!layer || !mask || this.busy) return;
+    const grid = new TileGrid();
+    for (const [key, t] of mask.grid.entries()) {
+      const data = new Uint8ClampedArray(TILE_BYTES);
+      for (let p = 3; p < data.length; p += 4) data[p] = 255 - t.data[p]!;
+      grid.set(key, createTile(data));
+    }
+    const background = mask.background === 255 ? 0 : 255;
+    this.exec(new SetLayerMaskCommand('Invert Layer Mask', layer.id, { ...mask, grid, background }));
+  }
+
+  /** Clicking a layer's mask or pixel thumbnail chooses what painting edits. */
+  editLayerMask(onMask: boolean): void {
+    const layer = this.doc?.activeLayer;
+    this.editingMask = onMask && layer?.type === 'raster' && Boolean(layer.mask);
+    this.changed();
   }
 
   // ---- selection (FR-SEL-01..06) ---------------------------------------------------------------
@@ -2054,8 +2237,10 @@ export class Editor {
     if (this.gl.isContextLost()) return; // no GPU: nothing to paint with
     if (layer.type !== 'raster') return this.notice('Select a layer to paint on (groups have no pixels).');
     if (!layer.visible) return this.notice('This layer is hidden. Show it to paint on it.');
-    if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
-    const settings = this.strokeSettings(tool, layer.locks.transparency);
+    const onMask = this.editingMask && layer.mask ? this.maskPaintValue(tool) : null;
+    if (layer.locks.all || (onMask === null && layer.locks.pixels))
+      return this.notice('This layer is locked.');
+    const settings = this.strokeSettings(tool, onMask === null ? layer.locks.transparency : false);
     const generator = new DabGenerator(settings);
     const smoother = new PulledString((settings.smoothing * SMOOTHING_SCREEN_PX) / this.viewport.zoom);
     const start = this.docPoint(e);
@@ -2067,6 +2252,7 @@ export class Editor {
       smoother,
       last: start,
       pointerId: e.pointerId,
+      mask: onMask === null ? null : { value: onMask },
     };
     this.strokeBuffer.clear();
     this.strokeBuffer.hardness = settings.hardness;
@@ -2244,6 +2430,7 @@ export class Editor {
     const before = new Map<TileKey, Tile | undefined>();
     const after = new Map<TileKey, Tile | undefined>();
     const selection = doc.selection;
+    const layerMask = stroke.mask ? layer.mask : null;
     for (const key of this.strokeBuffer.keys()) {
       const [tileX, tileY] = parseTileKey(key);
       const old = layer.tiles.get(key);
@@ -2252,6 +2439,21 @@ export class Editor {
       if (selection && !mask) continue;
       const coverage = this.strokeBuffer.readCoverage(key);
       if (mask && !mask.full) for (let i = 0; i < coverage.length; i++) coverage[i]! *= mask.data[i]! / 255;
+      if (layerMask && stroke.mask) {
+        const oldMask = layerMask.grid.get(key);
+        const nextMask = applyMaskStroke(
+          oldMask,
+          layerMask.background,
+          coverage,
+          stroke.mask.value,
+          stroke.settings,
+        );
+        if (nextMask !== oldMask) {
+          before.set(key, oldMask);
+          after.set(key, nextMask);
+        }
+        continue;
+      }
       const next = applyStroke(
         old,
         coverage,
@@ -2273,7 +2475,9 @@ export class Editor {
     if (after.size > 0) {
       if (stroke.tool !== 'eraser') this.addRecent(stroke.settings.color);
       const label = { brush: 'Brush', pencil: 'Pencil', eraser: 'Eraser' }[stroke.tool];
-      this.history.execute(new PaintTilesCommand(label, layer.id, before, after));
+      this.history.execute(
+        new PaintTilesCommand(label, layer.id, before, after, layerMask ? 'mask' : 'pixels'),
+      );
     } else {
       this.requestRender();
     }
@@ -2315,6 +2519,7 @@ export class Editor {
           settings: this.stroke.settings,
           preserveAlpha: strokeLayer?.locks.transparency ?? false,
           selection: this.doc?.selection ?? null,
+          onMask: this.stroke.mask ? { target: this.stroke.mask.value / 255 } : null,
         }
       : undefined;
     const move = this.moving
@@ -2358,6 +2563,17 @@ export class Editor {
 }
 
 /** Identity of a layer's pixels: changes when any tile is replaced (tiles are immutable). */
+/** Changes when a mask's tiles or background change (thumbnail cache key). */
+function maskKey(mask: NonNullable<RasterLayerOf['mask']>): string {
+  let sum: number = mask.background;
+  for (const [key, tile] of mask.grid.entries()) {
+    let h = tile.id;
+    for (let i = 0; i < key.length; i++) h = (Math.imul(h, 31) + key.charCodeAt(i)) | 0;
+    sum = (sum + h) | 0;
+  }
+  return `m${mask.grid.size}:${sum}`;
+}
+
 function contentKey(layer: Layer): string {
   if (layer.type === 'group')
     return `g(${layer.children.map((c) => `${c.visible ? '' : '!'}${c.opacity}${c.blendMode}${contentKey(c)}`).join(',')})`;
@@ -2392,6 +2608,10 @@ function layerRows(layers: Layer[]): LayerRow[] {
         depth,
         parentId,
         contentKey: contentKey(l),
+        mask:
+          l.type === 'raster' && l.mask
+            ? { enabled: l.mask.enabled, linked: l.mask.linked, key: maskKey(l.mask) }
+            : null,
       });
       if (l.type === 'group' && !l.collapsed) visit(l.children, depth + 1, l.id);
     }

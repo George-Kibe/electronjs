@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   accumulateDabs,
+  applyMaskStroke,
   applyStroke,
   DabGenerator,
   DEFAULT_BRUSH,
@@ -335,6 +336,98 @@ describe('selection clips painting: GPU preview vs CPU commit (FR-SEL-06)', () =
     expect(painted).toBeGreaterThan(80);
     expect(compositePixel(liveLayers(doc.layers), 5, 110)).toEqual([255, 255, 255, 255]);
     expect(compositePixel(liveLayers(doc.layers), 280, 110)).toEqual([255, 255, 255, 255]);
+  });
+});
+
+describe('layer masks: GPU vs CPU (FR-LAY-04)', () => {
+  const size = 300;
+  const render = (
+    doc: Document,
+    gl: WebGL2RenderingContext,
+    compositor: Compositor,
+    preview?: Parameters<Compositor['render']>[3],
+  ) => {
+    compositor.render(
+      doc,
+      new Viewport(),
+      { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+      preview,
+    );
+    const pixels = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return pixels;
+  };
+  const maxDiff = (doc: Document, pixels: Uint8Array) => {
+    let err = 0;
+    for (let y = 2; y < size; y += 7)
+      for (let x = 2; x < size; x += 7) {
+        const expected = compositePixel(liveLayers(doc.layers), x, y);
+        const i = ((size - 1 - y) * size + x) * 4;
+        for (let c = 0; c < 3; c++) err = Math.max(err, Math.abs(pixels[i + c]! - expected[c]!));
+      }
+    return err;
+  };
+  /** Mask tile 0,0: a horizontal ramp of coverage; elsewhere the background. */
+  const rampMask = (background: 0 | 255) => {
+    const data = new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4);
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) data[(y * 256 + x) * 4 + 3] = x;
+    const grid = new TileGrid();
+    grid.set('0,0', createTile(data));
+    return { grid, background, enabled: true, linked: true };
+  };
+
+  it('a masked layer composites like the CPU reference (partial, revealed and hidden tiles)', () => {
+    for (const background of [0, 255] as const) {
+      const doc = new Document(size, size, [
+        createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+        createRasterLayer('ink', TileGrid.filled(size, size, [20, 60, 200, 230]), {
+          mask: rampMask(background),
+        }),
+      ]);
+      const gl = context(size, size);
+      const compositor = new Compositor(gl);
+      expect(maxDiff(doc, render(doc, gl, compositor)), `background ${background}`).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('painting the mask previews exactly as it commits', () => {
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      createRasterLayer('ink', TileGrid.filled(size, size, [200, 20, 20, 255]), { mask: rampMask(255) }),
+    ]);
+    const layer = doc.raster(doc.layers[1]!.id);
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    const settings: BrushSettings = {
+      ...DEFAULT_BRUSH,
+      color: [0, 0, 0],
+      opacity: 0.8,
+      hardness: 1,
+      mode: 'paint',
+    };
+    stroke.hardness = 1;
+    const strokeDabs: Dab[] = [60, 140, 220, 280].map((x) => ({ x, y: 128, radius: 35, alpha: 1 }));
+    stroke.addDabs(strokeDabs, size, size);
+    const pixels = render(doc, gl, compositor, {
+      buffer: stroke,
+      layerId: layer.id,
+      settings,
+      preserveAlpha: false,
+      onMask: { target: 0 }, // painting black hides
+    });
+    for (const key of stroke.keys()) {
+      const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+      const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+      accumulateDabs(cov, tileX, tileY, strokeDabs, 1);
+      const grid = layer.mask!.grid;
+      grid.set(key, applyMaskStroke(grid.get(key), layer.mask!.background, cov, 0, settings));
+    }
+    expect(maxDiff(doc, pixels)).toBeLessThanOrEqual(2);
+    // The stroke hid the ink where it passed: white shows through at its centre.
+    const centre = compositePixel(liveLayers(doc.layers), 220, 128);
+    expect(centre[1]).toBeGreaterThan(150);
   });
 });
 

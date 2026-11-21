@@ -341,3 +341,40 @@ export class SetLayerMaskCommand implements Command {
     return 128 + (this.after ? this.after.grid.size * TILE_BYTES : 0);
   }
 }
+
+/** Layer › Layer Mask › Apply: the pixels with the mask baked into their alpha, and no mask (one step). */
+export class ApplyLayerMaskCommand implements Command {
+  readonly label = 'Apply Layer Mask';
+
+  constructor(
+    private readonly layerId: string,
+    private readonly mask: LayerMask,
+    private readonly before: ReadonlyMap<TileKey, Tile | undefined>,
+    private readonly after: ReadonlyMap<TileKey, Tile | undefined>,
+  ) {}
+
+  private apply(
+    doc: Document,
+    tiles: ReadonlyMap<TileKey, Tile | undefined>,
+    mask: LayerMask | null,
+  ): DirtySet {
+    const layer = doc.raster(this.layerId);
+    for (const [key, tile] of tiles) layer.tiles.set(key, tile);
+    layer.mask = mask;
+    return { layerIds: [this.layerId], tiles: 'all' };
+  }
+
+  do(doc: Document): DirtySet {
+    return this.apply(doc, this.after, null);
+  }
+
+  undo(doc: Document): DirtySet {
+    return this.apply(doc, this.before, this.mask);
+  }
+
+  sizeBytes(): number {
+    let n = 128;
+    for (const t of this.after.values()) if (t) n += TILE_BYTES;
+    return n;
+  }
+}

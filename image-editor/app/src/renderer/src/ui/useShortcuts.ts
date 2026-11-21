@@ -68,6 +68,9 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && !e.shiftKey && key === 'a') return run(() => editor.selectAll());
         if (mod && key === 'd') return run(() => (e.shiftKey ? editor.reselect() : editor.deselect()));
         if (mod && e.shiftKey && key === 'i') return run(() => editor.invertSelection());
+        // Ctrl+I: invert the mask being painted (Image › Adjustments › Invert arrives with adjustments).
+        if (mod && !e.shiftKey && !e.altKey && key === 'i' && editor.getSnapshot().editingMask)
+          return run(() => editor.invertLayerMask());
         if (mod && key === '0') return run(() => editor.fitToScreen());
         if (mod && key === '1') return run(() => editor.zoomTo(1));
         if (mod && (key === '=' || key === '+')) return run(() => editor.zoomStep(1));

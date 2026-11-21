@@ -141,6 +141,22 @@ export function menuTemplate(
         cmd('Flatten Image', 'layer.flatten'),
         { type: 'separator' },
         {
+          label: 'Layer Mask',
+          submenu: [
+            cmd('Reveal All', 'layer.maskRevealAll'),
+            cmd('Hide All', 'layer.maskHideAll'),
+            cmd('Reveal Selection', 'layer.maskRevealSelection'),
+            cmd('Hide Selection', 'layer.maskHideSelection'),
+            { type: 'separator' },
+            cmd('Delete', 'layer.maskDelete'),
+            cmd('Apply', 'layer.maskApply'),
+            { type: 'separator' },
+            cmd('Disable / Enable', 'layer.maskToggle'),
+            cmd('Unlink / Link', 'layer.maskLink'),
+          ],
+        },
+        { type: 'separator' },
+        {
           label: 'Align to Canvas',
           submenu: [
             cmd('Left Edges', 'layer.alignLeft'),

@@ -78,7 +78,19 @@ export const LayerBase = z.looseObject({
   clipped: z.boolean().default(false),
 });
 
-export const RasterLayerEntry = LayerBase.extend({ type: z.literal('raster'), tiles: EntryPath });
+/** A raster layer's mask (docs/05 §2.1): one-channel tiles, `background` outside them. */
+export const LayerMaskEntry = z.object({
+  background: z.union([z.literal(0), z.literal(255)]),
+  enabled: z.boolean().default(true),
+  linked: z.boolean().default(true),
+  tiles: EntryPath,
+});
+
+export const RasterLayerEntry = LayerBase.extend({
+  type: z.literal('raster'),
+  tiles: EntryPath,
+  mask: LayerMaskEntry.optional(),
+});
 export type RasterLayerEntry = z.infer<typeof RasterLayerEntry>;
 
 /** Children are validated recursively by the reader (depth and total count are limited). */

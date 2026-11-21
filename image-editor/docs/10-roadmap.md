@@ -172,7 +172,17 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         and so it also survives recovery snapshots and a tab moved to its own window. Quick Mask (Q) moves
         to slice 2: it paints into a mask exactly like layer masks do.
 - [ ] Slice 2 — layer masks and clipping masks (FR-LAY-04/05), Quick Mask (FR-SEL-06), multi-layer
-      selection (FR-LAY-08)
+      selection (FR-LAY-08), in parts:
+  - [ ] 2a Layer masks on raster layers: Layer › Layer Mask › Reveal All / Hide All / Reveal Selection /
+        Hide Selection (and the panel's Add layer mask button), Delete, Apply (baked into the pixels'
+        alpha), Disable / Enable (Shift-click the thumbnail), Link / Unlink; click the mask thumbnail to
+        paint it (the brush and pencil paint the foreground colour's grey, the eraser the background's;
+        the selection clips it); Ctrl+I inverts it. Stored as RGBA tiles with coverage in alpha, so moves,
+        crops, rotations, flips and resampling transform masks with their layers; saved in `.iep` as
+        one-channel `masks/<n>/tiles.bin`. GPU preview and CPU commit agree (conformance tests). Masks on
+        groups, Alt-click to view the mask, and density/feather properties are later.
+  - [ ] 2b Clipping masks (FR-LAY-05) and Quick Mask (Q)
+  - [ ] 2c Multi-layer selection: move, group, align and distribute (FR-LAY-08)
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04
