@@ -263,6 +263,8 @@ export function App() {
           'edit.clear': () => editor?.clearSelection(),
           'image.cropToSelection': () => editor?.cropToSelection(),
           'select.colorRange': () => setSelectDialog('colorRange'),
+          'layer.clip': () => editor?.setClipped(true),
+          'layer.unclip': () => editor?.setClipped(false),
           'layer.maskRevealAll': () => editor?.addLayerMask('reveal'),
           'layer.maskHideAll': () => editor?.addLayerMask('hide'),
           'layer.maskRevealSelection': () => editor?.addLayerMask('revealSelection'),

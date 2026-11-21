@@ -431,6 +431,53 @@ describe('layer masks: GPU vs CPU (FR-LAY-04)', () => {
   });
 });
 
+describe('clipping masks: GPU vs CPU (FR-LAY-05)', () => {
+  it('clipped layers composite like the CPU reference (masked, faded base; blend modes)', () => {
+    const size = 300;
+    const stripe = new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4);
+    for (let y = 0; y < 256; y++)
+      for (let x = 40; x < 200; x++) stripe.set([20, 40, 230, 200], (y * 256 + x) * 4);
+    const baseTiles = new TileGrid();
+    baseTiles.set('0,0', createTile(stripe));
+    const maskData = new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4);
+    for (let i = 0; i < 256 * 256; i++) maskData[i * 4 + 3] = (i % 256) ^ 0x55;
+    const maskGrid = new TileGrid();
+    maskGrid.set('0,0', createTile(maskData));
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      createRasterLayer('base', baseTiles, {
+        opacity: 0.7,
+        mask: { grid: maskGrid, background: 255, enabled: true, linked: true },
+      }),
+      createRasterLayer('clipped', TileGrid.filled(size, size, [230, 30, 30, 255]), { clipped: true }),
+      createRasterLayer('multiply', TileGrid.filled(size, size, [120, 220, 90, 180]), {
+        clipped: true,
+        blendMode: 'multiply',
+      }),
+    ]);
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    compositor.render(doc, new Viewport(), {
+      cssWidth: size,
+      cssHeight: size,
+      width: size,
+      height: size,
+      dpr: 1,
+    });
+    const pixels = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    let maxErr = 0;
+    for (let y = 3; y < size; y += 7)
+      for (let x = 3; x < size; x += 7) {
+        const expected = compositePixel(liveLayers(doc.layers), x, y);
+        const i = ((size - 1 - y) * size + x) * 4;
+        for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+      }
+    expect(maxErr).toBeLessThanOrEqual(2);
+    expect(compositePixel(liveLayers(doc.layers), 250, 10)).toEqual([255, 255, 255, 255]); // no base: nothing
+  });
+});
+
 describe('WebGL context loss (NFR-REL-02)', () => {
   function editorCanvas(): HTMLCanvasElement {
     const canvas = document.createElement('canvas');

@@ -232,8 +232,13 @@ export class Compositor {
   }
 
   private drawLayers(layers: readonly Layer[], target: Target, ctx: DrawContext): void {
+    /** The clipping base for the layers above it: the last unclipped layer (FR-LAY-05, as flatten.ts). */
+    let base: Layer | null = null;
     for (const layer of layers) {
+      const clipped = layer.type === 'raster' && layer.clipped && base !== null;
+      if (!clipped) base = layer;
       if (!layer.visible) continue;
+      if (clipped && !base!.visible) continue;
       if (layer.type === 'group') {
         if (layer.passThrough && layer.opacity === 1) {
           this.drawLayers(layer.children, target, ctx);
@@ -256,7 +261,16 @@ export class Compositor {
       const mode = blendModeIndex(layer.blendMode);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, target.framebuffer);
       const backdrop = mode === 0 ? null : this.backdropOf(target);
-      this.drawRaster(layer, opacity, mode, backdrop, ctx, preview);
+      const clip = clipped && base!.type === 'raster' ? base! : null;
+      this.drawRaster(
+        layer,
+        opacity,
+        mode,
+        backdrop,
+        ctx,
+        preview,
+        clip as Extract<Layer, { type: 'raster' }> | null,
+      );
       if (backdrop) this.release(backdrop);
     }
   }
@@ -268,6 +282,7 @@ export class Compositor {
     backdrop: Target | null,
     ctx: DrawContext,
     preview: StrokePreview | undefined,
+    clip: Extract<Layer, { type: 'raster' }> | null = null,
   ): void {
     const gl = this.gl;
     const p = this.layerProgram;
@@ -312,6 +327,15 @@ export class Compositor {
     gl.uniform1i(p.uniform('u_strokeOnMask'), preview?.onMask ? 1 : 0);
     gl.uniform1f(p.uniform('u_maskTarget'), preview?.onMask?.target ?? 1);
     gl.bindSampler(5, ctx.viewport.zoom * ctx.size.dpr >= 2 ? this.nearestSampler : this.linearSampler);
+    // Clipping base (FR-LAY-05) on units 6 and 7, sampled like the layer.
+    const clipMask = clip?.mask?.enabled ? clip.mask : null;
+    gl.uniform1i(p.uniform('u_clip'), clip ? 1 : 0);
+    gl.uniform1i(p.uniform('u_clipTile'), 6);
+    gl.uniform1i(p.uniform('u_clipMaskTile'), 7);
+    gl.uniform1f(p.uniform('u_clipMaskBackground'), (clipMask?.background ?? 255) / 255);
+    gl.uniform1f(p.uniform('u_clipOpacity'), clip ? clip.opacity * clip.fillOpacity : 1);
+    for (const unit of [6, 7])
+      gl.bindSampler(unit, ctx.viewport.zoom * ctx.size.dpr >= 2 ? this.nearestSampler : this.linearSampler);
     const moving = ctx.move?.layerIds.has(layer.id) ? ctx.move : undefined;
     const [ox, oy] = moving ? [moving.dx, moving.dy] : [0, 0];
     for (const key of moving ? this.movedTiles(layer, moving, ctx.rect) : ctx.visible) {
@@ -326,6 +350,19 @@ export class Compositor {
       // A hidden tile (hide-all background, no mask tile) draws nothing unless a mask stroke reaches it.
       if (layerMask && !maskTileOf && layerMask.background === 0 && !(strokeTex && preview?.onMask)) continue;
       gl.uniform1i(p.uniform('u_layerMask'), !layerMask ? 0 : maskTileOf ? 1 : 2);
+      if (clip) {
+        // Where the base has no pixels the clipped layer shows nothing.
+        const clipTile = clip.tiles.get(key);
+        if (!clipTile) continue;
+        gl.activeTexture(gl.TEXTURE6);
+        gl.bindTexture(gl.TEXTURE_2D, this.textures.get(clipTile));
+        const clipMaskTile = clipMask?.grid.get(key);
+        gl.uniform1i(p.uniform('u_clipMask'), !clipMask ? 0 : clipMaskTile ? 1 : 2);
+        if (clipMaskTile) {
+          gl.activeTexture(gl.TEXTURE7);
+          gl.bindTexture(gl.TEXTURE_2D, this.textures.get(clipMaskTile));
+        }
+      }
       if (maskTileOf) {
         gl.activeTexture(gl.TEXTURE5);
         gl.bindTexture(gl.TEXTURE_2D, this.textures.get(maskTileOf));
@@ -347,7 +384,7 @@ export class Compositor {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
     gl.bindSampler(0, null);
-    gl.bindSampler(5, null);
+    for (const unit of [5, 6, 7]) gl.bindSampler(unit, null);
   }
 
   /** Composites a screen-space buffer onto the bound framebuffer. */

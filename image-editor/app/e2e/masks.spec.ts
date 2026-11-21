@@ -99,3 +99,50 @@ test(`[${target}] layer masks: add, paint to hide, disable, apply, undo (FR-LAY-
   expect(dark(await canvasPixel(win, ...at(200, 100)))).toBe(true); // outside: shown
   await close();
 });
+
+test(`[${target}] clipping masks: a layer shows only where the layer below has pixels (FR-LAY-05)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win);
+  await expect(zoomField(win)).toHaveValue('100');
+  const box = (await docCanvas(win).boundingBox())!;
+  const at = (x: number, y: number): [number, number] => [
+    box.x + Math.round((box.width - 300) / 2) + x + 0.5,
+    box.y + Math.round((box.height - 200) / 2) + y + 0.5,
+  ];
+  const size = win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' });
+  const reddish = (rgb: number[]) => rgb[0]! > 180 && rgb[1]! < 80 && rgb[2]! < 80;
+
+  // Layer 1: a black square (a big dab clipped by a marquee selection).
+  await win.getByRole('button', { name: 'New layer', exact: true }).click();
+  await win.keyboard.press('m');
+  await win.mouse.move(at(50, 50)[0] - 0.5, at(50, 50)[1] - 0.5);
+  await win.mouse.down();
+  await win.mouse.move(at(100, 100)[0], at(100, 100)[1]);
+  await win.mouse.move(at(150, 150)[0] - 0.5, at(150, 150)[1] - 0.5);
+  await win.mouse.up();
+  await win.keyboard.press('b');
+  await size.fill('250');
+  await size.blur();
+  await win.mouse.click(...at(100, 100));
+  await win.keyboard.press('ControlOrMeta+d');
+
+  // Layer 2: red everywhere around.
+  await win.getByRole('button', { name: 'New layer', exact: true }).click();
+  await win.getByRole('button', { name: /Foreground colour/ }).click();
+  const picker = win.getByRole('dialog', { name: 'Foreground colour' });
+  await picker.getByRole('textbox', { name: 'Hex' }).fill('dd1111');
+  await expect(picker.getByRole('spinbutton', { name: 'Red' })).toHaveValue('221');
+  await picker.getByRole('button', { name: 'OK' }).click();
+  await win.mouse.click(...at(150, 100));
+  await expect.poll(async () => reddish(await canvasPixel(win, ...at(200, 100)))).toBe(true);
+
+  // Ctrl+Alt+G: Layer 2 is clipped to Layer 1.
+  await win.keyboard.press('ControlOrMeta+Alt+g');
+  await expect(win.getByRole('list', { name: 'History' })).toContainText('Clipping Mask');
+  await expect(win.getByLabel('clipped to the layer below')).toBeVisible();
+  await expect.poll(async () => light(await canvasPixel(win, ...at(200, 100)))).toBe(true); // no base: hidden
+  expect(reddish(await canvasPixel(win, ...at(100, 100)))).toBe(true); // over the base: red
+  await win.keyboard.press('ControlOrMeta+Alt+g'); // released
+  await expect.poll(async () => reddish(await canvasPixel(win, ...at(200, 100)))).toBe(true);
+  await close();
+});

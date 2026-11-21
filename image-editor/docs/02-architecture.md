@@ -168,6 +168,11 @@ one-channel tiles. `.iep` stores them as one channel. `layer.frag` multiplies th
 opacity and blending (the CPU reference is `flatten.ts`); mask painting moves coverage toward the target
 grey in the preview and in `applyMaskStroke` alike.
 
+**Clipping masks as built (M2 slice 2b):** `flatten.ts` and `layer.frag` both multiply a clipped layer by
+its base's alpha, mask and opacity (base tile and mask on texture units 6–7). This approximates Photoshop's
+isolated clipping group: identical where the base is opaque, different where a semi-transparent base would
+be covered by the clipped layer (see the roadmap for the exact model).
+
 **Magic wand as built (slice 1b):** `engine/ops/wand.ts` runs as an `OpsJob` in the ops worker. It
 composites the sampled layers tile by tile (`compositeTile`), marks pixels within tolerance of the seed
 in a one-byte canvas bitmap (worker memory only), flood-fills it with a 4-connected scanline fill (or

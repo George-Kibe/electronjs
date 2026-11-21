@@ -67,6 +67,8 @@ export const MENU_COMMANDS = [
   'select.contract',
   'select.border',
   'select.smooth',
+  'layer.clip',
+  'layer.unclip',
   'layer.maskRevealAll',
   'layer.maskHideAll',
   'layer.maskRevealSelection',

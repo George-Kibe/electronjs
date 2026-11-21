@@ -181,7 +181,14 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         crops, rotations, flips and resampling transform masks with their layers; saved in `.iep` as
         one-channel `masks/<n>/tiles.bin`. GPU preview and CPU commit agree (conformance tests). Masks on
         groups, Alt-click to view the mask, and density/feather properties are later.
-  - [ ] 2b Clipping masks (FR-LAY-05) and Quick Mask (Q)
+  - [ ] 2b Clipping masks (FR-LAY-05): Layer › Create / Release Clipping Mask (Ctrl+Alt+G); a clipped layer
+        shows only where the nearest unclipped layer below it in the same group has pixels (its alpha × its
+        mask × its opacity), several layers can share one base, and a hidden base hides them. As built this
+        multiplies each clipped layer by the base on its own, which matches Photoshop wherever the base is
+        opaque; Photoshop's isolated clipping group (base opacity and mode applied to the whole group) needs
+        source-atop blend modes in `blend.glsl`/`blend.ts`, a golden-image area, and is a follow-up. Groups
+        as bases clip nothing yet.
+  - [ ] 2b′ Quick Mask (Q)
   - [ ] 2c Multi-layer selection: move, group, align and distribute (FR-LAY-08)
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel

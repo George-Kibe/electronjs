@@ -186,6 +186,7 @@ export function snapshotLayers(layers: readonly LayerSnapshot[]): import('../doc
       kind: 'raster',
       tile: (key: TileKey) => tiles.get(key),
       mask: m && maskTiles ? { tile: (key: TileKey) => maskTiles.get(key), background: m.background } : null,
+      clipped: l.clipped,
     };
   });
 }

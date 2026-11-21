@@ -20,6 +20,12 @@ uniform sampler2D u_mask;   // R8 selection coverage of this tile (doc/selection
 uniform int u_layerMask;      // 0 = none, 1 = a tile in u_layerMaskTile, 2 = the background value
 uniform sampler2D u_layerMaskTile; // the layer mask's RGBA tile, coverage in alpha (doc/document.ts LayerMask)
 uniform float u_layerMaskBackground;
+uniform bool u_clip;          // clipped to the base below (FR-LAY-05): multiply by the base's alpha
+uniform sampler2D u_clipTile;  // the base's tile (premultiplied RGBA8: alpha is its alpha)
+uniform int u_clipMask;        // the base's mask: 0 none, 1 tile in u_clipMaskTile, 2 background
+uniform sampler2D u_clipMaskTile;
+uniform float u_clipMaskBackground;
+uniform float u_clipOpacity;   // the base's opacity × fill
 uniform bool u_strokeOnMask;  // the stroke paints the layer mask (toward u_maskTarget), not the pixels
 uniform float u_maskTarget;
 uniform float u_layerOpacity;
@@ -52,6 +58,10 @@ void main() {
   }
   // The layer mask scales the layer before opacity and blending (as doc/flatten.ts compositeSpan).
   if (u_layerMask != 0) d *= m;
+  if (u_clip) {
+    float cm = u_clipMask == 1 ? texture(u_clipMaskTile, v_uv).a : (u_clipMask == 2 ? u_clipMaskBackground : 1.0);
+    d *= texture(u_clipTile, v_uv).a * cm * u_clipOpacity; // as doc/flatten.ts compositeSpan
+  }
   d *= u_layerOpacity;
   if (u_blendMode == 0) {
     o_color = d;

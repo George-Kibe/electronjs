@@ -59,6 +59,8 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());
         if (mod && e.shiftKey && key === 'n') return run(() => editor.addLayer());
         if (mod && !e.shiftKey && key === 'j') return run(() => editor.duplicateLayer());
+        // Ctrl+Alt+G: clipping mask (e.code: Alt changes e.key on macOS). Before Ctrl+G (group).
+        if (mod && e.altKey && !e.shiftKey && e.code === 'KeyG') return run(() => editor.toggleClipped());
         if (mod && key === 'g')
           return run(() => (e.shiftKey ? editor.ungroupActiveLayer() : editor.groupActiveLayer()));
         if (mod && key === 'e') return run(() => (e.shiftKey ? editor.mergeVisible() : editor.mergeDown()));

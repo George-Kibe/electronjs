@@ -140,6 +140,8 @@ export function menuTemplate(
         cmd('Merge Visible', 'layer.mergeVisible', 'CmdOrCtrl+Shift+E'),
         cmd('Flatten Image', 'layer.flatten'),
         { type: 'separator' },
+        cmd('Create Clipping Mask', 'layer.clip', 'CmdOrCtrl+Alt+G'),
+        cmd('Release Clipping Mask', 'layer.unclip'),
         {
           label: 'Layer Mask',
           submenu: [

@@ -300,6 +300,8 @@ export type LayerRow = {
   parentId: string | null;
   /** Changes whenever the layer's pixels change; key for thumbnails (FR-LAY-06). */
   contentKey: string;
+  /** Clipped to the layer below (FR-LAY-05). */
+  clipped: boolean;
   /** The layer mask (FR-LAY-04): its state and a key that changes with its contents (for its thumbnail). */
   mask: { enabled: boolean; linked: boolean; key: string } | null;
 };
@@ -1446,6 +1448,27 @@ export class Editor {
     if (!layer?.mask || layer.mask.linked === linked) return;
     const label = linked ? 'Link Layer Mask' : 'Unlink Layer Mask';
     this.exec(new SetLayerMaskCommand(label, layer.id, { ...layer.mask, linked }));
+  }
+
+  /**
+   * Layer › Create / Release Clipping Mask (Ctrl+Alt+G; FR-LAY-05): the active layer shows only where the
+   * layer below it has pixels. The bottom layer of a group or of the document has nothing to clip to.
+   */
+  setClipped(clipped: boolean): void {
+    const doc = this.doc;
+    const layer = doc?.activeLayer;
+    if (!doc || !layer || this.busy) return;
+    if (layer.type !== 'raster') return this.notice('Groups cannot be clipped yet.');
+    if (layer.clipped === clipped) return;
+    if (clipped && doc.locate(layer.id).index === 0)
+      return this.notice('There is no layer below to clip to.');
+    this.exec(new SetLayerPropsCommand(layer.id, { clipped }));
+  }
+
+  /** Ctrl+Alt+G toggles the clipping mask. */
+  toggleClipped(): void {
+    const layer = this.doc?.activeLayer;
+    if (layer) this.setClipped(!layer.clipped);
   }
 
   /** Layer › Layer Mask › Disable / Enable, Unlink / Link: flips the active layer's mask flag. */
@@ -2608,6 +2631,7 @@ function layerRows(layers: Layer[]): LayerRow[] {
         depth,
         parentId,
         contentKey: contentKey(l),
+        clipped: l.type === 'raster' && l.clipped && i > 0,
         mask:
           l.type === 'raster' && l.mask
             ? { enabled: l.mask.enabled, linked: l.mask.linked, key: maskKey(l.mask) }
