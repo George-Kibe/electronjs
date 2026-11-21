@@ -45,7 +45,7 @@ export const FilesSettings = z.looseObject({
     .default([]),
 });
 
-export const PANEL_IDS = ['layers', 'properties', 'swatches', 'history'] as const;
+export const PANEL_IDS = ['layers', 'properties', 'swatches', 'history', 'histogram'] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
 
 export const PanelState = z.object({

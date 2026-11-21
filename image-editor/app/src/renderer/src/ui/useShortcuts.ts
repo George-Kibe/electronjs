@@ -78,6 +78,11 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
               ? editor.invertLayerMask()
               : editor.applyAdjustmentNow({ kind: 'invert' }),
           );
+        // Image › Auto Tone / Auto Contrast / Auto Color (FR-ADJ-02); e.code: Alt changes e.key on macOS.
+        if (mod && e.shiftKey && !e.altKey && key === 'l') return run(() => void editor.autoAdjust('tone'));
+        if (mod && e.shiftKey && e.altKey && e.code === 'KeyL')
+          return run(() => void editor.autoAdjust('contrast'));
+        if (mod && e.shiftKey && !e.altKey && key === 'b') return run(() => void editor.autoAdjust('color'));
         // Image › Adjustments shortcuts (docs/03 §6): Levels, Curves, Hue/Saturation, Color Balance, B&W.
         if (mod && !e.shiftKey && !e.altKey && key === 'l')
           return run(() => editor.beginAdjustment('levels'));

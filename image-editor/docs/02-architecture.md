@@ -198,7 +198,7 @@ a snapshot (a structured copy per click; caching the composite in the worker is 
 | --- | --- |
 | Adjustments (Levels, Curves, Hue/Sat, Color Balance, B&W, Photo Filter, Exposure, Vibrance, Invert, Posterize, Threshold, Brightness/Contrast) | GPU fragment shaders. Curve and level adjustments are baked into 256×1 LUT textures. Used both as adjustment layers and as destructive commands (render into new tiles). |
 | Gaussian/Box/Motion blur, Sharpen, Unsharp mask, Emboss, Find edges, Pixelate, Vignette, Add noise | GPU multi-pass shaders (separable where possible) over tiles with an apron (radius padding from neighbour tiles) |
-| Median (reduce noise), auto-levels, histogram | CPU worker (histogram via GPU reduction later if needed) |
+| Median (reduce noise), auto-levels, histogram | CPU worker (histogram via GPU reduction later if needed). *As built (M2 4c):* `engine/ops/histogram.ts` composites tile by tile in the ops worker (within the selection), and the editor runs it without blocking editing, dropping stale results; Auto Tone/Contrast/Color turn it into Levels (`autoLevels`) applied like Image › Adjustments. |
 
 Destructive filters produce a `FilterCommand` (old/new tiles within the selection bounds). Previews run
 on a downscaled proxy while a slider is being dragged, then at full resolution on release.

@@ -27,6 +27,7 @@ import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
 import { PanelDock } from './components/PanelDock';
 import { AdjustmentDialog, PropertiesPanel } from './components/PropertiesPanel';
+import { HistogramPanel } from './components/HistogramPanel';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { SelectionOverlay } from './components/SelectionOverlay';
@@ -220,6 +221,10 @@ export function App() {
           'window.swatches': () => setWorkspace(toggleVisible(workspace, 'swatches')),
           'window.history': () => setWorkspace(toggleVisible(workspace, 'history')),
           'window.properties': () => setWorkspace(toggleVisible(workspace, 'properties')),
+          'window.histogram': () => setWorkspace(toggleVisible(workspace, 'histogram')),
+          'image.autoTone': () => void editor?.autoAdjust('tone'),
+          'image.autoContrast': () => void editor?.autoAdjust('contrast'),
+          'image.autoColor': () => void editor?.autoAdjust('color'),
           ...(Object.fromEntries(
             ADJUSTMENT_KINDS.map((k) => [`layer.adjustment.${k}`, () => editor?.addAdjustmentLayer(k)]),
           ) as Record<`layer.adjustment.${AdjustmentKind}`, () => void>),
@@ -482,6 +487,7 @@ export function App() {
             panels={{
               layers: { content: editor && <LayersPanel editor={editor} snap={snap} /> },
               properties: { content: editor && <PropertiesPanel editor={editor} snap={snap} /> },
+              histogram: { content: editor && <HistogramPanel editor={editor} snap={snap} /> },
               swatches: {
                 content: (
                   <SwatchesPanel
@@ -619,6 +625,8 @@ export function App() {
       )}
       {snap?.adjusting && editor && (
         <AdjustmentDialog
+          editor={editor}
+          snap={snap}
           adjusting={snap.adjusting}
           onChange={(a) => editor.setAdjusting(a)}
           onPreview={(on) => editor.setAdjustingPreview(on)}

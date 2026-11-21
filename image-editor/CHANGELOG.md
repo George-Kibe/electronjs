@@ -45,6 +45,11 @@ All notable changes to ImageEditor are documented here. The format follows
   Shortcuts: Ctrl+L Levels, Ctrl+M Curves, Ctrl+U Hue/Saturation, Ctrl+B Color Balance, Ctrl+Alt+Shift+B
   Black & White, and Ctrl+I to invert. Alt-click an item in the Layers panel's ◑ menu to apply it
   directly. Minimize Window is now Ctrl+Alt+M.
+- Image › Auto Tone, Auto Contrast and Auto Color fix a dull or tinted photo in one step, from the layer's
+  histogram (Shift+Ctrl+L, Alt+Shift+Ctrl+L, Shift+Ctrl+B).
+- Histogram panel (Window › Histogram, shown in the Photography workspace): the image's or the layer's
+  RGB, luminosity or single-channel histogram, with mean, standard deviation, median and pixel count.
+  Levels shows the histogram too, and its Auto button sets the levels for you.
 - Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
   pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
   edge is visible again.
