@@ -199,22 +199,25 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         (Ctrl+G) and Delete act on all of them, each as one undo step. A group and a layer inside it never
         both act. The layer selection is UI state, like the active layer. E2E green on 3 OSes (run
         44849927215).
-- [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
-  - [ ] 3a Free Transform of layers (Ctrl+T): the active layer or every selected layer (linked masks too)
+- [x] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
+  - [x] 3a Free Transform of layers (Ctrl+T): the active layer or every selected layer (linked masks too)
         gets a box with 8 handles. Drag inside to move, a corner to scale in proportion (Shift: free, Alt:
         from the centre; docs/03 §5.4), an edge to stretch, outside to rotate (Shift: 15° steps), Ctrl+edge
         to skew; arrows nudge the box. The options bar shows centre X/Y,
         W/H %, angle and skew, Flip H/V, Cancel (Esc) and Apply (Enter). The preview runs on the GPU and the
         commit runs in the ops worker as one undo step. Edit › Transform › Rotate 180°/90° and Flip
         Horizontal/Vertical apply at once, bit-exact. T-TRF-01 (affine half) is covered by unit and GPU tests.
-  - [ ] 3b Transforming a selection: with a selection, Ctrl+T (and Edit › Transform) move only the selected
+        E2E green on 3 OSes (run 44884832669).
+  - [x] 3b Transforming a selection: with a selection, Ctrl+T (and Edit › Transform) move only the selected
         pixels of the active or selected layers. They are lifted off (a soft edge splits each pixel by its
         coverage), drawn through the matrix in a preview-only copy of the document, and put back over what
         stayed (source-over) on Apply. The selection moves with them, and undo restores both. Layer masks
-        stay where they are. Preview and commit agree to ±1/255 (GPU test).
-  - [ ] 3c Image › Trim… crops away edges that are transparent, or the colour of the top-left or bottom-right
+        stay where they are. Preview and commit agree to ±1/255 (GPU test). E2E green on 3 OSes (run
+        44884832669).
+  - [x] 3c Image › Trim… crops away edges that are transparent, or the colour of the top-left or bottom-right
         pixel of the composite, on the chosen sides (the ops worker finds them; pixels outside are deleted).
         Image › Reveal All grows the canvas to show every layer's pixels outside it. Each is one undo step.
+        E2E green on 3 OSes (run 44884835490).
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04
 - [ ] Slice 5 — filters with live preview, respecting the selection (FR-FLT-01), NFR-PERF-05, journey 4
