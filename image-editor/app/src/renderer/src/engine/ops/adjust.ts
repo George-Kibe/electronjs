@@ -454,3 +454,40 @@ export function isNeutral(adj: Adjustment): boolean {
     !ACTIVE_BY_DEFAULT.has(adj.kind) && JSON.stringify(adj) === JSON.stringify(defaultAdjustment(adj.kind))
   );
 }
+
+/**
+ * A destructive adjustment (Image › Adjustments, FR-ADJ-01): the layer's tiles with the adjustment applied,
+ * in proportion to the selection's coverage where there is one (one-byte tiles; none = everything). Alpha
+ * is kept. Runs in the ops worker; the same reference as the adjustment layers, so the preview matches.
+ */
+export function adjustTiles(
+  tiles: ReadonlyArray<readonly [string, Uint8Array]>,
+  prepared: PreparedAdjustment,
+  selection: ReadonlyMap<string, Uint8Array> | null,
+  onTile?: (done: number, total: number) => void,
+): Array<[string, Uint8Array]> {
+  const out: Array<[string, Uint8Array]> = [];
+  tiles.forEach(([key, data], n) => {
+    const sel = selection?.get(key);
+    if (selection && !sel) {
+      out.push([key, data]);
+      return;
+    }
+    const next = new Uint8Array(data);
+    for (let p = 0, i = 0; i < next.length; p++, i += 4) {
+      if (next[i + 3] === 0) continue;
+      const k = sel ? sel[p]! / 255 : 1;
+      if (k === 0) continue;
+      const r = data[i]! / 255;
+      const g = data[i + 1]! / 255;
+      const b = data[i + 2]! / 255;
+      const [ar, ag, ab] = adjustPixel(prepared, r, g, b);
+      next[i] = Math.round((r + (ar - r) * k) * 255);
+      next[i + 1] = Math.round((g + (ag - g) * k) * 255);
+      next[i + 2] = Math.round((b + (ab - b) * k) * 255);
+    }
+    out.push([key, next]);
+    onTile?.(n + 1, tiles.length);
+  });
+  return out;
+}

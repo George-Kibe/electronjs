@@ -135,7 +135,13 @@ import {
 } from './tools/lasso';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import type { WandOptions } from './ops/wand';
-import { ADJUSTMENT_LABELS, defaultAdjustment, type Adjustment, type AdjustmentKind } from './ops/adjust';
+import {
+  ADJUSTMENT_LABELS,
+  defaultAdjustment,
+  isNeutral,
+  type Adjustment,
+  type AdjustmentKind,
+} from './ops/adjust';
 import type { ModifyOp } from './ops/modify';
 import type { TrimBasis } from './ops/trim';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
@@ -311,6 +317,8 @@ export type EditorSnapshot = {
   selectedLayerIds: string[];
   /** The active layer's adjustment, when it is an adjustment layer (the Properties panel, FR-ADJ-01). */
   activeAdjustment: { id: string; adjustment: Adjustment } | null;
+  /** Image › Adjustments open for the active layer (destructive, FR-ADJ-01): its settings and preview. */
+  adjusting: { layerId: string; adjustment: Adjustment; preview: boolean } | null;
   /** Free Transform (Ctrl+T, FR-TRF-04): where the box's handles are (document px) and its parameters. */
   transform: {
     box: Box;
@@ -496,6 +504,15 @@ export class Editor {
   private stroke: ActiveStroke | null = null;
   private moving: ActiveMove | null = null;
   private transform: ActiveTransform | null = null;
+  /** Image › Adjustments in progress: the dialog's settings and the selection as a mask, built once. */
+  private adjusting: {
+    layerId: string;
+    adjustment: Adjustment;
+    preview: boolean;
+    mask: RasterLayerOf['mask'];
+  } | null = null;
+  /** Drawn instead of the document while a destructive adjustment is previewed or being applied. */
+  private adjustPreview: Document | null = null;
   /** A committed transform, still drawn until its job replaces the pixels. */
   private transformPreview: TransformShown | null = null;
   private sampling: { pointerId: number; target: 'foreground' | 'background' } | null = null;
@@ -774,6 +791,8 @@ export class Editor {
     this.stroke = null;
     this.moving = null;
     this.transform = null;
+    this.adjusting = null;
+    this.adjustPreview = null;
     this.sampling = null;
     this.cropDrag = null;
     this.strokeBuffer.clear();
@@ -916,6 +935,8 @@ export class Editor {
     this.stroke = null;
     this.moving = null;
     this.transform = null;
+    this.adjusting = null;
+    this.adjustPreview = null;
     this.strokeBuffer.clear();
     this.doc = doc;
     this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: this.historyBytes }, () =>
@@ -1012,6 +1033,11 @@ export class Editor {
       quickMask: this.quickMask && doc !== null,
       selectedLayerIds: doc ? this.selectedIds() : [],
       activeAdjustment: this.activeAdjustment,
+      adjusting: this.adjusting && {
+        layerId: this.adjusting.layerId,
+        adjustment: this.adjusting.adjustment,
+        preview: this.adjusting.preview,
+      },
       transform: this.transform && {
         box: this.transform.box,
         params: this.transform.params,
@@ -1043,6 +1069,7 @@ export class Editor {
       this.stroke !== null ||
       this.moving !== null ||
       this.transform !== null ||
+      this.adjusting !== null ||
       this.job !== null ||
       this.marqueeDrag !== null ||
       this.lassoDraw?.pointerId != null
@@ -1052,6 +1079,7 @@ export class Editor {
   undo(): void {
     // Undo during Free Transform leaves it without changes (the layers are untouched until it is applied).
     if (this.transform && !this.transform.drag) return this.cancelTransform();
+    if (this.adjusting) return this.cancelAdjustment();
     if (!this.busy) this.history?.undo();
   }
 
@@ -1689,6 +1717,159 @@ export class Editor {
   get activeAdjustment(): { id: string; adjustment: Adjustment } | null {
     const l = this.doc?.activeLayer;
     return l?.type === 'adjustment' ? { id: l.id, adjustment: l.adjustment } : null;
+  }
+
+  // ---- destructive adjustments (Image › Adjustments, FR-ADJ-01) ---------------------------------
+
+  /** Why the active layer cannot be adjusted directly, or null. */
+  private adjustBlocker(): string | null {
+    const layer = this.doc!.activeLayer;
+    if (layer.type === 'group') return 'Select a layer to adjust (groups have no pixels).';
+    if (layer.type === 'adjustment') return 'This is an adjustment layer: change it in the Properties panel.';
+    if (this.editingMask && layer.mask)
+      return 'Adjusting a mask is not supported yet. Click the layer’s thumbnail.';
+    if (layer.locks.all || layer.locks.pixels) return 'This layer is locked.';
+    if (!layer.visible) return 'This layer is hidden. Show it to adjust it.';
+    return null;
+  }
+
+  /**
+   * Image › Adjustments › …: opens `kind` for the active layer with its defaults, previewed live within the
+   * selection. The dialog then calls setAdjusting, and commitAdjustment or cancelAdjustment.
+   */
+  beginAdjustment(kind: AdjustmentKind): void {
+    const doc = this.doc;
+    if (!doc || this.adjusting) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const blocker = this.adjustBlocker();
+    if (blocker) return this.notice(blocker);
+    const sel = doc.selection;
+    this.adjusting = {
+      layerId: doc.activeLayerId,
+      adjustment: defaultAdjustment(kind),
+      preview: true,
+      mask: sel ? { grid: maskGridOf(sel, doc, 0), background: 0, enabled: true, linked: true } : null,
+    };
+    this.refreshAdjustPreview();
+    this.changed();
+  }
+
+  /** The dialog's settings changed. */
+  setAdjusting(adjustment: Adjustment): void {
+    if (!this.adjusting || this.adjusting.adjustment.kind !== adjustment.kind) return;
+    this.adjusting = { ...this.adjusting, adjustment };
+    this.refreshAdjustPreview();
+    this.changed();
+  }
+
+  /** The dialog's Preview checkbox: off shows the layer as it is. */
+  setAdjustingPreview(preview: boolean): void {
+    if (!this.adjusting) return;
+    this.adjusting = { ...this.adjusting, preview };
+    this.refreshAdjustPreview();
+    this.changed();
+  }
+
+  cancelAdjustment(): void {
+    if (!this.adjusting) return;
+    this.adjusting = null;
+    this.adjustPreview = null;
+    this.changed();
+  }
+
+  /** OK: the adjusted pixels replace the layer's, in the ops worker, as one undo step. */
+  async commitAdjustment(): Promise<void> {
+    const a = this.adjusting;
+    if (!a) return;
+    this.adjusting = null;
+    await this.applyAdjustment(a.layerId, a.adjustment, a.mask);
+  }
+
+  /** Applies an adjustment without a dialog (Image › Adjustments › Invert, Ctrl+I). */
+  applyAdjustmentNow(adjustment: Adjustment): void {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const blocker = this.adjustBlocker();
+    if (blocker) return this.notice(blocker);
+    const sel = doc.selection;
+    const mask = sel
+      ? { grid: maskGridOf(sel, doc, 0), background: 0 as const, enabled: true, linked: true }
+      : null;
+    void this.applyAdjustment(doc.activeLayerId, adjustment, mask);
+  }
+
+  private async applyAdjustment(
+    layerId: string,
+    adjustment: Adjustment,
+    mask: RasterLayerOf['mask'],
+  ): Promise<void> {
+    const doc = this.doc;
+    if (!doc || !doc.has(layerId) || isNeutral(adjustment)) {
+      this.adjustPreview = null;
+      return this.changed();
+    }
+    const label = ADJUSTMENT_LABELS[adjustment.kind];
+    // The preview stays on the canvas until the job's pixels replace it.
+    this.adjustPreview = this.adjustedDocument(doc, layerId, adjustment, mask);
+    const selection = doc.selection
+      ? [...doc.selection.entries()].map(([k, t]): [TileKey, Uint8Array] => [
+          k,
+          new Uint8Array(t.data.buffer, t.data.byteOffset, t.data.byteLength),
+        ])
+      : null;
+    const job: OpsJob = {
+      op: 'adjust',
+      layer: fromGrid(layerId, doc.raster(layerId).tiles),
+      adjustment,
+      selection,
+    };
+    try {
+      await this.runJob(label, job, (grids) => replaceLayers(label, grids));
+    } finally {
+      this.adjustPreview = null;
+      this.changed();
+    }
+  }
+
+  private refreshAdjustPreview(): void {
+    const a = this.adjusting;
+    const doc = this.doc;
+    this.adjustPreview =
+      a && doc && a.preview ? this.adjustedDocument(doc, a.layerId, a.adjustment, a.mask) : null;
+  }
+
+  /**
+   * The document with `layerId` adjusted, for the preview only: the layer becomes an isolated group of
+   * itself and an adjustment layer masked by the selection, carrying its blend mode and opacity. An
+   * adjustment keeps alpha, so this shows exactly what adjusting the pixels gives.
+   */
+  private adjustedDocument(
+    doc: Document,
+    layerId: string,
+    adjustment: Adjustment,
+    mask: RasterLayerOf['mask'],
+  ): Document {
+    const adj = createAdjustmentLayer('preview', adjustment, { id: '#adjust-preview', mask });
+    const swap = (list: readonly Layer[]): Layer[] =>
+      list.map((l): Layer => {
+        if (l.type === 'group') return { ...l, children: swap(l.children) };
+        if (l.id !== layerId) return l;
+        return createGroupLayer(
+          l.name,
+          [{ ...l, blendMode: 'normal', opacity: 1, clipped: false } as Layer, adj],
+          {
+            id: `${l.id}#adjust`,
+            visible: l.visible,
+            opacity: l.opacity,
+            blendMode: l.blendMode,
+            passThrough: false,
+          },
+        );
+      });
+    const preview = new Document(doc.width, doc.height, swap(doc.layers));
+    preview.selection = doc.selection;
+    return preview;
   }
 
   /** Layer › Layer Mask › Delete. */
@@ -3108,7 +3289,7 @@ export class Editor {
       : undefined;
     const shown = this.transformShown();
     this.compositor.render(
-      shown?.doc ?? this.doc,
+      shown?.doc ?? this.adjustPreview ?? this.doc,
       this.viewport,
       { cssWidth, cssHeight, width, height, dpr },
       preview,

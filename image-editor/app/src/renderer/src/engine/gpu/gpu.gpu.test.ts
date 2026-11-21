@@ -614,6 +614,88 @@ describe('adjustment layers: GPU vs CPU (FR-ADJ-01, docs/07 §1)', () => {
   });
 });
 
+describe('Image › Adjustments: destructive, previewed (FR-ADJ-01)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+  const previewOf = (editor: Editor) =>
+    (editor as unknown as { adjustPreview: Document | null }).adjustPreview;
+
+  it('previews exactly what OK applies, within a soft selection, as one undo step', async () => {
+    const notices: string[] = [];
+    const editor = new Editor(editorCanvas(), { onNotice: (m) => notices.push(m) });
+    editor.newDocument(200, 100);
+    const rgba = new Uint8Array(80 * 60 * 4);
+    for (let y = 0; y < 60; y++)
+      for (let x = 0; x < 80; x++) rgba.set([x * 3, 200 - y * 2, 90, 255], (y * 80 + x) * 4);
+    editor.pasteAsLayer(80, 60, rgba);
+    const doc = () => editor.exportState().doc!;
+    const id = doc().activeLayerId;
+    editor.setLayerProps(id, { opacity: 0.6, blendMode: 'multiply' });
+    doc().selection = ellipseMask({ x0: 70, y0: 25, x1: 130, y1: 75 }, 200, 100);
+    const before = doc().raster(id).tiles;
+
+    editor.beginAdjustment('hue-saturation');
+    editor.addLayer(); // refused while the dialog is open
+    expect(editor.getSnapshot().layers).toHaveLength(2);
+    const hue: Adjustment = {
+      kind: 'hue-saturation',
+      hue: 90,
+      saturation: 20,
+      lightness: 0,
+      colorize: false,
+    };
+    editor.setAdjusting(hue);
+    const shown = previewOf(editor)!;
+    const samples = [
+      [100, 50],
+      [72, 50],
+      [85, 30],
+      [60, 45],
+      [125, 70],
+    ] as const;
+    const previewed = samples.map(([x, y]) => compositePixel(liveLayers(shown.layers), x, y));
+    editor.setAdjustingPreview(false);
+    expect(previewOf(editor)).toBeNull();
+    editor.setAdjustingPreview(true);
+    await editor.commitAdjustment();
+    expect(editor.getSnapshot().history.entries.at(-1)!.label).toBe('Hue/Saturation');
+    expect(previewOf(editor)).toBeNull();
+    samples.forEach(([x, y], i) => {
+      const committed = compositePixel(liveLayers(doc().layers), x, y);
+      committed.forEach((v, c) =>
+        expect(Math.abs(v - previewed[i]![c]!), `${x},${y}`).toBeLessThanOrEqual(1),
+      );
+    });
+    expect(doc().raster(id).tiles.pixel(62, 45)).toEqual(before.pixel(62, 45)); // outside the selection
+    editor.undo();
+    expect(doc().raster(id).tiles).toBe(before);
+
+    // Cancel and Undo close the dialog without changes; Invert applies at once.
+    editor.beginAdjustment('levels');
+    editor.cancelAdjustment();
+    editor.beginAdjustment('posterize');
+    editor.undo();
+    expect(editor.getSnapshot().adjusting).toBeNull();
+    expect(doc().raster(id).tiles).toBe(before);
+    doc().selection = null;
+    editor.applyAdjustmentNow({ kind: 'invert' });
+    await vi.waitFor(() => expect(editor.getSnapshot().job).toBeNull());
+    const [r, g, b, a] = before.pixel(100, 50);
+    expect(doc().raster(id).tiles.pixel(100, 50)).toEqual([255 - r!, 255 - g!, 255 - b!, a]);
+
+    // Groups and adjustment layers have no pixels to adjust.
+    editor.addAdjustmentLayer('levels');
+    editor.beginAdjustment('levels');
+    expect(editor.getSnapshot().adjusting).toBeNull();
+    expect(notices.at(-1)).toMatch(/Properties/);
+    editor.dispose();
+  });
+});
+
 describe('clipping masks: GPU vs CPU (FR-LAY-05)', () => {
   it('clipped layers composite like the CPU reference (masked, faded base; blend modes)', () => {
     const size = 300;

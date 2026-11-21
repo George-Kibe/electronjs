@@ -119,6 +119,26 @@ export function menuTemplate(
     {
       label: 'Image',
       submenu: [
+        {
+          label: 'Adjustments',
+          submenu: [
+            cmd('Brightness/Contrast…', 'image.adjust.brightness-contrast'),
+            cmd('Levels…', 'image.adjust.levels', 'CmdOrCtrl+L'),
+            cmd('Curves…', 'image.adjust.curves', 'CmdOrCtrl+M'),
+            cmd('Exposure…', 'image.adjust.exposure'),
+            { type: 'separator' },
+            cmd('Vibrance…', 'image.adjust.vibrance'),
+            cmd('Hue/Saturation…', 'image.adjust.hue-saturation', 'CmdOrCtrl+U'),
+            cmd('Color Balance…', 'image.adjust.color-balance', 'CmdOrCtrl+B'),
+            cmd('Black & White…', 'image.adjust.black-white', 'CmdOrCtrl+Alt+Shift+B'),
+            cmd('Photo Filter…', 'image.adjust.photo-filter'),
+            { type: 'separator' },
+            cmd('Invert', 'image.adjust.invert', 'CmdOrCtrl+I'),
+            cmd('Posterize…', 'image.adjust.posterize'),
+            cmd('Threshold…', 'image.adjust.threshold'),
+          ],
+        },
+        { type: 'separator' },
         cmd('Image Size…', 'image.imageSize', 'CmdOrCtrl+Alt+I'),
         cmd('Canvas Size…', 'image.canvasSize', 'CmdOrCtrl+Alt+C'),
         cmd('Crop', 'image.cropToSelection'),
@@ -272,7 +292,8 @@ export function menuTemplate(
           ],
         },
         { type: 'separator' },
-        { role: 'minimize' },
+        // Without the role's Ctrl/⌘+M accelerator: that key is Image › Adjustments › Curves (as in Photoshop).
+        { role: 'minimize', accelerator: 'CmdOrCtrl+Alt+M' },
         ...(mac
           ? ([{ role: 'zoom' }, { type: 'separator' }, { role: 'front' }] as MenuItemConstructorOptions[])
           : []),

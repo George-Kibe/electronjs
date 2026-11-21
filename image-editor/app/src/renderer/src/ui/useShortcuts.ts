@@ -71,9 +71,24 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && !e.shiftKey && key === 'a') return run(() => editor.selectAll());
         if (mod && key === 'd') return run(() => (e.shiftKey ? editor.reselect() : editor.deselect()));
         if (mod && e.shiftKey && key === 'i') return run(() => editor.invertSelection());
-        // Ctrl+I: invert the mask being painted (Image › Adjustments › Invert arrives with adjustments).
-        if (mod && !e.shiftKey && !e.altKey && key === 'i' && editor.getSnapshot().editingMask)
-          return run(() => editor.invertLayerMask());
+        // Ctrl+I: invert the mask being painted, else Image › Adjustments › Invert on the layer (FR-ADJ-01).
+        if (mod && !e.shiftKey && !e.altKey && key === 'i')
+          return run(() =>
+            editor.getSnapshot().editingMask
+              ? editor.invertLayerMask()
+              : editor.applyAdjustmentNow({ kind: 'invert' }),
+          );
+        // Image › Adjustments shortcuts (docs/03 §6): Levels, Curves, Hue/Saturation, Color Balance, B&W.
+        if (mod && !e.shiftKey && !e.altKey && key === 'l')
+          return run(() => editor.beginAdjustment('levels'));
+        if (mod && !e.shiftKey && !e.altKey && key === 'm')
+          return run(() => editor.beginAdjustment('curves'));
+        if (mod && !e.shiftKey && !e.altKey && key === 'u')
+          return run(() => editor.beginAdjustment('hue-saturation'));
+        if (mod && !e.shiftKey && !e.altKey && key === 'b')
+          return run(() => editor.beginAdjustment('color-balance'));
+        if (mod && e.shiftKey && e.altKey && e.code === 'KeyB')
+          return run(() => editor.beginAdjustment('black-white'));
         if (mod && key === '0') return run(() => editor.fitToScreen());
         if (mod && key === '1') return run(() => editor.zoomTo(1));
         if (mod && (key === '=' || key === '+')) return run(() => editor.zoomStep(1));

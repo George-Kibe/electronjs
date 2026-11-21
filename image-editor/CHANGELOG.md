@@ -40,6 +40,11 @@ All notable changes to ImageEditor are documented here. The format follows
   Their settings are in the new Properties panel. Paint on an adjustment layer to hide it in places, or
   make a selection first so it applies only there. They have opacity and blend modes, can be clipped to the
   layer below, and are saved in projects.
+- Image › Adjustments applies the same adjustments directly to the active layer, or to the selection. A
+  dialog shows the result on the canvas as you change it (Preview turns that off), and OK applies it.
+  Shortcuts: Ctrl+L Levels, Ctrl+M Curves, Ctrl+U Hue/Saturation, Ctrl+B Color Balance, Ctrl+Alt+Shift+B
+  Black & White, and Ctrl+I to invert. Alt-click an item in the Layers panel's ◑ menu to apply it
+  directly. Minimize Window is now Ctrl+Alt+M.
 - Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
   pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
   edge is visible again.

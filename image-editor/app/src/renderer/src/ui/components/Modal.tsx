@@ -6,10 +6,21 @@ type Props = {
   children: ReactNode;
   footer: ReactNode;
   width?: string;
+  /** 'clear': the page stays visible (a live canvas preview), still blocked; 'end': beside the canvas. */
+  backdrop?: 'dim' | 'clear';
+  align?: 'center' | 'end';
 };
 
 /** Modal dialog (docs/03 §7): labelled, focus moves in and returns on close, Escape cancels, Tab stays inside. */
-export function Modal({ title, onCancel, children, footer, width = 'w-[420px]' }: Props) {
+export function Modal({
+  title,
+  onCancel,
+  children,
+  footer,
+  width = 'w-[420px]',
+  backdrop = 'dim',
+  align = 'center',
+}: Props) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
   // Hosts usually pass a new onCancel on every render; keep the latest without re-running the effect,
@@ -56,7 +67,9 @@ export function Modal({ title, onCancel, children, footer, width = 'w-[420px]' }
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      className={`fixed inset-0 z-50 flex ${align === 'end' ? 'items-start justify-end p-12' : 'items-center justify-center'} ${backdrop === 'dim' ? 'bg-black/50' : ''}`}
+    >
       <div
         ref={ref}
         role="dialog"

@@ -109,7 +109,7 @@
   "Auto" button. The eye toggles before/after.
 - *As built (M2 slice 4a):* Properties is a dock panel below Layers, in both presets. Each adjustment
   has its sliders with number fields and a Reset button. Levels and Curves have a channel menu (no
-  histogram, Auto or presets yet; those come in 4b/4c). Curves is an SVG graph: click to add a point
+  histogram, Auto or presets yet; those come in 4c). Curves is an SVG graph: click to add a point
   (up to 16), drag to move it, drag it off the graph or double-click it to remove it. The layer's eye in
   Layers is the before/after toggle. Painting on an adjustment layer always paints its mask.
 
