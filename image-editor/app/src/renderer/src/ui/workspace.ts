@@ -10,22 +10,25 @@ export type Preset = Exclude<Workspace['preset'], 'custom'>;
 
 export const PANEL_TITLES: Record<PanelId, string> = {
   layers: 'Layers',
+  properties: 'Properties',
   swatches: 'Swatches',
   history: 'History',
 };
 
 /**
- * Presets. Essentials keeps everything at hand; Photography gives Layers and History the room and starts
- * with Swatches collapsed. (Its Histogram, Navigator and Adjustments panels arrive with those features, M2.)
+ * Presets. Essentials keeps everything at hand; Photography gives Properties, Layers and History the room
+ * and starts with Swatches collapsed. (Its Histogram and Navigator panels arrive with those features, M2.)
  */
 export const PRESETS: Record<Preset, PanelState[]> = {
   essentials: [
     { id: 'layers', visible: true, open: true, size: 2 },
+    { id: 'properties', visible: true, open: true, size: 1.2 },
     { id: 'swatches', visible: true, open: true, size: 0.6 },
     { id: 'history', visible: true, open: true, size: 1 },
   ],
   photography: [
     { id: 'layers', visible: true, open: true, size: 3 },
+    { id: 'properties', visible: true, open: true, size: 1.5 },
     { id: 'history', visible: true, open: true, size: 1.5 },
     { id: 'swatches', visible: true, open: false, size: 0.6 },
   ],

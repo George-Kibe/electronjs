@@ -10,7 +10,14 @@ import {
   type Dab,
 } from '../brush/brush';
 import { IMPLEMENTED_BLEND_MODES } from '../doc/blend';
-import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
+import {
+  createAdjustmentLayer,
+  createGroupLayer,
+  createRasterLayer,
+  Document,
+  type Layer,
+} from '../doc/document';
+import { defaultAdjustment, type Adjustment } from '../ops/adjust';
 import { compositePixel, liveLayers } from '../doc/flatten';
 import { ellipseMask, maskTile, rectMask, type Mask } from '../doc/selection';
 import { translateLayer } from '../doc/translate';
@@ -433,6 +440,177 @@ describe('layer masks: GPU vs CPU (FR-LAY-04)', () => {
     // The stroke hid the ink where it passed: white shows through at its centre.
     const centre = compositePixel(liveLayers(doc.layers), 220, 128);
     expect(centre[1]).toBeGreaterThan(150);
+  });
+});
+
+describe('adjustment layers: GPU vs CPU (FR-ADJ-01, docs/07 §1)', () => {
+  const size = 300;
+  /** Every hue across, dark to light down, half-transparent at the bottom, on white. */
+  function photo(): Layer[] {
+    const rgba = new Uint8ClampedArray(size * size * 4);
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const h = x / size;
+        const l = 0.1 + (0.8 * y) / size;
+        const f = (n: number) => {
+          const k = (n + h * 12) % 12;
+          return l - 0.9 * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+        };
+        rgba.set([f(0) * 255, f(8) * 255, f(4) * 255, y > 240 ? 128 : 255], (y * size + x) * 4);
+      }
+    return [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      createRasterLayer('photo', TileGrid.fromRgba(size, size, rgba)),
+    ];
+  }
+  const render = (doc: Document) => {
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    compositor.render(doc, new Viewport(), {
+      cssWidth: size,
+      cssHeight: size,
+      width: size,
+      height: size,
+      dpr: 1,
+    });
+    const pixels = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return pixels;
+  };
+  /** Channel differences at a grid of samples: the worst after dropping 1 % (threshold edges may flip). */
+  const errors = (doc: Document) => {
+    const pixels = render(doc);
+    const flat = liveLayers(doc.layers);
+    const diffs: number[] = [];
+    for (let y = 1; y < size; y += 5)
+      for (let x = 1; x < size; x += 5) {
+        const expected = compositePixel(flat, x, y);
+        const i = ((size - 1 - y) * size + x) * 4;
+        diffs.push(Math.max(...[0, 1, 2].map((c) => Math.abs(pixels[i + c]! - expected[c]!))));
+      }
+    diffs.sort((a, b) => a - b);
+    return { p99: diffs[Math.floor(diffs.length * 0.99)]!, median: diffs[diffs.length >> 1]! };
+  };
+  const curves = defaultAdjustment('curves');
+  curves.channels.rgb = [
+    [0, 20],
+    [90, 140],
+    [255, 235],
+  ];
+  curves.channels.g = [
+    [0, 0],
+    [128, 100],
+    [255, 255],
+  ];
+  const levels = defaultAdjustment('levels');
+  levels.channels.rgb = { inBlack: 20, inWhite: 230, gamma: 1.4, outBlack: 10, outWhite: 245 };
+  levels.channels.b = { inBlack: 0, inWhite: 200, gamma: 0.8, outBlack: 0, outWhite: 255 };
+  const cases: Adjustment[] = [
+    { kind: 'brightness-contrast', brightness: 40, contrast: 30, legacy: false },
+    levels,
+    curves,
+    { kind: 'exposure', exposure: 0.8, offset: 0.02, gamma: 1.2 },
+    { kind: 'vibrance', vibrance: 60, saturation: -20 },
+    { kind: 'hue-saturation', hue: 45, saturation: 30, lightness: -10, colorize: false },
+    { kind: 'hue-saturation', hue: 200, saturation: 40, lightness: 10, colorize: true },
+    {
+      kind: 'color-balance',
+      shadows: [30, 0, -20],
+      midtones: [-40, 20, 10],
+      highlights: [0, -30, 40],
+      preserveLuminosity: true,
+    },
+    { kind: 'black-white', weights: { r: 40, y: 60, g: 40, c: 60, b: 20, m: 80 }, tint: [225, 211, 179] },
+    { kind: 'photo-filter', color: [236, 138, 0], density: 40, preserveLuminosity: true },
+    { kind: 'invert' },
+    { kind: 'posterize', levels: 5 },
+    { kind: 'threshold', level: 120 },
+  ];
+
+  it.each(cases.map((a) => [a.kind, a] as const))('%s matches the CPU reference', (_kind, adjustment) => {
+    const doc = new Document(size, size, [
+      ...photo(),
+      createAdjustmentLayer('adj', adjustment, { mask: null }),
+    ]);
+    const { p99, median } = errors(doc);
+    expect(median).toBeLessThanOrEqual(1);
+    expect(p99).toBeLessThanOrEqual(2);
+  });
+
+  it('mask, opacity, blend mode and clipping work as on the CPU', () => {
+    const mask = new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4);
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) mask[(y * 256 + x) * 4 + 3] = x;
+    const grid = new TileGrid();
+    grid.set('0,0', createTile(mask));
+    const base = createRasterLayer(
+      'base',
+      TileGrid.fromRgba(
+        size,
+        size,
+        new Uint8ClampedArray(size * size * 4).map((_, i) =>
+          (i >> 2) % size < 150 ? (i % 4 === 3 ? 200 : 90) : 0,
+        ),
+      ),
+    );
+    const doc = new Document(size, size, [
+      ...photo(),
+      base,
+      createAdjustmentLayer(
+        'hue',
+        { kind: 'hue-saturation', hue: 120, saturation: 0, lightness: 0, colorize: false },
+        {
+          opacity: 0.7,
+          blendMode: 'multiply',
+          clipped: true,
+          mask: { grid, background: 0, enabled: true, linked: true },
+        },
+      ),
+    ]);
+    const { p99, median } = errors(doc);
+    expect(median).toBeLessThanOrEqual(1);
+    expect(p99).toBeLessThanOrEqual(2);
+  });
+
+  it('painting an adjustment layer’s mask previews exactly as it commits', () => {
+    const adj = createAdjustmentLayer('inv', { kind: 'invert' });
+    const doc = new Document(size, size, [...photo(), adj]);
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    const settings: BrushSettings = {
+      ...DEFAULT_BRUSH,
+      color: [0, 0, 0],
+      opacity: 0.7,
+      hardness: 1,
+      mode: 'paint',
+    };
+    stroke.hardness = 1;
+    const strokeDabs: Dab[] = [40, 120, 200, 270].map((x) => ({ x, y: 150, radius: 30, alpha: 1 }));
+    stroke.addDabs(strokeDabs, size, size);
+    compositor.render(
+      doc,
+      new Viewport(),
+      { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+      { buffer: stroke, layerId: adj.id, settings, preserveAlpha: false, onMask: { target: 0 } },
+    );
+    const live = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, live);
+    for (const key of stroke.keys()) {
+      const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+      const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+      accumulateDabs(cov, tileX, tileY, strokeDabs, 1);
+      adj.mask!.grid.set(key, applyMaskStroke(adj.mask!.grid.get(key), 255, cov, 0, settings));
+    }
+    const committed = render(doc);
+    let max = 0;
+    for (let i = 0; i < live.length; i++) max = Math.max(max, Math.abs(live[i]! - committed[i]!));
+    expect(max).toBeLessThanOrEqual(1);
+    // Where the stroke passed, the inversion is mostly hidden (70 %): white stays light.
+    const flat = liveLayers(doc.layers);
+    expect(compositePixel(flat, 120, 150)).not.toEqual(compositePixel(flat, 120, 60));
   });
 });
 

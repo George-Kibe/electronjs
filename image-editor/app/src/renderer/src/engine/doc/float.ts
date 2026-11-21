@@ -74,7 +74,7 @@ export function floatingPreview(doc: Document, floating: ReadonlyMap<string, Flo
     list.map((l): Layer => {
       if (l.type === 'group') return { ...l, children: swap(l.children) };
       const f = floating.get(l.id);
-      if (!f) return l;
+      if (!f || l.type !== 'raster') return l;
       const part = (id: string, tiles: TileGrid, mask: RasterLayer['mask']): RasterLayer => ({
         ...l,
         id,

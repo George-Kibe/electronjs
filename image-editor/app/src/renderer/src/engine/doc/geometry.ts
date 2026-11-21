@@ -2,7 +2,7 @@ import { tileRange } from '@shared/iep-schema';
 import { clipGrid, flipGrid, rotateGrid, type TileRange, type Turns } from '../ops/canvas';
 import { TILE_BYTES, TILE_SIZE, TileGrid } from '../tiles/tile';
 import { cloneTree, TreeCommand, type CanvasGeometry, type TreeEdit } from './commands';
-import type { Document, Layer, RasterLayer } from './document';
+import { createRasterLayer, type Document, type Layer, type RasterLayer } from './document';
 import type { Mask } from './selection';
 import { translateGrid } from './translate';
 
@@ -32,6 +32,13 @@ function transformRasters(
         if (l.type === 'group') {
           l.children = visit(l.children);
           return l;
+        }
+        if (l.type === 'adjustment') {
+          // No pixels: only the mask follows the canvas.
+          if (!l.mask) return l;
+          const grid = transform(createRasterLayer(l.name, l.mask.grid, { id: `${l.id}#mask` }), range, old);
+          newTileBytes += grid.size * TILE_BYTES;
+          return { ...l, mask: { ...l.mask, grid } };
         }
         const tiles = transform(l, range, old);
         const shared = new Set([...l.tiles.entries()].map(([, t]) => t.id));
@@ -209,6 +216,8 @@ export function replaceLayers(
         const maskGrid = grids.get(`${l.id}#mask`);
         if (!tiles && !maskGrid) return l;
         newTileBytes += ((tiles?.size ?? 0) + (maskGrid?.size ?? 0)) * TILE_BYTES;
+        if (l.type === 'adjustment')
+          return l.mask && maskGrid ? { ...l, mask: { ...l.mask, grid: maskGrid } } : l;
         return {
           ...l,
           tiles: tiles ?? l.tiles,

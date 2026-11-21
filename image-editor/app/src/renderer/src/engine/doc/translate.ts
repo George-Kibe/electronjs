@@ -52,6 +52,7 @@ export function translateGrid(
 export function movedRasters(doc: Document, id: string): RasterLayer[] {
   const layer = doc.layer(id);
   if (layer.type === 'raster') return [layer];
+  if (layer.type === 'adjustment') return [];
   return [...walkLayers(layer.children)].flatMap((l) => (l.layer.type === 'raster' ? [l.layer] : []));
 }
 
@@ -193,7 +194,7 @@ export function layerAt(doc: Document, x: number, y: number, mode: 'layer' | 'gr
       if (l.type === 'group') {
         const hit = search(l.children);
         if (hit) return hit;
-      } else if (l.tiles.pixel(px, py)[3] > 0) {
+      } else if (l.type === 'raster' && l.tiles.pixel(px, py)[3] > 0) {
         return l.id;
       }
     }

@@ -3,7 +3,14 @@ import { join } from 'node:path';
 import { deflateSync, strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { createGroupLayer, createRasterLayer, Document, type RasterLayer } from '../doc/document';
+import {
+  createAdjustmentLayer,
+  createGroupLayer,
+  createRasterLayer,
+  Document,
+  type RasterLayer,
+} from '../doc/document';
+import { defaultAdjustment } from '../ops/adjust';
 import { ellipseMask, Mask, rectMask } from '../doc/selection';
 import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
 import { encodeTiles, IepError, readIep, writeIep } from './iep';
@@ -199,6 +206,71 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
     const { readOnlyReason, doc } = readIep(bytes, BUDGET);
     expect(readOnlyReason).toMatch(/1 layer/);
     expect(doc.layers.map((l) => l.id)).toEqual(['L1']);
+  });
+
+  it('round-trips adjustment layers with their settings, mask, clipping and blend mode (FR-ADJ-01)', () => {
+    const levels = defaultAdjustment('levels');
+    levels.channels.rgb = { inBlack: 12, inWhite: 240, gamma: 1.1, outBlack: 0, outWhite: 255 };
+    const mask = new TileGrid();
+    mask.set('0,0', createTile(new Uint8ClampedArray(TILE_BYTES).map((_, i) => (i % 4 === 3 ? i % 251 : 0))));
+    const doc = new Document(256, 256, [
+      createRasterLayer('bg', TileGrid.filled(256, 256, [10, 20, 30, 255])),
+      createAdjustmentLayer('Levels 1', levels, {
+        opacity: 0.6,
+        blendMode: 'multiply',
+        clipped: true,
+        mask: { grid: mask, background: 0, enabled: false, linked: true },
+      }),
+      createAdjustmentLayer('Invert', { kind: 'invert' }, { mask: null }),
+    ]);
+    const { doc: back, readOnlyReason } = roundTrip(doc);
+    expect(readOnlyReason).toBeNull();
+    const [, a, b] = back.layers;
+    expect(a).toMatchObject({
+      type: 'adjustment',
+      name: 'Levels 1',
+      opacity: 0.6,
+      blendMode: 'multiply',
+      clipped: true,
+    });
+    if (a?.type !== 'adjustment' || b?.type !== 'adjustment') throw new Error('expected adjustment layers');
+    expect(a.adjustment).toEqual(levels);
+    expect(a.mask).toMatchObject({ background: 0, enabled: false, linked: true });
+    expect(sameBytes(a.mask!.grid.get('0,0')!.data, mask.get('0,0')!.data)).toBe(true);
+    expect(b.adjustment).toEqual({ kind: 'invert' });
+    expect(b.mask ?? null).toBeNull();
+  });
+
+  it('checks adjustment settings: a value out of range is a damaged file; an unknown kind is left out', () => {
+    const adjustment = (adj: unknown) => ({ id: 'A1', type: 'adjustment', name: 'Adj', adjustment: adj });
+    const files = { 'layers/0/tiles.bin': oneTile() };
+    const bad = zip(manifest({}, [layerEntry(), adjustment({ kind: 'posterize', levels: 1 })]), files);
+    expect(() => readIep(bad, BUDGET)).toThrow(IepError);
+    const newer = zip(manifest({}, [layerEntry(), adjustment({ kind: 'gradient-map', stops: [] })]), files);
+    const { doc, readOnlyReason } = readIep(newer, BUDGET);
+    expect(doc.layers.map((l) => l.id)).toEqual(['L1']);
+    expect(readOnlyReason).toMatch(/1 layer/);
+    // Missing channels take their defaults (the docs/05 example lists only "rgb").
+    const partial = zip(
+      manifest({}, [
+        layerEntry(),
+        adjustment({
+          kind: 'levels',
+          channels: { rgb: { inBlack: 5, inWhite: 250, gamma: 1, outBlack: 0, outWhite: 255 } },
+        }),
+      ]),
+      files,
+    );
+    const read = readIep(partial, BUDGET).doc.layers[1];
+    expect(
+      read?.type === 'adjustment' && read.adjustment.kind === 'levels' && read.adjustment.channels.g,
+    ).toEqual({
+      inBlack: 0,
+      inWhite: 255,
+      gamma: 1,
+      outBlack: 0,
+      outWhite: 255,
+    });
   });
 
   it('falls back to Normal for an unknown blend mode instead of failing', () => {

@@ -14,6 +14,7 @@ import { readProject } from '../lib/files';
 import { runOps } from '../lib/ops';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { transformCursor } from '../engine/tools/transform';
+import { ADJUSTMENT_KINDS, type AdjustmentKind } from '../engine/ops/adjust';
 import { BrushCursor } from './components/BrushCursor';
 import { Button } from './components/Button';
 import { ColorPickerDialog } from './components/ColorPickerDialog';
@@ -25,6 +26,7 @@ import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
 import { PanelDock } from './components/PanelDock';
+import { PropertiesPanel } from './components/PropertiesPanel';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { SelectionOverlay } from './components/SelectionOverlay';
@@ -217,6 +219,10 @@ export function App() {
           'window.layers': () => setWorkspace(toggleVisible(workspace, 'layers')),
           'window.swatches': () => setWorkspace(toggleVisible(workspace, 'swatches')),
           'window.history': () => setWorkspace(toggleVisible(workspace, 'history')),
+          'window.properties': () => setWorkspace(toggleVisible(workspace, 'properties')),
+          ...(Object.fromEntries(
+            ADJUSTMENT_KINDS.map((k) => [`layer.adjustment.${k}`, () => editor?.addAdjustmentLayer(k)]),
+          ) as Record<`layer.adjustment.${AdjustmentKind}`, () => void>),
           'window.essentials': () => setWorkspace(applyPreset(workspace, 'essentials')),
           'window.photography': () => setWorkspace(applyPreset(workspace, 'photography')),
           'window.resetWorkspace': () =>
@@ -468,6 +474,7 @@ export function App() {
             onChange={setWorkspace}
             panels={{
               layers: { content: editor && <LayersPanel editor={editor} snap={snap} /> },
+              properties: { content: editor && <PropertiesPanel editor={editor} snap={snap} /> },
               swatches: {
                 content: (
                   <SwatchesPanel

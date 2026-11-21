@@ -148,7 +148,7 @@ The only entry point is `doc.execute(cmd)`. It runs `do`, pushes to history (or 
 | Masks | `AddMask`, `DeleteMask`, `ApplyMask`, `SetMaskProps` (enabled, linked, inverted), `PaintTiles` targeting the mask |
 | Selection | `SetSelection` (holds before/after mask tile refs), `TransformSelection` |
 | Transform | `TranslateLayer` (Move tool drag, nudge and align: whole-pixel offset of a layer or every raster layer in a group; consecutive nudges coalesce; pixels outside the canvas are kept), `TransformLayers` (matrix, resampling), `CropDocument`, `ResizeImage`, `ResizeCanvas`, `RotateCanvas`, `FlipCanvas`, `Trim` (canvas-level commands change the document size and guides along with every layer's tiles, as one tree swap; resampled pixels are computed in the ops worker first) |
-| Adjustment layers | `AddAdjustmentLayer`, `SetAdjustmentParams` (coalescing) |
+| Adjustment layers | `AddAdjustmentLayer`, `SetAdjustmentParams` (coalescing). *As built (M2 4a):* `AddLayerCommand` with an adjustment layer, and `SetAdjustmentCommand`, which replaces the layer's `adjustment` object; consecutive changes to one layer while a control is dragged merge into one step. Mask painting on adjustment layers is `PaintTiles` targeting the mask. |
 | Text/shape | `AddTextLayer`, `EditText` (runs diff), `SetTextStyle`, `AddShapeLayer`, `EditShape` |
 | Document | `SetGuides`, `SetDocumentProps` (ppi) |
 | Composite | `Batch` (a macro wrapping several commands as one undo step, e.g. Remove background = AddMask + PaintTiles) |

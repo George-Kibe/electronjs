@@ -129,7 +129,11 @@ metadata policy). Tile paths are derived from the raster layer's depth-first pos
 `passThrough`, `collapsed` and nested `children`; nesting is limited to 32 levels and 1,000 layers in total,
 and raster layers may carry `mask: { background: 0|255, enabled, linked, tiles }` with one-channel tiles at
 `masks/<n>/tiles.bin` (as built in M2; a missing mask entry opens the layer unmasked and the file read-only),
-and layer ids must be unique across the whole tree. A layer type the reader does not know is left out and
+and layer ids must be unique across the whole tree. Adjustment layers (`type: "adjustment"`, as built in M2)
+carry `adjustment` (the `Adjustment` union in §1, every number range-checked on load; missing Levels or
+Curves channels default to the identity) and an optional `mask` stored like a raster layer's, at
+`masks/<n>/tiles.bin`; an adjustment kind the reader does not know is left out like an unknown layer type.
+A layer type the reader does not know is left out and
 the document opens read-only (Save becomes Save As), so it is never silently dropped from the original
 file. The manifest is validated with zod on load. Unknown fields are preserved on save (forward
 compatibility).

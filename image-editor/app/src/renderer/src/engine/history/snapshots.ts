@@ -16,6 +16,7 @@ export type DocState = {
 
 function copyLayer(l: Layer): Layer {
   if (l.type === 'group') return { ...l, locks: { ...l.locks }, children: l.children.map(copyLayer) };
+  if (l.type === 'adjustment') return { ...l, locks: { ...l.locks }, mask: l.mask ? copyMask(l.mask) : null };
   const tiles = new TileGrid();
   for (const [k, t] of l.tiles.entries()) tiles.set(k, t);
   // The mask grid is changed in place by mask painting too: the snapshot owns its own copy.
@@ -61,7 +62,7 @@ export function collectTileIds(layers: readonly Layer[], into: Set<number>): Set
   for (const l of layers) {
     if (l.type === 'group') collectTileIds(l.children, into);
     else {
-      for (const [, t] of l.tiles.entries()) into.add(t.id);
+      if (l.type === 'raster') for (const [, t] of l.tiles.entries()) into.add(t.id);
       if (l.mask) for (const [, t] of l.mask.grid.entries()) into.add(t.id);
     }
   }

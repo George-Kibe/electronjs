@@ -17,11 +17,13 @@ import {
   SetActiveLayerCommand,
   SetLayerPropsCommand,
   ApplyLayerMaskCommand,
+  SetAdjustmentCommand,
   SetLayerMaskCommand,
   SetSelectionCommand,
   type Command,
 } from './doc/commands';
 import {
+  createAdjustmentLayer,
   createGroupLayer,
   createRasterLayer,
   Document,
@@ -133,6 +135,7 @@ import {
 } from './tools/lasso';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import type { WandOptions } from './ops/wand';
+import { ADJUSTMENT_LABELS, defaultAdjustment, type Adjustment, type AdjustmentKind } from './ops/adjust';
 import type { ModifyOp } from './ops/modify';
 import type { TrimBasis } from './ops/trim';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
@@ -306,6 +309,8 @@ export type EditorSnapshot = {
   quickMask: boolean;
   /** Layers selected in the Layers panel (FR-LAY-08), including the active one. */
   selectedLayerIds: string[];
+  /** The active layer's adjustment, when it is an adjustment layer (the Properties panel, FR-ADJ-01). */
+  activeAdjustment: { id: string; adjustment: Adjustment } | null;
   /** Free Transform (Ctrl+T, FR-TRF-04): where the box's handles are (document px) and its parameters. */
   transform: {
     box: Box;
@@ -325,7 +330,9 @@ export type EditorSnapshot = {
 
 export type LayerRow = {
   id: string;
-  type: 'raster' | 'group';
+  type: 'raster' | 'group' | 'adjustment';
+  /** An adjustment layer's kind (FR-ADJ-01), for its icon and the Properties panel. */
+  adjustment: AdjustmentKind | null;
   name: string;
   visible: boolean;
   opacity: number;
@@ -997,9 +1004,14 @@ export class Editor {
         ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
         : null,
       canReselect: doc !== null && !doc.selection && this.lastSelection.has(doc),
-      editingMask: this.editingMask && doc?.activeLayer.type === 'raster' && Boolean(doc.activeLayer.mask),
+      editingMask:
+        doc !== null &&
+        doc.activeLayer.type !== 'group' &&
+        Boolean(doc.activeLayer.mask) &&
+        (this.editingMask || doc.activeLayer.type === 'adjustment'),
       quickMask: this.quickMask && doc !== null,
       selectedLayerIds: doc ? this.selectedIds() : [],
+      activeAdjustment: this.activeAdjustment,
       transform: this.transform && {
         box: this.transform.box,
         params: this.transform.params,
@@ -1281,7 +1293,7 @@ export class Editor {
     const doc = this.doc;
     if (!doc || !doc.has(id)) return null;
     const layer = doc.layer(id);
-    if (layer.type !== 'raster' || !layer.mask) return null;
+    if (layer.type === 'group' || !layer.mask) return null;
     const mask = layer.mask;
     const key = `mask|${id}|${maskKey(mask)}|${maxSide}`;
     const cached = this.thumbs.get(key);
@@ -1594,6 +1606,16 @@ export class Editor {
     return Math.round(0.299 * r + 0.587 * g + 0.114 * b);
   }
 
+  /** The active layer if it can have a mask (raster or adjustment), else null with a notice. */
+  private activeMasked(): RasterLayerOf | Extract<Layer, { type: 'adjustment' }> | null {
+    const layer = this.doc?.activeLayer;
+    if (!layer || layer.type === 'group') {
+      this.notice('Select a layer (groups get masks in a later version).');
+      return null;
+    }
+    return layer;
+  }
+
   private activeRaster(): RasterLayerOf | null {
     const layer = this.doc?.activeLayer;
     if (!layer || layer.type !== 'raster') {
@@ -1606,25 +1628,18 @@ export class Editor {
   /** Layer › Layer Mask › Reveal All / Hide All / Reveal Selection / Hide Selection. Painting then edits it. */
   addLayerMask(kind: 'reveal' | 'hide' | 'revealSelection' | 'hideSelection'): void {
     const doc = this.doc;
-    const layer = this.activeRaster();
+    const layer = this.activeMasked();
     if (!doc || !layer || this.busy) return;
     if (layer.mask) return this.notice('This layer already has a mask.');
     if (layer.locks.all) return this.notice('This layer is locked.');
     const sel = doc.selection;
     const fromSelection = kind === 'revealSelection' || kind === 'hideSelection';
     if (fromSelection && !sel) return this.notice('Make a selection first.');
-    const grid = new TileGrid();
+    let grid = new TileGrid();
     let background: 0 | 255 = kind === 'hide' ? 0 : 255;
     if (sel && fromSelection) {
       background = kind === 'revealSelection' ? 0 : 255;
-      const shown = kind === 'revealSelection' ? sel : sel.invert();
-      for (const key of tileKeysInRect(0, 0, doc.width, doc.height)) {
-        const t = shown.tile(key);
-        if ((background === 0 && !t) || (background === 255 && t?.full)) continue;
-        const data = new Uint8ClampedArray(TILE_BYTES);
-        for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) data[i * 4 + 3] = t ? t.data[i]! : 0;
-        grid.set(key, createTile(data));
-      }
+      grid = maskGridOf(kind === 'revealSelection' ? sel : sel.invert(), doc, background);
     }
     const label = {
       reveal: 'Reveal All',
@@ -1637,9 +1652,48 @@ export class Editor {
     this.changed();
   }
 
+  // ---- adjustment layers (FR-ADJ-01) ------------------------------------------------------------
+
+  /**
+   * Layer › New Adjustment Layer: above the active layer, with Photoshop's defaults. Its mask reveals
+   * everything, or only the selection when there is one (docs/03 §5.2).
+   */
+  addAdjustmentLayer(kind: AdjustmentKind): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const { parentId, index } = this.insertionPoint();
+    const sel = doc.selection;
+    const mask = sel
+      ? { grid: maskGridOf(sel, doc, 0), background: 0 as const, enabled: true, linked: true }
+      : { grid: new TileGrid(), background: 255 as const, enabled: true, linked: true };
+    const layer = createAdjustmentLayer(this.nextName(ADJUSTMENT_LABELS[kind]), defaultAdjustment(kind), {
+      mask,
+    });
+    this.exec(new AddLayerCommand(layer, index, parentId, `New ${ADJUSTMENT_LABELS[kind]} Layer`));
+  }
+
+  /** Properties panel: new settings for an adjustment layer; `coalesce` while a control is dragged. */
+  setAdjustment(id: string, adjustment: Adjustment, { coalesce = false } = {}): void {
+    const doc = this.doc;
+    if (!doc?.has(id) || doc.layer(id).type !== 'adjustment') return;
+    if (doc.layer(id).locks.all) return this.notice('This layer is locked.');
+    this.exec(new SetAdjustmentCommand(id, adjustment), { coalesce });
+  }
+
+  /** The end of a drag on an adjustment control: the next change is a new undo step. */
+  endAdjustmentEdit(): void {
+    this.history?.endCoalesce();
+  }
+
+  /** The active layer's adjustment (for the Properties panel), if it is an adjustment layer. */
+  get activeAdjustment(): { id: string; adjustment: Adjustment } | null {
+    const l = this.doc?.activeLayer;
+    return l?.type === 'adjustment' ? { id: l.id, adjustment: l.adjustment } : null;
+  }
+
   /** Layer › Layer Mask › Delete. */
   deleteLayerMask(): void {
-    const layer = this.activeRaster();
+    const layer = this.activeMasked();
     if (!layer?.mask || this.busy) return;
     this.exec(new SetLayerMaskCommand('Delete Layer Mask', layer.id, null));
     this.editingMask = false;
@@ -1668,7 +1722,7 @@ export class Editor {
 
   /** Layer › Layer Mask › Disable / Enable (Shift-click the mask thumbnail). */
   setLayerMaskEnabled(enabled: boolean): void {
-    const layer = this.activeRaster();
+    const layer = this.activeMasked();
     if (!layer?.mask || layer.mask.enabled === enabled) return;
     const label = enabled ? 'Enable Layer Mask' : 'Disable Layer Mask';
     this.exec(new SetLayerMaskCommand(label, layer.id, { ...layer.mask, enabled }));
@@ -1676,7 +1730,7 @@ export class Editor {
 
   /** The chain between the thumbnails: a linked mask moves with the layer. */
   setLayerMaskLinked(linked: boolean): void {
-    const layer = this.activeRaster();
+    const layer = this.activeMasked();
     if (!layer?.mask || layer.mask.linked === linked) return;
     const label = linked ? 'Link Layer Mask' : 'Unlink Layer Mask';
     this.exec(new SetLayerMaskCommand(label, layer.id, { ...layer.mask, linked }));
@@ -1690,7 +1744,7 @@ export class Editor {
     const doc = this.doc;
     const layer = doc?.activeLayer;
     if (!doc || !layer || this.busy) return;
-    if (layer.type !== 'raster') return this.notice('Groups cannot be clipped yet.');
+    if (layer.type === 'group') return this.notice('Groups cannot be clipped yet.');
     if (layer.clipped === clipped) return;
     if (clipped && doc.locate(layer.id).index === 0)
       return this.notice('There is no layer below to clip to.');
@@ -1705,7 +1759,8 @@ export class Editor {
 
   /** Layer › Layer Mask › Disable / Enable, Unlink / Link: flips the active layer's mask flag. */
   toggleLayerMask(flag: 'enabled' | 'linked'): void {
-    const mask = this.doc?.activeLayer.type === 'raster' ? this.doc.activeLayer.mask : null;
+    const active = this.doc?.activeLayer;
+    const mask = active && active.type !== 'group' ? active.mask : null;
     if (!mask) return this.notice('This layer has no mask.');
     if (flag === 'enabled') this.setLayerMaskEnabled(!mask.enabled);
     else this.setLayerMaskLinked(!mask.linked);
@@ -1713,7 +1768,7 @@ export class Editor {
 
   /** Invert on a mask (Ctrl+I while the mask is edited). */
   invertLayerMask(): void {
-    const layer = this.activeRaster();
+    const layer = this.activeMasked();
     const mask = layer?.mask;
     if (!layer || !mask || this.busy) return;
     const grid = new TileGrid();
@@ -1818,7 +1873,10 @@ export class Editor {
     const mask = doc?.selection;
     if (!doc || !mask || this.busy) return;
     const layer = doc.activeLayer;
-    if (layer.type !== 'raster') return this.notice('Select a layer to clear (groups have no pixels).');
+    if (layer.type !== 'raster')
+      return this.notice(
+        `Select a layer to clear (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`,
+      );
     if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
     if (layer.locks.transparency) return this.notice('This layer’s transparency is locked.');
     const before = new Map<TileKey, Tile | undefined>();
@@ -2297,11 +2355,11 @@ export class Editor {
   /** Every raster layer's tiles as plain bytes for the ops worker (structured-cloned, never mutated). */
   /** Every raster layer's tiles for a pixel job, and its mask under `<id>#mask` (resampled the same way). */
   private layerTiles(): LayerTiles[] {
-    return this.doc!.allLayers().flatMap((l) =>
-      l.type === 'raster'
-        ? [fromGrid(l.id, l.tiles), ...(l.mask ? [fromGrid(`${l.id}#mask`, l.mask.grid)] : [])]
-        : [],
-    );
+    return this.doc!.allLayers().flatMap((l) => [
+      ...(l.type === 'raster' ? [fromGrid(l.id, l.tiles)] : []),
+      // Adjustment layers have only their mask.
+      ...(l.type !== 'group' && l.mask ? [fromGrid(`${l.id}#mask`, l.mask.grid)] : []),
+    ]);
   }
 
   /**
@@ -2549,9 +2607,13 @@ export class Editor {
     const layer = this.doc.activeLayer;
     if (this.gl.isContextLost()) return; // no GPU: nothing to paint with
     if (this.quickMask) return this.beginQuickMaskStroke(e, tool, layer.id);
-    if (layer.type !== 'raster') return this.notice('Select a layer to paint on (groups have no pixels).');
+    if (layer.type === 'group') return this.notice('Select a layer to paint on (groups have no pixels).');
     if (!layer.visible) return this.notice('This layer is hidden. Show it to paint on it.');
-    const onMask = this.editingMask && layer.mask ? this.maskPaintValue(tool) : null;
+    // An adjustment layer has no pixels: painting always edits its mask (docs/03 §5.2).
+    if (layer.type === 'adjustment' && !layer.mask)
+      return this.notice('This adjustment layer has no mask to paint. Add one with Layer › Layer Mask.');
+    const onMask =
+      (this.editingMask || layer.type === 'adjustment') && layer.mask ? this.maskPaintValue(tool) : null;
     if (layer.locks.all || (onMask === null && layer.locks.pixels))
       return this.notice('This layer is locked.');
     const settings = this.strokeSettings(tool, onMask === null ? layer.locks.transparency : false);
@@ -2942,7 +3004,7 @@ export class Editor {
     }
     const start = performance.now();
     if (stroke.quick) return this.commitQuickMaskStroke(stroke, doc);
-    const layer = doc.raster(stroke.layerId);
+    const layer = doc.masked(stroke.layerId);
     const preserveAlpha = layer.locks.transparency;
     const before = new Map<TileKey, Tile | undefined>();
     const after = new Map<TileKey, Tile | undefined>();
@@ -2950,7 +3012,7 @@ export class Editor {
     const layerMask = stroke.mask ? layer.mask : null;
     for (const key of this.strokeBuffer.keys()) {
       const [tileX, tileY] = parseTileKey(key);
-      const old = layer.tiles.get(key);
+      const old = layer.type === 'raster' ? layer.tiles.get(key) : undefined;
       // Painting only reaches selected pixels, in proportion to their coverage (FR-SEL-06).
       const mask = selection?.tile(key);
       if (selection && !mask) continue;
@@ -3105,9 +3167,23 @@ function maskKey(mask: NonNullable<RasterLayerOf['mask']>): string {
   return `m${mask.grid.size}:${sum}`;
 }
 
+/** A layer mask's RGBA grid showing `shown` (coverage in alpha); tiles equal to `background` are left out. */
+function maskGridOf(shown: Mask, doc: Document, background: 0 | 255): TileGrid {
+  const grid = new TileGrid();
+  for (const key of tileKeysInRect(0, 0, doc.width, doc.height)) {
+    const t = shown.tile(key);
+    if ((background === 0 && !t) || (background === 255 && t?.full)) continue;
+    const data = new Uint8ClampedArray(TILE_BYTES);
+    for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) data[i * 4 + 3] = t ? t.data[i]! : 0;
+    grid.set(key, createTile(data));
+  }
+  return grid;
+}
+
 function contentKey(layer: Layer): string {
   if (layer.type === 'group')
     return `g(${layer.children.map((c) => `${c.visible ? '' : '!'}${c.opacity}${c.blendMode}${contentKey(c)}`).join(',')})`;
+  if (layer.type === 'adjustment') return `a${JSON.stringify(layer.adjustment)}`;
   // Order-independent hash of (position, tile id) pairs: a tile moved to another position changes it too.
   let sum = 0;
   let xor = 0;
@@ -3128,6 +3204,7 @@ function layerRows(layers: Layer[]): LayerRow[] {
       rows.push({
         id: l.id,
         type: l.type,
+        adjustment: l.type === 'adjustment' ? l.adjustment.kind : null,
         name: l.name,
         visible: l.visible,
         opacity: l.opacity,
@@ -3139,9 +3216,9 @@ function layerRows(layers: Layer[]): LayerRow[] {
         depth,
         parentId,
         contentKey: contentKey(l),
-        clipped: l.type === 'raster' && l.clipped && i > 0,
+        clipped: l.type !== 'group' && l.clipped && i > 0,
         mask:
-          l.type === 'raster' && l.mask
+          l.type !== 'group' && l.mask
             ? { enabled: l.mask.enabled, linked: l.mask.linked, key: maskKey(l.mask) }
             : null,
       });

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { BLEND_MODE_LABELS, IMPLEMENTED_BLEND_MODES } from '../../engine/doc/blend';
 import type { BlendMode, LayerLocks } from '../../engine/doc/document';
 import type { Editor, EditorSnapshot, LayerRow } from '../../engine/editor';
+import { ADJUSTMENT_KINDS, ADJUSTMENT_LABELS, type AdjustmentKind } from '../../engine/ops/adjust';
 import { Button } from './Button';
 
 const THUMB = 32;
@@ -242,20 +244,34 @@ export function LayersPanel({ editor, snap }: Props) {
                       ↳
                     </span>
                   )}
-                  {/* What painting edits: the pixels or the mask (FR-LAY-04). */}
-                  <button
-                    aria-label={`Edit ${row.name} pixels`}
-                    aria-pressed={row.mask ? row.id === snap.activeLayerId && !snap.editingMask : undefined}
-                    title="Paint on the layer's pixels"
-                    className={`shrink-0 rounded ${row.mask && row.id === snap.activeLayerId && !snap.editingMask ? 'ring-brand ring-2' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      editor.setActiveLayer(row.id);
-                      editor.editLayerMask(false);
-                    }}
-                  >
-                    <Thumbnail editor={editor} row={row} />
-                  </button>
+                  {row.type === 'adjustment' && row.adjustment ? (
+                    <button
+                      aria-label={`${row.name}: ${ADJUSTMENT_LABELS[row.adjustment]} settings`}
+                      title={`${ADJUSTMENT_LABELS[row.adjustment]} adjustment: its settings are in the Properties panel`}
+                      className="bg-ui-bg border-ui-border flex h-8 w-8 shrink-0 items-center justify-center rounded border text-base"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        editor.setActiveLayer(row.id);
+                      }}
+                    >
+                      {ADJUSTMENT_ICONS[row.adjustment]}
+                    </button>
+                  ) : (
+                    /* What painting edits: the pixels or the mask (FR-LAY-04). */
+                    <button
+                      aria-label={`Edit ${row.name} pixels`}
+                      aria-pressed={row.mask ? row.id === snap.activeLayerId && !snap.editingMask : undefined}
+                      title="Paint on the layer's pixels"
+                      className={`shrink-0 rounded ${row.mask && row.id === snap.activeLayerId && !snap.editingMask ? 'ring-brand ring-2' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        editor.setActiveLayer(row.id);
+                        editor.editLayerMask(false);
+                      }}
+                    >
+                      <Thumbnail editor={editor} row={row} />
+                    </button>
+                  )}
                   {row.mask && (
                     <>
                       <button
@@ -350,6 +366,7 @@ export function LayersPanel({ editor, snap }: Props) {
         >
           ◐
         </Button>
+        <AdjustmentMenu onPick={(kind) => editor.addAdjustmentLayer(kind)} />
         <Button aria-label="New layer" title="New layer (Ctrl+Shift+N)" onClick={() => editor.addLayer()}>
           ＋
         </Button>
@@ -378,5 +395,86 @@ export function LayersPanel({ editor, snap }: Props) {
         </Button>
       </div>
     </div>
+  );
+}
+
+const ADJUSTMENT_ICONS: Record<AdjustmentKind, string> = {
+  'brightness-contrast': '☀',
+  levels: '▥',
+  curves: '∿',
+  exposure: '±',
+  vibrance: '▽',
+  'hue-saturation': '◒',
+  'color-balance': '⚖',
+  'black-white': '◑',
+  'photo-filter': '◍',
+  invert: '◩',
+  posterize: '▤',
+  threshold: '◧',
+};
+
+/** The bottom bar's "new adjustment layer" button and its menu (docs/03 §5.1). */
+function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind) => void }) {
+  // Where the menu opens: above the button, right-aligned, in viewport px (it lives in a portal so the
+  // panel's scrolling does not clip it).
+  const [at, setAt] = useState<{ right: number; bottom: number } | null>(null);
+  const open = at !== null;
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target instanceof Node) || !document.getElementById('adjustment-menu')?.contains(e.target))
+        setAt(null);
+    };
+    window.addEventListener('pointerdown', close, true);
+    return () => window.removeEventListener('pointerdown', close, true);
+  }, [open]);
+  return (
+    <span>
+      <Button
+        aria-label="New adjustment layer"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="New adjustment layer"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setAt(open ? null : { right: window.innerWidth - r.right, bottom: window.innerHeight - r.top + 4 });
+        }}
+      >
+        ◑
+      </Button>
+      {at &&
+        createPortal(
+          <ul
+            id="adjustment-menu"
+            role="menu"
+            aria-label="New adjustment layer"
+            style={{ right: at.right, bottom: at.bottom }}
+            className="bg-ui-panel border-ui-border fixed z-50 min-w-44 rounded border py-1 shadow-lg"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setAt(null);
+            }}
+          >
+            {ADJUSTMENT_KINDS.map((kind, i) => (
+              <li key={kind} role="none">
+                <button
+                  role="menuitem"
+                  autoFocus={i === 0}
+                  className="hover:bg-ui-bg focus:bg-ui-bg flex w-full items-center gap-2 px-3 py-1 text-left outline-none"
+                  onClick={() => {
+                    setAt(null);
+                    onPick(kind);
+                  }}
+                >
+                  <span aria-hidden className="w-4 text-center">
+                    {ADJUSTMENT_ICONS[kind]}
+                  </span>
+                  {ADJUSTMENT_LABELS[kind]}
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
+    </span>
   );
 }
