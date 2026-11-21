@@ -1,6 +1,6 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import sharp from 'sharp';
-import { canvasPixel, docCanvas, launch, target } from './app';
+import { canvasPixel, docCanvas, launch, target, zoomField } from './app';
 
 /** Puts a PNG on the system clipboard (test-only helper; the app itself never touches it in main). */
 async function setClipboardPng(app: ElectronApplication, png: Buffer): Promise<void> {
@@ -35,7 +35,7 @@ async function clipboardImage(app: ElectronApplication, points: Array<[number, n
 }
 
 /** The Edit menu's native Paste / Copy roles, as a click or Ctrl+V / Ctrl+C would run them. */
-const editRole = (app: ElectronApplication, role: 'paste' | 'copy') =>
+const editRole = (app: ElectronApplication, role: 'paste' | 'copy' | 'cut') =>
   app.evaluate(({ BrowserWindow }, r) => BrowserWindow.getAllWindows()[0]!.webContents[r](), role);
 
 const footer = (win: Page) => win.locator('footer');
@@ -109,6 +109,64 @@ test(`[${target}] clipboard: paste as document and as layer, copy layer and copy
     });
     await expect(footer(win)).toContainText('40 × 30 px');
     await expect(win.getByRole('tab')).toHaveCount(3);
+  } finally {
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), saved).catch(() => undefined);
+    await close();
+  }
+});
+
+test(`[${target}] clipboard: copy and cut a selection, crop to it (FR-DOC-12, FR-SEL-05)`, async () => {
+  const { app, win, close } = await launch();
+  const saved = await app.evaluate(({ clipboard }) => clipboard.readText()).catch(() => '');
+  try {
+    const form = win.getByRole('form', { name: 'New document' });
+    await form.getByRole('spinbutton', { name: 'Width' }).fill('300');
+    await form.getByRole('spinbutton', { name: 'Height' }).fill('200');
+    await form.getByRole('button', { name: 'Create' }).click();
+    await expect(footer(win)).toContainText(/strokes RGBA/, { timeout: 15_000 });
+    await expect(zoomField(win)).toHaveValue('100');
+    const box = (await docCanvas(win).boundingBox())!;
+    const ox = box.x + Math.round((box.width - 300) / 2);
+    const oy = box.y + Math.round((box.height - 200) / 2);
+
+    // A black dot in the middle of a 100 × 70 selection on the white background.
+    await win.keyboard.press('m');
+    await win.mouse.move(ox + 50, oy + 50);
+    await win.mouse.down();
+    await win.mouse.move(ox + 100, oy + 90);
+    await win.mouse.move(ox + 150, oy + 120);
+    await win.mouse.up();
+    await win.keyboard.press('b');
+    await win.mouse.click(ox + 100.5, oy + 85.5);
+    await expect(win.getByRole('list', { name: 'History' })).toContainText('Brush');
+
+    // Copy: only the selection, cropped to it.
+    await editRole(app, 'copy');
+    await expect(win.getByRole('status').filter({ hasText: 'Copied the selection.' })).toBeVisible();
+    const copied = await clipboardImage(app, [
+      [50, 35],
+      [2, 2],
+    ]);
+    expect([copied.width, copied.height]).toEqual([100, 70]);
+    expect(copied.pixels[0]).toEqual([0, 0, 0, 255]);
+    expect(copied.pixels[1]).toEqual([255, 255, 255, 255]);
+
+    // Cut: the same on the clipboard, and the selected pixels are cleared.
+    await editRole(app, 'cut');
+    await expect(win.getByRole('list', { name: 'History' })).toContainText('Clear');
+    expect((await clipboardImage(app, [[50, 35]])).pixels[0]).toEqual([0, 0, 0, 255]);
+    await expect.poll(async () => (await canvasPixel(win, ox + 100.5, oy + 85.5))[0]).toBeGreaterThan(100);
+    await win.keyboard.press('ControlOrMeta+z');
+
+    // Image › Crop: the canvas becomes the selection's bounds.
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      const image = Menu.getApplicationMenu()!.items.find((i) => i.label === 'Image')!;
+      image
+        .submenu!.items.find((i) => i.label === 'Crop')!
+        .click(undefined, BrowserWindow.getAllWindows()[0], undefined as never);
+    });
+    await expect(footer(win)).toContainText('100 × 70 px');
+    await expect(docCanvas(win)).toHaveAttribute('aria-label', 'Canvas, 100 by 70 pixels');
   } finally {
     await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), saved).catch(() => undefined);
     await close();

@@ -108,6 +108,7 @@ export function menuTemplate(
       submenu: [
         cmd('Image Size…', 'image.imageSize', 'CmdOrCtrl+Alt+I'),
         cmd('Canvas Size…', 'image.canvasSize', 'CmdOrCtrl+Alt+C'),
+        cmd('Crop', 'image.cropToSelection'),
         {
           label: 'Image Rotation',
           submenu: [
@@ -160,6 +161,18 @@ export function menuTemplate(
         cmd('Deselect', 'select.deselect', 'CmdOrCtrl+D'),
         cmd('Reselect', 'select.reselect', 'CmdOrCtrl+Shift+D'),
         cmd('Inverse', 'select.inverse', 'CmdOrCtrl+Shift+I'),
+        { type: 'separator' },
+        cmd('Color Range…', 'select.colorRange'),
+        {
+          label: 'Modify',
+          submenu: [
+            cmd('Border…', 'select.border'),
+            cmd('Smooth…', 'select.smooth'),
+            cmd('Expand…', 'select.expand'),
+            cmd('Contract…', 'select.contract'),
+            cmd('Feather…', 'select.feather', 'Shift+F6'),
+          ],
+        },
       ],
     },
     {

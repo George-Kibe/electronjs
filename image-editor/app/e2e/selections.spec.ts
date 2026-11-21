@@ -217,3 +217,44 @@ test(`[${target}] magic wand: contiguous and not, in the ops worker (FR-SEL-03)`
   await expect(selection(win)).toHaveAttribute('aria-label', /selection 300 by 200 at 0, 0$/);
   await close();
 });
+
+test(`[${target}] Select › Modify and Color Range (FR-SEL-05)`, async () => {
+  const { app, win, close } = await launch();
+  await newDocument(win, 300, 200);
+  const at = await docToPage(win, 300, 200);
+  const dialogOk = async (title: string, label: string, value: string) => {
+    const dialog = win.getByRole('dialog', { name: title });
+    await dialog.getByRole('spinbutton', { name: label }).fill(value);
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    await expect(dialog).toBeHidden();
+  };
+
+  await win.keyboard.press('m');
+  await drag(win, at.edge(50, 50), at.edge(150, 120));
+  await menu(app, ['Select', 'Modify', 'Expand…']);
+  await dialogOk('Expand Selection', 'Expand by', '10');
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 120 by 90 at 40, 40$/);
+  await expect(history(win)).toContainText('Expand');
+
+  await menu(app, ['Select', 'Modify', 'Contract…']);
+  await dialogOk('Contract Selection', 'Contract by', '20');
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 80 by 50 at 60, 60$/);
+
+  await win.keyboard.press('Shift+F6');
+  await dialogOk('Feather Selection', 'Feather radius', '6');
+  await expect(history(win)).toContainText('Feather');
+  // Feathering spreads coverage outwards a little.
+  await expect(selection(win)).not.toHaveAttribute('aria-label', /selection 80 by 50 at 60, 60$/);
+
+  // Color Range: the foreground colour is black; paint a black dot, select it by colour.
+  await win.keyboard.press('ControlOrMeta+d');
+  await win.keyboard.press('b');
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('30');
+  await win.mouse.click(...at(200, 100));
+  await menu(app, ['Select', 'Color Range…']);
+  const range = win.getByRole('dialog', { name: 'Color Range' });
+  await range.getByRole('button', { name: 'OK' }).click();
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection \d+ by \d+ at 18\d, 8\d$/);
+  await expect(history(win)).toContainText('Color Range');
+  await close();
+});

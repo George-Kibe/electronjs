@@ -131,3 +131,43 @@ export function magicWand(
   }
   return out;
 }
+
+/**
+ * Select › Color Range (FR-SEL-05, basic): every pixel of the composite selected in proportion to how close
+ * its colour is to `color` (opaque, the foreground colour). `fuzziness` 0..200 is the colour distance at
+ * which coverage reaches 0, as in Photoshop's dialog.
+ */
+export function colorRange(
+  layers: readonly FlatLayer[],
+  size: { width: number; height: number },
+  color: readonly [number, number, number],
+  fuzziness: number,
+): MaskTiles {
+  const { width: W, height: H } = size;
+  const fuzz = Math.max(0, Math.min(200, fuzziness));
+  const out: MaskTiles = [];
+  for (const key of tileKeysInRect(0, 0, W, H)) {
+    const [tx, ty] = parseTileKey(key);
+    const t = compositeTile(layers, key);
+    const w = Math.min(TILE_SIZE, W - tx * TILE_SIZE);
+    const h = Math.min(TILE_SIZE, H - ty * TILE_SIZE);
+    let data: Uint8Array | null = null;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const p = premultiplied(t, (y * TILE_SIZE + x) * 4);
+        const d = Math.max(
+          Math.abs(p[0] - color[0]),
+          Math.abs(p[1] - color[1]),
+          Math.abs(p[2] - color[2]),
+          255 - p[3],
+        );
+        const v = d === 0 ? 255 : Math.round(255 * Math.max(0, 1 - d / (fuzz + 1)));
+        if (v === 0) continue;
+        data ??= new Uint8Array(TILE_SIZE * TILE_SIZE);
+        data[y * TILE_SIZE + x] = v;
+      }
+    }
+    if (data) out.push([key, data]);
+  }
+  return out;
+}

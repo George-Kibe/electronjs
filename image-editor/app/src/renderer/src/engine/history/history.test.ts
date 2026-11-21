@@ -6,6 +6,7 @@ import {
   PaintTilesCommand,
   SetActiveLayerCommand,
   SetLayerPropsCommand,
+  SetSelectionCommand,
   type Command,
 } from '../doc/commands';
 import { createRasterLayer, Document, type Layer } from '../doc/document';
@@ -19,6 +20,7 @@ import {
   nudgeLayer,
   ungroupLayer,
 } from '../doc/layer-ops';
+import { ellipseMask, Mask, rectMask } from '../doc/selection';
 import { translateLayer } from '../doc/translate';
 import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
 import { History } from './history';
@@ -38,6 +40,15 @@ function newDoc(): Document {
   return d;
 }
 
+/** Masks are immutable values: undo must bring back the very same object, so compare identities. */
+const maskIds = new WeakMap<Mask, number>();
+let nextMaskId = 1;
+const maskId = (m: Mask | null) => {
+  if (!m) return null;
+  if (!maskIds.has(m)) maskIds.set(m, nextMaskId++);
+  return maskIds.get(m)!;
+};
+
 /** Everything observable: size, guides, selection, tree structure, props and tile identities. */
 function state(d: Document): unknown {
   const layer = (l: Layer): unknown => {
@@ -50,6 +61,7 @@ function state(d: Document): unknown {
     size: [d.width, d.height],
     guides: structuredClone(d.meta.guides),
     active: d.activeLayerId,
+    selection: maskId(d.selection),
     layers: d.layers.map(layer),
   };
 }
@@ -58,7 +70,7 @@ function state(d: Document): unknown {
 function command(d: Document, op: number, v: number, history: History): Command | null {
   const active = d.activeLayer;
   const raster = active.type === 'raster' ? active : null;
-  switch (op % 17) {
+  switch (op % 18) {
     case 0:
       return (
         raster &&
@@ -110,6 +122,19 @@ function command(d: Document, op: number, v: number, history: History): Command 
       return resizeCanvas(d, d.width + (v % 40) - 10, d.height + (v % 30) - 10, { x: 0.5, y: v % 2 ? 0 : 1 });
     case 15:
       return v % 4 === 0 ? flattenImage(d) : null;
+    case 16: {
+      // Selections: new, combined with the current one, or none (FR-SEL-01..05).
+      const shape =
+        v % 2
+          ? rectMask({ x0: v % 50, y0: v % 40, x1: 60 + (v % 90), y1: 50 + (v % 70) }, d.width, d.height)
+          : ellipseMask({ x0: v % 30, y0: v % 20, x1: 80 + (v % 60), y1: 70 + (v % 50) }, d.width, d.height);
+      if (v % 5 === 0) return new SetSelectionCommand('Deselect', null);
+      const base = d.selection ?? Mask.empty(d.width, d.height);
+      return new SetSelectionCommand(
+        'Select',
+        base.combine((['replace', 'add', 'subtract', 'intersect'] as const)[v % 4]!, shape),
+      );
+    }
     default:
       // Restoring a snapshot taken a few steps ago.
       return restoreState(snapshotOf(history, d), 'Restore Snapshot');
@@ -129,7 +154,7 @@ function run(ops: Array<[number, number]>, undoEvery = 0) {
   const initial = state(doc);
   ops.forEach(([op, v], i) => {
     const cmd = command(doc, op, v, history);
-    if (cmd) history.execute(cmd, { coalesce: op % 17 === 10 });
+    if (cmd) history.execute(cmd, { coalesce: op % 18 === 10 });
     if (undoEvery && i % undoEvery === undoEvery - 1) {
       // Interleave undo/redo: the redo branch must reproduce exactly.
       const before = state(doc);
@@ -148,7 +173,7 @@ function run(ops: Array<[number, number]>, undoEvery = 0) {
 
 describe('history (T-HIS-01)', () => {
   it('property: random command sequences of every kind undo to the initial state and redo to the final one', () => {
-    const op = fc.tuple(fc.nat(16), fc.nat(1000));
+    const op = fc.tuple(fc.nat(17), fc.nat(1000));
     fc.assert(
       fc.property(fc.array(op, { maxLength: 40 }), fc.integer({ min: 0, max: 5 }), (ops, undoEvery) =>
         run(ops, undoEvery),
@@ -158,7 +183,7 @@ describe('history (T-HIS-01)', () => {
   }, 60_000);
 
   it('500 random commands, then undo all, restores the document exactly', () => {
-    const ops = fc.sample(fc.tuple(fc.nat(16), fc.nat(1000)), { numRuns: 500, seed: 42 });
+    const ops = fc.sample(fc.tuple(fc.nat(17), fc.nat(1000)), { numRuns: 500, seed: 42 });
     run(ops);
   }, 60_000);
 

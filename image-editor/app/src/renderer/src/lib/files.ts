@@ -1,4 +1,5 @@
 import type { ExportOptions } from '@shared/export-options';
+import type { SelectionClip } from '../engine/doc/selection';
 import type { DocSnapshot } from '../engine/io/snapshot';
 import type { IepReadResult } from '../engine/io/iep';
 import type { FilesRequest, FilesResponse } from '../workers/files.worker';
@@ -70,8 +71,8 @@ export function decodeClipboardImage(
 }
 
 /** PNG of a snapshot's composite, for Copy / Copy Merged (FR-DOC-12). */
-export function encodeClipboardPng(doc: DocSnapshot): Promise<Uint8Array> {
-  return request({ op: 'encodePng', doc });
+export function encodeClipboardPng(doc: DocSnapshot, selection?: SelectionClip | null): Promise<Uint8Array> {
+  return request({ op: 'encodePng', doc, selection });
 }
 
 /** A 256 px PNG of the composite for the recent-files list, or null if it cannot be made here. */

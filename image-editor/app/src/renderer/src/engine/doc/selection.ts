@@ -16,7 +16,8 @@ export const FULL_TILE: MaskTile = { data: new Uint8ClampedArray(MASK_TILE_BYTES
 export type SelectionOp = 'replace' | 'add' | 'subtract' | 'intersect';
 export type Bounds = { x0: number; y0: number; x1: number; y1: number };
 
-function tileFrom(data: Uint8ClampedArray): MaskTile | undefined {
+/** A coverage tile as a MaskTile: undefined when empty, the shared FULL_TILE when fully selected. */
+export function maskTile(data: Uint8ClampedArray): MaskTile | undefined {
   let min = 255;
   let max = 0;
   for (let i = 0; i < data.length; i++) {
@@ -28,6 +29,47 @@ function tileFrom(data: Uint8ClampedArray): MaskTile | undefined {
   if (max === 0) return undefined;
   if (min === 255) return FULL_TILE;
   return { data, full: false };
+}
+
+/**
+ * A selection as plain data for workers (copy, cut): its bounds and the coverage tiles inside them, with
+ * fully selected tiles marked 'full' instead of copied.
+ */
+export type SelectionClip = { bounds: Bounds; tiles: Array<[TileKey, Uint8Array | 'full']> };
+
+/**
+ * The part of a row-major RGBA8 image inside the selection's bounds, with each pixel's alpha multiplied by
+ * its coverage (Copy / Cut of a selection, FR-DOC-12). Runs where the image was flattened (the file worker).
+ */
+export function clipToSelection(
+  rgba: Uint8ClampedArray,
+  width: number,
+  clip: SelectionClip,
+): { rgba: Uint8ClampedArray; width: number; height: number } {
+  const { x0, y0, x1, y1 } = clip.bounds;
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++)
+    out.set(rgba.subarray(((y0 + y) * width + x0) * 4, ((y0 + y) * width + x1) * 4), y * w * 4);
+  const tiles = new Map(clip.tiles);
+  for (let y = 0; y < h; y++) {
+    const gy = y0 + y;
+    const ty = Math.floor(gy / TILE_SIZE);
+    for (let x = 0; x < w; x++) {
+      const gx = x0 + x;
+      const tile = tiles.get(tileKey(Math.floor(gx / TILE_SIZE), ty));
+      const k = !tile
+        ? 0
+        : tile === 'full'
+          ? 255
+          : tile[(gy - ty * TILE_SIZE) * TILE_SIZE + (gx % TILE_SIZE)]!;
+      if (k === 255) continue;
+      const a = (y * w + x) * 4 + 3;
+      out[a] = Math.round((out[a]! * k) / 255);
+    }
+  }
+  return { rgba: out, width: w, height: h };
 }
 
 export class Mask {
@@ -140,12 +182,21 @@ export class Mask {
       else {
         const data = new Uint8ClampedArray(MASK_TILE_BYTES);
         for (let i = 0; i < data.length; i++) data[i] = 255 - tile.data[i]!;
-        next = tileFrom(data);
+        next = maskTile(data);
       }
       const clipped = next && clipToCanvas(key, next, this.width, this.height);
       if (clipped) out.set(key, clipped);
     }
     return new Mask(out, this.width, this.height);
+  }
+
+  /** The selection as plain data for a worker (null when nothing is selected). */
+  toClip(): SelectionClip | null {
+    const bounds = this.bounds();
+    if (!bounds) return null;
+    const tiles: SelectionClip['tiles'] = [];
+    for (const [key, t] of this.tiles) tiles.push([key, t.full ? 'full' : new Uint8Array(t.data)]);
+    return { bounds, tiles };
   }
 
   /** Bytes of tile data this mask owns (shared full tiles are free), for the history memory budget. */
@@ -184,7 +235,7 @@ function combineTile(
 function perPixel(a: MaskTile, b: MaskTile, f: (x: number, y: number) => number): MaskTile | undefined {
   const data = new Uint8ClampedArray(MASK_TILE_BYTES);
   for (let i = 0; i < data.length; i++) data[i] = f(a.data[i]!, b.data[i]!);
-  return tileFrom(data);
+  return maskTile(data);
 }
 
 /** Zeroes coverage outside the canvas (edge tiles); undefined when nothing remains. */
@@ -203,7 +254,7 @@ function clipToCanvas(key: TileKey, tile: MaskTile, width: number, height: numbe
     const row = y * TILE_SIZE;
     data.set(tile.data.subarray(row + x0, row + x1), row + x0);
   }
-  return tileFrom(data);
+  return maskTile(data);
 }
 
 /** A pixel-aligned rectangle (Rectangular Marquee), clipped to the canvas. Hard edges by definition. */
@@ -348,7 +399,7 @@ export function polygonMask(points: readonly Point[], width: number, height: num
 
   const out = new Map<TileKey, MaskTile>();
   for (const [key, data] of tiles) {
-    const t = tileFrom(data);
+    const t = maskTile(data);
     if (t) out.set(key, t);
   }
   return Mask.fromTiles(out, width, height);

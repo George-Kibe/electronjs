@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createRasterLayer } from '../doc/document';
 import { liveLayers } from '../doc/flatten';
 import { TileGrid } from '../tiles/tile';
-import { magicWand, type MaskTiles } from './wand';
+import { colorRange, magicWand, type MaskTiles } from './wand';
 
 const W = 300;
 const H = 200;
@@ -83,5 +83,23 @@ describe('magicWand (T-SEL-01)', () => {
 
   it('a click outside the canvas selects nothing', () => {
     expect(magicWand(layers, { width: W, height: H }, { x: -1, y: 5 }, opts)).toEqual([]);
+  });
+});
+
+describe('colorRange (Select › Color Range)', () => {
+  const layers = fixture();
+  it('selects in proportion to colour distance, everywhere', () => {
+    const tiles = colorRange(layers, { width: W, height: H }, [200, 30, 30], 40);
+    const value = (x: number, y: number) => {
+      const [, t] = tiles.find(([k]) => k === `${Math.floor(x / 256)},${Math.floor(y / 256)}`) ?? [];
+      return t ? t[(y % 256) * 256 + (x % 256)]! : 0;
+    };
+    expect(value(30, 30)).toBe(255); // A, exact
+    expect(value(220, 30)).toBe(255); // B, same colour, not touching A
+    expect(value(110, 110)).toBeGreaterThan(0); // C, 20 away: partly
+    expect(value(110, 110)).toBeLessThan(255);
+    expect(value(160, 150)).toBe(0); // D, 80 away: beyond fuzziness 40
+    expect(value(150, 80)).toBe(0); // white
+    expect(value(290, 190)).toBe(0); // transparent
   });
 });

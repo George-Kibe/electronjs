@@ -56,15 +56,27 @@ export function useClipboard(editor: Editor | null, files: FileActions) {
   const copy = useCallback(
     async (merged: boolean) => {
       const snapshot = editor?.clipboardSnapshot(merged);
-      if (!snapshot) return;
+      if (!snapshot) return false;
+      // With a selection, only its pixels are copied (cropped to it, soft edges kept).
+      const selection = editor?.selectionMask?.toClip() ?? null;
       try {
-        const png = await encodeClipboardPng(snapshot);
+        const png = await encodeClipboardPng(snapshot, selection);
         await navigator.clipboard.write([
           new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) }),
         ]);
-        files.reportNotice(merged ? 'Copied the visible image.' : 'Copied the layer.');
+        files.reportNotice(
+          selection
+            ? merged
+              ? 'Copied the visible image inside the selection.'
+              : 'Copied the selection.'
+            : merged
+              ? 'Copied the visible image.'
+              : 'Copied the layer.',
+        );
+        return true;
       } catch (err) {
         files.reportError(err);
+        return false;
       }
     },
     [editor, files],
@@ -84,11 +96,20 @@ export function useClipboard(editor: Editor | null, files: FileActions) {
       e.preventDefault();
       void copy(false);
     };
+    // Cut (Ctrl+X): copy the selection, then clear it from the layer. Without a selection there is nothing
+    // to cut (as in Photoshop).
+    const onCut = (e: ClipboardEvent) => {
+      if (typing(e.target) || !editor?.hasSelection) return;
+      e.preventDefault();
+      void copy(false).then((ok) => ok && editor.clearSelection());
+    };
     document.addEventListener('paste', onPaste);
     document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
     return () => {
       document.removeEventListener('paste', onPaste);
       document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
     };
   }, [editor, copy, pasteBlob]);
 

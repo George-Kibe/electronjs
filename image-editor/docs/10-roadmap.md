@@ -161,8 +161,13 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         premultiplied colour (all transparent pixels match each other), contiguous (scanline flood fill)
         or not, anti-alias, active layer or all layers (T-SEL-01). Every selection tool takes the four modes. E2E
         green on 3 OSes (run 44817086962).
-  - [ ] 1c Select › Modify (feather, expand/contract, border, smooth), Color Range (basic), Quick Mask (Q),
-        Copy/Cut of the selection, Image › Crop to the selection, saving the selection in `.iep`.
+  - [x] 1c Select › Modify in the ops worker, linear in pixels at any radius: Feather (Shift+F6, three-box
+        Gaussian), Expand / Contract (exact Euclidean distance transform; the canvas edge counts as
+        unselected), Border (a soft band), Smooth (majority vote); Select › Color Range (basic: closeness to
+        the foreground colour with a fuzziness falloff, one layer or all); Copy / Copy Merged / Cut take only
+        the selection (the file worker masks the composite); Image › Crop to the selection; T-HIS-01 includes
+        selections. Quick Mask (Q) and saving the selection in `.iep` follow in 1d. E2E green on 3 OSes
+        (run 44844627006).
 - [ ] Slice 2 — layer masks and clipping masks (FR-LAY-04/05), multi-layer selection (FR-LAY-08)
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
