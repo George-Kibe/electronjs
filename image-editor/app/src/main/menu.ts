@@ -92,6 +92,19 @@ export function menuTemplate(
         { role: 'paste' },
         cmd('Paste as New Document', 'edit.pasteNewDocument'),
         cmd('Clear', 'edit.clear', 'Delete'),
+        { type: 'separator' },
+        cmd('Free Transform', 'edit.freeTransform', 'CmdOrCtrl+T'),
+        {
+          label: 'Transform',
+          submenu: [
+            cmd('Rotate 180°', 'edit.rotate180'),
+            cmd('Rotate 90° Clockwise', 'edit.rotate90cw'),
+            cmd('Rotate 90° Counter Clockwise', 'edit.rotate90ccw'),
+            { type: 'separator' },
+            cmd('Flip Horizontal', 'edit.flipHorizontal'),
+            cmd('Flip Vertical', 'edit.flipVertical'),
+          ],
+        },
         // Hidden but active: Ctrl/⌘+A in text fields (macOS needs the role). On the canvas the renderer
         // handles the key and Select › All selects every pixel instead.
         { role: 'selectAll', visible: false },

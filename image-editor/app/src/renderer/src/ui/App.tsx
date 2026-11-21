@@ -13,6 +13,7 @@ import { api, errorMessage, events } from '../lib/api';
 import { readProject } from '../lib/files';
 import { runOps } from '../lib/ops';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
+import { transformCursor } from '../engine/tools/transform';
 import { BrushCursor } from './components/BrushCursor';
 import { Button } from './components/Button';
 import { ColorPickerDialog } from './components/ColorPickerDialog';
@@ -27,6 +28,7 @@ import { PanelDock } from './components/PanelDock';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { SelectionOverlay } from './components/SelectionOverlay';
+import { TransformOverlay } from './components/TransformOverlay';
 import { ColorRangeDialog, ModifyDialog, type ModifyKind } from './components/SelectionDialogs';
 import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
@@ -224,6 +226,12 @@ export function App() {
           'edit.copyMerged': () => void clipboard.copyMerged(),
           'edit.pasteNewDocument': () => void clipboard.pasteAsNewDocument(),
           'edit.undo': () => editor?.undo(),
+          'edit.freeTransform': () => editor?.beginTransform(),
+          'edit.flipHorizontal': () => editor?.transformStep('flipHorizontal'),
+          'edit.flipVertical': () => editor?.transformStep('flipVertical'),
+          'edit.rotate180': () => editor?.transformStep('rotate180'),
+          'edit.rotate90cw': () => editor?.transformStep('rotate90cw'),
+          'edit.rotate90ccw': () => editor?.transformStep('rotate90ccw'),
           'edit.redo': () => editor?.redo(),
           'layer.new': () => editor?.addLayer(),
           'layer.newGroup': () => editor?.addGroup(),
@@ -321,7 +329,12 @@ export function App() {
   const outline = brushPx >= 4 && prefs.settings.general.brushCursor === 'outline' ? brushPx : 0;
   const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
   // The crop tool shows the handle under the pointer (resize arrows, move).
-  const cropCursor = active === 'crop' && snap?.crop?.hover ? HANDLE_CURSORS[snap.crop.hover] : undefined;
+  const t = snap?.transform;
+  const cropCursor = t
+    ? transformCursor(t.box, t.params, t.hover ?? 'rotate')
+    : active === 'crop' && snap?.crop?.hover
+      ? HANDLE_CURSORS[snap.crop.hover]
+      : undefined;
   const toast = files.error ?? prefs.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -367,6 +380,12 @@ export function App() {
           }}
           onFit={() => editor.fitToScreen()}
           onActualSize={() => editor.zoomTo(1)}
+          transform={snap.transform}
+          onTransform={{
+            params: (patch) => editor.setTransformParams(patch),
+            commit: () => void editor.commitTransform(),
+            cancel: () => editor.cancelTransform(),
+          }}
         />
       )}
       <div className="flex min-h-0 flex-1">
@@ -413,6 +432,7 @@ export function App() {
             />
             {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
             {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
+            {snap?.transform && editor && <TransformOverlay transform={snap.transform} editor={editor} />}
             {editor && (snap?.selection || snap?.marquee || snap?.lasso) && (
               <SelectionOverlay
                 editor={editor}

@@ -3,6 +3,7 @@ import { clipGrid, flipGrid, rotateGrid, type TileRange, type Turns } from '../o
 import { TILE_BYTES, TILE_SIZE, TileGrid } from '../tiles/tile';
 import { cloneTree, TreeCommand, type CanvasGeometry, type TreeEdit } from './commands';
 import type { Document, Layer, RasterLayer } from './document';
+import type { Mask } from './selection';
 import { translateGrid } from './translate';
 
 /**
@@ -180,4 +181,40 @@ export function replacePixels(
       return g ? translateGrid(g, 0, 0, range) : new TileGrid();
     },
   );
+}
+
+/**
+ * Replaces the pixels (and linked masks, under `<id>#mask`) of only the layers in `grids`, keeping the canvas
+ * (Free Transform's commit, FR-TRF-04). The selection stays unless a new one is given (a transformed selection).
+ */
+export function replaceLayers(
+  label: string,
+  grids: ReadonlyMap<string, TileGrid>,
+  selection?: Mask | null,
+): TreeCommand {
+  return new TreeCommand(label, (d): TreeEdit => {
+    let newTileBytes = 0;
+    const visit = (list: Layer[]): Layer[] =>
+      list.map((l) => {
+        if (l.type === 'group') {
+          l.children = visit(l.children);
+          return l;
+        }
+        const tiles = grids.get(l.id);
+        const maskGrid = grids.get(`${l.id}#mask`);
+        if (!tiles && !maskGrid) return l;
+        newTileBytes += ((tiles?.size ?? 0) + (maskGrid?.size ?? 0)) * TILE_BYTES;
+        return {
+          ...l,
+          tiles: tiles ?? l.tiles,
+          mask: l.mask && maskGrid ? { ...l.mask, grid: maskGrid } : (l.mask ?? null),
+        } as RasterLayer;
+      });
+    return {
+      root: visit(cloneTree(d.layers)),
+      activeLayerId: d.activeLayerId,
+      newTileBytes,
+      ...(selection !== undefined ? { selection } : {}),
+    };
+  });
 }

@@ -119,3 +119,73 @@ test(`[${target}] transforms: image size, canvas size, rotate, crop and straight
   await expect(footer(win)).toContainText('121 × 200 px');
   await close();
 });
+
+test(`[${target}] Free Transform: rotate by number, drag to move, cancel, apply, flip (FR-TRF-04)`, async () => {
+  const { app, win, close } = await launch();
+  await newDocument(win, 300, 200);
+  const at = await docToPage(win, 300, 200);
+  await win.getByRole('button', { name: 'New layer', exact: true }).click();
+  const options = win.getByRole('toolbar', { name: 'Tool options' });
+  await options.getByRole('slider', { name: 'Size' }).fill('20');
+  await paintLine(win, at(40, 50), at(100, 50)); // a horizontal bar, centre (70, 50)
+  await black(win, at(45, 50));
+
+  // Ctrl+T shows the box; a rotation typed in the options bar previews live about the centre.
+  await win.keyboard.press('ControlOrMeta+t');
+  await expect(options).toContainText('Free Transform');
+  await expect(win.getByTestId('transform-box')).toBeVisible();
+  await options.getByRole('spinbutton', { name: 'Rotation' }).fill('90');
+  await black(win, at(70, 20)); // the bar now stands upright
+  await white(win, at(45, 50));
+  // Esc: nothing changes.
+  await win.keyboard.press('Escape');
+  await expect(win.getByTestId('transform-box')).toHaveCount(0);
+  await black(win, at(45, 50));
+  await white(win, at(70, 20));
+
+  // Drag inside the box to move it, rotate it, then Enter applies both as one step.
+  await win.keyboard.press('ControlOrMeta+t');
+  await win.mouse.move(...at(70, 50));
+  await win.mouse.down();
+  await win.mouse.move(...at(170, 120), { steps: 8 });
+  await win.mouse.up();
+  await expect(options.getByRole('spinbutton', { name: 'Centre X' })).toHaveValue(/^17\d/);
+  await options.getByRole('spinbutton', { name: 'Rotation' }).fill('90');
+  await win.keyboard.press('Enter'); // confirms the field
+  await win.keyboard.press('Enter'); // applies
+  await expect(history(win)).toContainText('Free Transform', { timeout: 30_000 });
+  await expect(win.getByTestId('transform-box')).toHaveCount(0);
+  await black(win, at(170, 95));
+  await black(win, at(170, 145));
+  await white(win, at(45, 50));
+  await win.keyboard.press('ControlOrMeta+z');
+  await black(win, at(45, 50));
+
+  // Edit › Transform › Flip Horizontal applies at once about the layer's centre: the bar stays put.
+  await paintLine(win, at(40, 120), at(41, 120)); // a dot below the bar's left end
+  await menu(app, ['Edit', 'Transform', 'Flip Horizontal']);
+  await expect(history(win)).toContainText('Flip Horizontal', { timeout: 30_000 });
+  await black(win, at(45, 50));
+  await black(win, at(100, 120)); // the dot moved to the right end
+  await white(win, at(40, 120));
+
+  // With a selection, only the selected pixels move, and the selection moves with them.
+  await win.keyboard.press('m');
+  await win.mouse.move(...at(20, 30));
+  await win.mouse.down();
+  await win.mouse.move(...at(60, 70), { steps: 8 });
+  await win.mouse.up();
+  await expect(docCanvas(win)).toHaveAccessibleName(/selection 40 by 40 at 2[01], 3[01]/);
+  await win.keyboard.press('ControlOrMeta+t');
+  await win.mouse.move(...at(45, 50));
+  await win.mouse.down();
+  await win.mouse.move(...at(45, 150), { steps: 8 });
+  await win.mouse.up();
+  await win.keyboard.press('Enter');
+  await expect(history(win)).toContainText('Free Transform', { timeout: 30_000 });
+  await black(win, at(45, 150)); // the bar's left end moved down
+  await white(win, at(45, 50)); // and left a hole
+  await black(win, at(90, 50)); // the rest of the bar stays
+  await expect(docCanvas(win)).toHaveAccessibleName(/selection 40 by 40 at 2[01], 13[01]/);
+  await close();
+});

@@ -4,7 +4,14 @@ import type { AlignEdge } from '../../engine/doc/translate';
 import { CROP_RATIOS, RATIO_LABELS, type CropRatio } from '../../engine/tools/crop';
 import type { SelectionOp } from '../../engine/doc/selection';
 import type { MarqueeOptions as MarqueeOpts } from '../../engine/tools/marquee';
-import { isPaintTool, type BrushOptions, type Tool, type ToolOptions } from '../../engine/editor';
+import {
+  isPaintTool,
+  type BrushOptions,
+  type EditorSnapshot,
+  type Tool,
+  type ToolOptions,
+} from '../../engine/editor';
+import type { TransformParams } from '../../engine/tools/transform';
 import { Button } from './Button';
 
 type Props = {
@@ -23,6 +30,12 @@ type Props = {
   };
   onFit: () => void;
   onActualSize: () => void;
+  transform: EditorSnapshot['transform'];
+  onTransform: {
+    params: (patch: Partial<TransformParams>) => void;
+    commit: () => void;
+    cancel: () => void;
+  };
 };
 
 const TOOL_NAMES: Record<Tool, string> = {
@@ -280,6 +293,93 @@ function CropOptions({
   );
 }
 
+const DEG = 180 / Math.PI;
+const tenth = (v: number) => Math.round(v * 10) / 10;
+
+/** Free Transform's numeric entry (FR-TRF-04): position, scale, rotation and skew, then apply or cancel. */
+function TransformOptions({
+  transform,
+  onTransform,
+}: {
+  transform: NonNullable<Props['transform']>;
+  onTransform: Props['onTransform'];
+}) {
+  const { box, params: p } = transform;
+  const fields: ReadonlyArray<
+    readonly [label: string, name: string, value: number, unit: string, set: (v: number) => void]
+  > = [
+    [
+      'X',
+      'Centre X',
+      tenth((box.x0 + box.x1) / 2 + p.tx),
+      'px',
+      (v) => onTransform.params({ tx: v - (box.x0 + box.x1) / 2 }),
+    ],
+    [
+      'Y',
+      'Centre Y',
+      tenth((box.y0 + box.y1) / 2 + p.ty),
+      'px',
+      (v) => onTransform.params({ ty: v - (box.y0 + box.y1) / 2 }),
+    ],
+    ['W', 'Width', tenth(p.sx * 100), '%', (v) => v !== 0 && onTransform.params({ sx: v / 100 })],
+    ['H', 'Height', tenth(p.sy * 100), '%', (v) => v !== 0 && onTransform.params({ sy: v / 100 })],
+    ['∠', 'Rotation', tenth(p.angle * DEG), '°', (v) => onTransform.params({ angle: v / DEG })],
+    [
+      'H',
+      'Horizontal skew',
+      tenth(p.skewX * DEG),
+      '°',
+      (v) => Math.abs(v) < 89 && onTransform.params({ skewX: v / DEG }),
+    ],
+    [
+      'V',
+      'Vertical skew',
+      tenth(p.skewY * DEG),
+      '°',
+      (v) => Math.abs(v) < 89 && onTransform.params({ skewY: v / DEG }),
+    ],
+  ];
+  return (
+    <>
+      {fields.map(([label, name, value, unit, set]) => (
+        <label key={name} className="flex items-center gap-1" title={name}>
+          <span className="text-ui-muted">{label}</span>
+          <input
+            type="number"
+            aria-label={name}
+            step={unit === 'px' ? 1 : 0.1}
+            value={value}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (e.target.value !== '' && Number.isFinite(v)) set(v);
+            }}
+            // As in Photoshop: Enter confirms the field (press it again to apply), Esc cancels the transform.
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') onTransform.cancel();
+            }}
+            className="bg-ui-bg border-ui-border w-16 rounded border px-1 py-0.5 tabular-nums"
+          />
+          <span className="text-ui-muted">{unit}</span>
+        </label>
+      ))}
+      <Button title="Flip horizontally" onClick={() => onTransform.params({ sx: -p.sx })}>
+        ⇋ Flip H
+      </Button>
+      <Button title="Flip vertically" onClick={() => onTransform.params({ sy: -p.sy })}>
+        ⇵ Flip V
+      </Button>
+      <Button className="ml-auto" title="Cancel the transform (Esc)" onClick={onTransform.cancel}>
+        ✕ Cancel
+      </Button>
+      <Button variant="primary" title="Apply the transform (Enter)" onClick={onTransform.commit}>
+        ✓ Apply
+      </Button>
+    </>
+  );
+}
+
 const MODES: ReadonlyArray<readonly [SelectionOp, string, string]> = [
   ['replace', 'New', 'New selection'],
   ['add', 'Add', 'Add to selection (Shift)'],
@@ -474,8 +574,21 @@ export function OptionsBar({
   onCrop,
   onFit,
   onActualSize,
+  transform,
+  onTransform,
 }: Props) {
   const resettable = tool === 'hand' || tool === 'zoom' ? null : tool;
+  if (transform)
+    return (
+      <div
+        role="toolbar"
+        aria-label="Tool options"
+        className="bg-ui-panel border-ui-border flex h-9 items-center gap-3 overflow-x-auto border-b px-3 whitespace-nowrap [scrollbar-width:thin]"
+      >
+        <span className="font-semibold">Free Transform</span>
+        <TransformOptions transform={transform} onTransform={onTransform} />
+      </div>
+    );
   return (
     <div
       role="toolbar"
