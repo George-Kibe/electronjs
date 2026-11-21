@@ -1,3 +1,4 @@
+import { Mask, MASK_TILE_BYTES, maskTile, type MaskTile } from '../doc/selection';
 import {
   createGroupLayer,
   createRasterLayer,
@@ -39,6 +40,8 @@ export type DocSnapshot = {
   activeLayerId: string;
   /** Root level, bottom → top. */
   layers: LayerSnapshot[];
+  /** The selection as one-byte coverage tiles (FR-SEL-01..06); absent or null = nothing selected. */
+  selection?: Array<[TileKey, Uint8Array]> | null;
   /** Unknown manifest fields, preserved on save (docs/05 §2.1). */
   extra?: { manifest?: Record<string, unknown>; document?: Record<string, unknown> };
 };
@@ -85,6 +88,12 @@ export function toSnapshot(doc: Document): DocSnapshot {
     exif: doc.meta.exif,
     activeLayerId: doc.activeLayerId,
     layers: doc.layers.map(layerToSnapshot),
+    selection: doc.selection
+      ? [...doc.selection.entries()].map(([key, t]) => [
+          key,
+          new Uint8Array(t.data.buffer, t.data.byteOffset, t.data.byteLength),
+        ])
+      : null,
     ...(doc.meta.extra ? { extra: doc.meta.extra } : {}),
   };
 }
@@ -114,6 +123,16 @@ export function fromSnapshot(s: DocSnapshot): Document {
     ...(s.extra ? { extra: s.extra } : {}),
   });
   if (doc.has(s.activeLayerId)) doc.activeLayerId = s.activeLayerId;
+  if (s.selection?.length) {
+    const tiles = new Map<TileKey, MaskTile>();
+    for (const [key, bytes] of s.selection) {
+      if (bytes.byteLength !== MASK_TILE_BYTES) continue; // a damaged tile is dropped, not fatal
+      const t = maskTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+      if (t) tiles.set(key, t);
+    }
+    const mask = Mask.fromTiles(tiles, s.width, s.height);
+    doc.selection = mask.isEmpty ? null : mask;
+  }
   return doc;
 }
 

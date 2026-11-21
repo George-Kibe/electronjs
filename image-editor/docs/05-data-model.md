@@ -18,7 +18,7 @@ interface Document {
   colorSpace: 'sRGB';                          // working space (ADR-0004)
   root: GroupLayer;                            // layer tree root (not shown)
   activeLayerId: string; selectedLayerIds: string[];
-  selection: Mask | null;                      // as built: engine/doc/selection.ts (not saved in .iep yet)
+  selection: Mask | null;                      // as built: engine/doc/selection.ts, saved in .iep (§2)
   guides: { horizontal: number[]; vertical: number[] };
   meta: { exif?: ExifSummary; sourceProfile?: string; createdAt: number; modifiedAt: number };
 }
@@ -96,7 +96,7 @@ project.iep (zip)
 ├── preview.png                    flattened, max 1024 px (thumbnails, Quick Look, recent files)
 ├── layers/<layerId>/tiles.bin     raster/text/shape cache tiles (see tile encoding)
 ├── masks/<layerId>/tiles.bin      mask tiles (1 channel)
-├── selection/tiles.bin            optional saved selection
+├── selection/tiles.bin            optional saved selection (one channel; `document.selection` names it)
 └── fonts.json                     fonts referenced by text layers (family/postscript names; fonts are NOT embedded)
 ```
 

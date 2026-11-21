@@ -4,6 +4,7 @@ import { deflateSync, strFromU8, strToU8, unzipSync, zipSync, type Zippable } fr
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { createGroupLayer, createRasterLayer, Document, type RasterLayer } from '../doc/document';
+import { ellipseMask, Mask, rectMask } from '../doc/selection';
 import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
 import { encodeTiles, IepError, readIep, writeIep } from './iep';
 import { fromSnapshot, toSnapshot } from './snapshot';
@@ -317,6 +318,55 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
       );
       // ~1 s locally, over 5 s on Windows CI runners: keep all 300 cases, allow the time.
     }, 20_000);
+  });
+
+  describe('the saved selection (docs/05 §2, FR-SEL)', () => {
+    const same = (a: Mask | null, b: Mask | null) => {
+      if (!a || !b) return a === b;
+      for (let y = 0; y < a.height; y++)
+        for (let x = 0; x < a.width; x++) if (a.value(x, y) !== b.value(x, y)) return false;
+      return true;
+    };
+
+    it('round-trips a soft-edged selection exactly', () => {
+      const doc = sampleDoc();
+      doc.selection = rectMask({ x0: 0, y0: 0, x1: doc.width, y1: 20 }, doc.width, doc.height).combine(
+        'add',
+        ellipseMask({ x0: 10.5, y0: 15.5, x1: doc.width - 10, y1: doc.height - 5 }, doc.width, doc.height),
+      );
+      const back = roundTrip(doc).doc;
+      expect(same(back.selection, doc.selection)).toBe(true);
+      const files = unzipSync(writeIep(toSnapshot(doc), { appVersion: '0.1.0' }));
+      expect(files['selection/tiles.bin']![6]).toBe(1); // one channel
+    });
+
+    it('writes nothing for no selection, and drops a stale reference from another version', () => {
+      const doc = sampleDoc();
+      doc.meta.extra = { document: { selection: 'selection/tiles.bin' } };
+      const files = unzipSync(writeIep(toSnapshot(doc), { appVersion: '0.1.0' }));
+      expect(files['selection/tiles.bin']).toBeUndefined();
+      expect(JSON.parse(strFromU8(files['manifest.json']!)).document.selection).toBeUndefined();
+      expect(roundTrip(doc).doc.selection).toBeNull();
+    });
+
+    it('a missing or damaged selection only loses the selection', () => {
+      const tiles = { 'layers/0/tiles.bin': oneTile() };
+      const withSel = (sel: Uint8Array | undefined) =>
+        readIep(
+          zip(manifest({ document: { width: 256, height: 256, selection: 'selection/tiles.bin' } }), {
+            ...tiles,
+            ...(sel ? { 'selection/tiles.bin': sel } : {}),
+          }),
+          BUDGET,
+        );
+      expect(withSel(undefined).doc.selection).toBeNull(); // re-saved by an older version: entry gone
+      expect(withSel(new Uint8Array([1, 2, 3])).doc.selection).toBeNull(); // garbage
+      expect(withSel(oneTile()).doc.selection).toBeNull(); // 4-channel tiles are not a selection
+      const offCanvas = encodeTiles([['5,5', new Uint8Array(256 * 256).fill(255)]], 1);
+      expect(withSel(offCanvas).doc.selection).toBeNull();
+      const good = encodeTiles([['0,0', new Uint8Array(256 * 256).fill(255)]], 1);
+      expect(fromSnapshot(withSel(good).doc).selection?.bounds()).toEqual({ x0: 0, y0: 0, x1: 256, y1: 256 });
+    });
   });
 
   it('loads the committed v1 golden fixture (must load forever, docs/05 §2.3)', () => {

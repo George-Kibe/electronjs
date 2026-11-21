@@ -152,7 +152,8 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
 selected tiles share one buffer; coverage outside the canvas is always 0). Marquee shapes rasterize on the
 CPU, row by row into tiles: rectangles are exact, the ellipse and (1b) lasso polygons use 5 sub-scanlines
 with exact horizontal span coverage, so no canvas-sized buffer is allocated. This is the CPU reference the
-GPU path will be checked against if it is ever needed. The marching ants are an SVG path of the pixel
+GPU path will be checked against if it is ever needed. The selection is saved in `.iep` (docs/05 §2), so it
+also survives recovery snapshots and a tab moved to another window. The marching ants are an SVG path of the pixel
 edges at 50 % coverage (`selection-outline.ts`) under the view transform, recomputed only when the mask
 changes. Painting is clipped twice in the same way: `layer.frag` multiplies the stroke preview's coverage
 by the tile's R8 mask texture, and `Editor.commitStroke` multiplies the read-back coverage by the same

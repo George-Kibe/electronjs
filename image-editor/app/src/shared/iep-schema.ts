@@ -106,6 +106,8 @@ export const DocumentEntry = z.looseObject({
   sourceProfile: z.string().max(1024).nullable().optional(),
   /** Raw EXIF of the source image (our addition; optional). */
   exif: EntryPath.optional(),
+  /** The saved selection (docs/05 §2): one-channel tiles. Optional; a missing or damaged entry is ignored. */
+  selection: EntryPath.optional(),
 });
 export type DocumentEntry = z.infer<typeof DocumentEntry>;
 
