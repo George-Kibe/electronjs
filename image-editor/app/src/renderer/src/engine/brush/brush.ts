@@ -275,3 +275,31 @@ export function applyMaskStroke(
   for (let p = 3; p < out.length; p += 4) if (out[p] !== background) return createTile(out);
   return undefined;
 }
+
+/**
+ * A Quick Mask stroke on the selection (FR-SEL-06): one-byte coverage moves toward `value` (0 deselects …
+ * 255 selects) by the stroke's coverage × opacity × grain. `before` is the tile's coverage, or the uniform
+ * value of a tile the selection does not store (0, or 255 when nothing was selected). The CPU commit of
+ * quickmask.frag's preview.
+ */
+export function applySelectionStroke(
+  before: Uint8ClampedArray | null,
+  uniform: number,
+  coverage: Float32Array,
+  value: number,
+  settings: { opacity: number; tip?: BrushTip; aliased?: boolean },
+): Uint8ClampedArray {
+  const out = before
+    ? new Uint8ClampedArray(before)
+    : new Uint8ClampedArray(TILE_SIZE * TILE_SIZE).fill(uniform);
+  const grain = settings.aliased ? null : tipGrain(settings.tip ?? 'round');
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const i = y * TILE_SIZE + x;
+      const g = grain ? grain[(y % GRAIN_SIZE) * GRAIN_SIZE + (x % GRAIN_SIZE)]! / 255 : 1;
+      const a = coverage[i]! * settings.opacity * g;
+      if (a > 0) out[i] = out[i]! + (value - out[i]!) * a;
+    }
+  }
+  return out;
+}

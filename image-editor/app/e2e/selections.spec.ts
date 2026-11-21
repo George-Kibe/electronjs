@@ -288,3 +288,33 @@ test(`[${target}] the selection is saved in the project and comes back when it i
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test(`[${target}] Quick Mask: the selection shows red and painting changes it (FR-SEL-06)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win, 300, 200);
+  const at = await docToPage(win, 300, 200);
+  const reddish = (rgb: number[]) => rgb[0]! > 200 && rgb[1]! < 180 && rgb[2]! < 180;
+
+  await win.keyboard.press('m');
+  await drag(win, at.edge(50, 50), at.edge(150, 120));
+  await win.keyboard.press('q');
+  await expect(win.getByRole('button', { name: 'Quick Mask (Q)' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(win.locator('svg .marching-ants')).toHaveCount(0); // red instead of ants
+  await expect.poll(async () => reddish(await canvasPixel(win, ...at(20, 20)))).toBe(true); // unselected: red
+  expect(white(await canvasPixel(win, ...at(100, 85)))).toBe(true); // selected: as it is
+
+  // Paint white (X swaps to white) over unselected pixels: they join the selection.
+  await win.keyboard.press('b');
+  await win.keyboard.press('x');
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('40');
+  await paintLine(win, at(150, 85), at(250, 85));
+  await expect(history(win)).toContainText('Quick Mask');
+  await expect.poll(async () => white(await canvasPixel(win, ...at(220, 85)))).toBe(true);
+  await win.keyboard.press('q');
+  await expect(win.getByRole('button', { name: 'Quick Mask (Q)' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 2\d\d by 70 at 50, 50$/);
+  // Undo takes the stroke back out of the selection.
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect(selection(win)).toHaveAttribute('aria-label', /selection 100 by 70 at 50, 50$/);
+  await close();
+});

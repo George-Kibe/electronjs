@@ -118,6 +118,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (key === 'm') return run(() => editor.selectMarqueeTool());
         if (key === 'l') return run(() => editor.selectLassoTool());
         if (key === 'w') return run(() => editor.setTool('wand'));
+        if (key === 'q') return run(() => editor.toggleQuickMask());
         // A polygonal lasso in progress takes Enter, Esc and Backspace (before Edit › Clear below).
         if (editor.lassoActive && e.key === 'Enter') return run(() => editor.finishLasso());
         if (editor.lassoActive && e.key === 'Escape') return run(() => editor.cancelLasso());

@@ -29,6 +29,9 @@ type Props = {
   onEditColor: (which: 'foreground' | 'background') => void;
   onSwap: () => void;
   onReset: () => void;
+  /** Quick Mask (Q, FR-SEL-06). */
+  quickMask: boolean;
+  onQuickMask: () => void;
 };
 
 function ToolGroup({
@@ -133,7 +136,16 @@ function ToolGroup({
   );
 }
 
-export function ToolBar({ tool, colors, onSelect, onEditColor, onSwap, onReset }: Props) {
+export function ToolBar({
+  tool,
+  colors,
+  onSelect,
+  onEditColor,
+  onSwap,
+  onReset,
+  quickMask,
+  onQuickMask,
+}: Props) {
   const fg = rgbToHex(colors.foreground);
   const bg = rgbToHex(colors.background);
   return (
@@ -178,6 +190,16 @@ export function ToolBar({ tool, colors, onSelect, onEditColor, onSwap, onReset }
           <span aria-hidden className="absolute right-0 bottom-0 h-2 w-2 border border-black/50 bg-white" />
         </button>
       </div>
+      <Button
+        active={quickMask}
+        aria-pressed={quickMask}
+        aria-label="Quick Mask (Q)"
+        title="Quick Mask (Q): paint the selection — black removes, white adds"
+        className="mt-2 h-8 w-8"
+        onClick={onQuickMask}
+      >
+        ◩
+      </Button>
     </nav>
   );
 }

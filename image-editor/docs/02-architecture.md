@@ -173,6 +173,10 @@ its base's alpha, mask and opacity (base tile and mask on texture units 6–7). 
 isolated clipping group: identical where the base is opaque, different where a semi-transparent base would
 be covered by the clipped layer (see the roadmap for the exact model).
 
+**Quick Mask as built (M2 slice 2b′):** a red overlay pass (`quickmask.frag`) after the composite tints
+unselected pixels; a Quick Mask stroke previews coverage moving toward the painted grey and commits through
+`applySelectionStroke` into a new immutable selection (`Mask.withTiles`), one SetSelectionCommand per stroke.
+
 **Magic wand as built (slice 1b):** `engine/ops/wand.ts` runs as an `OpsJob` in the ops worker. It
 composites the sampled layers tile by tile (`compositeTile`), marks pixels within tolerance of the seed
 in a one-byte canvas bitmap (worker memory only), flood-fills it with a 4-connected scanline fill (or

@@ -1,6 +1,7 @@
 import { tileRange } from '@shared/iep-schema';
 import {
   applyMaskStroke,
+  applySelectionStroke,
   applyStroke,
   DabGenerator,
   DEFAULT_BRUSH,
@@ -50,6 +51,7 @@ import {
   polygonMask,
   rectMask,
   type Bounds,
+  type MaskTile as MaskTileOf,
   type Point,
   type SelectionOp,
 } from './doc/selection';
@@ -276,6 +278,8 @@ export type EditorSnapshot = {
   canReselect: boolean;
   /** Painting tools edit the active layer's mask, not its pixels (FR-LAY-04). */
   editingMask: boolean;
+  /** Quick Mask mode (Q, FR-SEL-06): the selection shows as red and painting tools edit it. */
+  quickMask: boolean;
   options: ToolOptions;
   colors: Colors;
   /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
@@ -317,6 +321,8 @@ type ActiveStroke = {
   pointerId: number;
   /** Painting the layer mask toward `value` (0..255) instead of the pixels (FR-LAY-04). */
   mask: { value: number } | null;
+  /** Quick Mask: painting the selection toward `value` (0..255; FR-SEL-06). */
+  quick: { value: number } | null;
 };
 
 type ActiveMove = {
@@ -452,6 +458,8 @@ export class Editor {
   private outline: { mask: Mask; path: string } | null = null;
   /** Painting goes to the active layer's mask (its thumbnail was clicked; FR-LAY-04). */
   private editingMask = false;
+  /** Quick Mask mode (FR-SEL-06). */
+  private quickMask = false;
   /** The last selection removed by Deselect, per document (Select › Reselect). */
   private readonly lastSelection = new WeakMap<Document, Mask>();
   /** Canvas size the view was last fitted to (refit when a command changes it). */
@@ -910,6 +918,7 @@ export class Editor {
         : null,
       canReselect: doc !== null && !doc.selection && this.lastSelection.has(doc),
       editingMask: this.editingMask && doc?.activeLayer.type === 'raster' && Boolean(doc.activeLayer.mask),
+      quickMask: this.quickMask && doc !== null,
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
@@ -1352,6 +1361,59 @@ export class Editor {
       return 'move';
     if (mods.alt && (t === 'brush' || t === 'pencil')) return 'eyedropper';
     return t;
+  }
+
+  // ---- Quick Mask (FR-SEL-06) -------------------------------------------------------------------
+
+  /** Q: Quick Mask on or off. The selection stays as it is: painting changed it stroke by stroke. */
+  toggleQuickMask(): void {
+    if (!this.doc || this.busy) return;
+    this.quickMask = !this.quickMask;
+    this.changed();
+  }
+
+  private beginQuickMaskStroke(e: PointerEvent, tool: PaintTool, layerId: string): void {
+    const settings = this.strokeSettings(tool, false);
+    const generator = new DabGenerator(settings);
+    const smoother = new PulledString((settings.smoothing * SMOOTHING_SCREEN_PX) / this.viewport.zoom);
+    const start = this.docPoint(e);
+    this.stroke = {
+      layerId,
+      tool,
+      settings,
+      generator,
+      smoother,
+      last: start,
+      pointerId: e.pointerId,
+      mask: null,
+      quick: { value: this.maskPaintValue(tool) },
+    };
+    this.strokeBuffer.clear();
+    this.strokeBuffer.hardness = settings.hardness;
+    this.strokeBuffer.aliased = settings.aliased;
+    this.addDabs(generator.begin(smoother.begin(start)), e.timeStamp);
+  }
+
+  /** A Quick Mask stroke becomes one selection change (white selects, black deselects). */
+  private commitQuickMaskStroke(stroke: ActiveStroke, doc: Document): void {
+    const base = doc.selection ?? Mask.all(doc.width, doc.height);
+    const updates = new Map<TileKey, MaskTileOf | undefined>();
+    for (const key of this.strokeBuffer.keys()) {
+      const [tx, ty] = parseTileKey(key);
+      if (tx < 0 || ty < 0 || tx * TILE_SIZE >= doc.width || ty * TILE_SIZE >= doc.height) continue;
+      const old = base.tile(key);
+      const data = applySelectionStroke(
+        old && !old.full ? old.data : null,
+        old ? 255 : 0,
+        this.strokeBuffer.readCoverage(key),
+        stroke.quick!.value,
+        stroke.settings,
+      );
+      updates.set(key, maskTile(data));
+    }
+    this.strokeBuffer.clear();
+    if (updates.size) this.setSelection(base.withTiles(updates), 'Quick Mask');
+    else this.requestRender();
   }
 
   // ---- layer masks (FR-LAY-04) ------------------------------------------------------------------
@@ -2258,6 +2320,7 @@ export class Editor {
     if (!isPaintTool(tool)) return;
     const layer = this.doc.activeLayer;
     if (this.gl.isContextLost()) return; // no GPU: nothing to paint with
+    if (this.quickMask) return this.beginQuickMaskStroke(e, tool, layer.id);
     if (layer.type !== 'raster') return this.notice('Select a layer to paint on (groups have no pixels).');
     if (!layer.visible) return this.notice('This layer is hidden. Show it to paint on it.');
     const onMask = this.editingMask && layer.mask ? this.maskPaintValue(tool) : null;
@@ -2276,6 +2339,7 @@ export class Editor {
       last: start,
       pointerId: e.pointerId,
       mask: onMask === null ? null : { value: onMask },
+      quick: null,
     };
     this.strokeBuffer.clear();
     this.strokeBuffer.hardness = settings.hardness;
@@ -2448,6 +2512,7 @@ export class Editor {
       return;
     }
     const start = performance.now();
+    if (stroke.quick) return this.commitQuickMaskStroke(stroke, doc);
     const layer = doc.raster(stroke.layerId);
     const preserveAlpha = layer.locks.transparency;
     const before = new Map<TileKey, Tile | undefined>();
@@ -2535,16 +2600,18 @@ export class Editor {
       return;
     }
     const strokeLayer = this.stroke ? this.doc.layer(this.stroke.layerId) : null;
-    const preview = this.stroke
-      ? {
-          buffer: this.strokeBuffer,
-          layerId: this.stroke.layerId,
-          settings: this.stroke.settings,
-          preserveAlpha: strokeLayer?.locks.transparency ?? false,
-          selection: this.doc?.selection ?? null,
-          onMask: this.stroke.mask ? { target: this.stroke.mask.value / 255 } : null,
-        }
-      : undefined;
+    const quick = this.quickMask && this.stroke?.quick ? this.stroke : null;
+    const preview =
+      this.stroke && !quick
+        ? {
+            buffer: this.strokeBuffer,
+            layerId: this.stroke.layerId,
+            settings: this.stroke.settings,
+            preserveAlpha: strokeLayer?.locks.transparency ?? false,
+            selection: this.doc?.selection ?? null,
+            onMask: this.stroke.mask ? { target: this.stroke.mask.value / 255 } : null,
+          }
+        : undefined;
     const move = this.moving
       ? { layerIds: this.moving.rasterIds, dx: this.moving.dx, dy: this.moving.dy }
       : undefined;
@@ -2554,7 +2621,17 @@ export class Editor {
       { cssWidth, cssHeight, width, height, dpr },
       preview,
       move,
-      { pixelGrid: this.pixelGrid },
+      {
+        pixelGrid: this.pixelGrid,
+        quickMask: this.quickMask
+          ? {
+              selection: this.doc.selection,
+              stroke: quick
+                ? { buffer: this.strokeBuffer, settings: quick.settings, target: quick.quick!.value / 255 }
+                : null,
+            }
+          : null,
+      },
     );
     // Overlays (scrollbars, crop box) follow pans and zooms through the separate view store.
     const { zoom, panX, panY } = this.viewport;

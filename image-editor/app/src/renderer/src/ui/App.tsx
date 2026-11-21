@@ -372,6 +372,8 @@ export function App() {
             onEditColor={setPicking}
             onSwap={() => editor.swapColors()}
             onReset={() => editor.resetColors()}
+            quickMask={snap.quickMask}
+            onQuickMask={() => editor.toggleQuickMask()}
           />
         )}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -408,7 +410,8 @@ export function App() {
             {editor && (snap?.selection || snap?.marquee || snap?.lasso) && (
               <SelectionOverlay
                 editor={editor}
-                selection={snap.selection}
+                // In Quick Mask the red overlay shows the selection instead of the ants.
+                selection={snap.quickMask ? null : snap.selection}
                 marquee={snap.marquee}
                 lasso={snap.lasso}
               />

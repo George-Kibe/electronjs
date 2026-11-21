@@ -188,7 +188,10 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         opaque; Photoshop's isolated clipping group (base opacity and mode applied to the whole group) needs
         source-atop blend modes in `blend.glsl`/`blend.ts`, a golden-image area, and is a follow-up. Groups
         as bases clip nothing yet.
-  - [ ] 2b′ Quick Mask (Q)
+  - [ ] 2b′ Quick Mask (Q, the toolbar's ◩): the unselected area shows under 50 % red instead of marching
+        ants, and the brush, pencil and eraser paint the selection itself (white selects, black deselects,
+        greys in between); each stroke is one selection step in History, so leaving Quick Mask needs no
+        conversion. With no selection everything counts as selected. GPU overlay and CPU commit agree.
   - [ ] 2c Multi-layer selection: move, group, align and distribute (FR-LAY-08)
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
