@@ -96,6 +96,15 @@ test(`[${target}] journey 2: open photo → crop 4:5 → export JPEG without loc
   await expect(win.locator('footer')).toContainText('240 × 300 px');
   await expect(win.getByRole('list', { name: 'History' })).toContainText('Crop');
 
+  // A Levels adjustment layer (M2): output white 240 darkens the highlights a little.
+  await win.getByRole('button', { name: 'New adjustment layer' }).click();
+  await win.getByRole('menuitem', { name: /Levels/ }).click();
+  await win
+    .getByRole('region', { name: 'Levels properties' })
+    .getByRole('spinbutton', { name: 'Output white' })
+    .fill('240');
+  await expect(win.getByRole('list', { name: 'History' })).toContainText('Levels');
+
   const out = join(dir, 'journey-2.jpg');
   await stubSaveDialog(app, out);
   await win.keyboard.press('ControlOrMeta+Alt+Shift+KeyW');
@@ -115,6 +124,7 @@ test(`[${target}] journey 2: open photo → crop 4:5 → export JPEG without loc
   expect(exif.includes(Buffer.from([0x25, 0x88]))).toBe(false); // no GPS IFD pointer tag
   expect(meta.icc).toBeDefined(); // tagged sRGB
   const [r, g, b] = await filePixel(out, 120, 150);
-  expect(Math.abs(r! - 30) + Math.abs(g! - 120) + Math.abs(b! - 200)).toBeLessThan(15); // the photo's colour
+  // The photo's colour (30, 120, 200) through Levels: × 240/255.
+  expect(Math.abs(r! - 28) + Math.abs(g! - 113) + Math.abs(b! - 188)).toBeLessThan(15);
   await close();
 });

@@ -70,7 +70,8 @@ Selections (M2 slice 1a): `e2e/selections.spec.ts` drags marquees in every mode,
 a selection, clears it with Delete, and drives the Select menu and its keys.
 
 As built for the M1 exit: `e2e/journeys.spec.ts` runs journey 1 without the text step (M3) and journey 2
-without the Levels adjustment layer (M2), and checks the exported files' pixels, size and metadata.
+without the Levels adjustment layer (M2), and checks the exported files' pixels, size and metadata. Journey
+2 includes the Levels adjustment layer since M2 slice 4.
 
 **Harness note (M0):** `app://` is cross-origin isolated, so the window's first navigation swaps renderer
 processes. If that swap races Playwright's attach to the new window, the `firstWindow()` Page can stay on
