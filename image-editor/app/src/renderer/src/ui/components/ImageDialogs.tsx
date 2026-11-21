@@ -9,7 +9,7 @@ type Size = { width: number; height: number };
 
 const validSide = (v: number) => Number.isInteger(v) && v >= 1 && v <= MAX_DOCUMENT_SIDE;
 
-function Field(props: {
+export function Field(props: {
   label: string;
   value: number;
   unit: string;
@@ -36,7 +36,7 @@ function Field(props: {
 }
 
 /** Modal with a form: Enter applies, Escape cancels. */
-function FormDialog(props: {
+export function FormDialog(props: {
   title: string;
   valid: boolean;
   onApply: () => void;

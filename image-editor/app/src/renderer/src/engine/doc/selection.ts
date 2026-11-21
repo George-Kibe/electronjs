@@ -16,7 +16,8 @@ export const FULL_TILE: MaskTile = { data: new Uint8ClampedArray(MASK_TILE_BYTES
 export type SelectionOp = 'replace' | 'add' | 'subtract' | 'intersect';
 export type Bounds = { x0: number; y0: number; x1: number; y1: number };
 
-function tileFrom(data: Uint8ClampedArray): MaskTile | undefined {
+/** A coverage tile as a MaskTile: undefined when empty, the shared FULL_TILE when fully selected. */
+export function maskTile(data: Uint8ClampedArray): MaskTile | undefined {
   let min = 255;
   let max = 0;
   for (let i = 0; i < data.length; i++) {
@@ -181,7 +182,7 @@ export class Mask {
       else {
         const data = new Uint8ClampedArray(MASK_TILE_BYTES);
         for (let i = 0; i < data.length; i++) data[i] = 255 - tile.data[i]!;
-        next = tileFrom(data);
+        next = maskTile(data);
       }
       const clipped = next && clipToCanvas(key, next, this.width, this.height);
       if (clipped) out.set(key, clipped);
@@ -234,7 +235,7 @@ function combineTile(
 function perPixel(a: MaskTile, b: MaskTile, f: (x: number, y: number) => number): MaskTile | undefined {
   const data = new Uint8ClampedArray(MASK_TILE_BYTES);
   for (let i = 0; i < data.length; i++) data[i] = f(a.data[i]!, b.data[i]!);
-  return tileFrom(data);
+  return maskTile(data);
 }
 
 /** Zeroes coverage outside the canvas (edge tiles); undefined when nothing remains. */
@@ -253,7 +254,7 @@ function clipToCanvas(key: TileKey, tile: MaskTile, width: number, height: numbe
     const row = y * TILE_SIZE;
     data.set(tile.data.subarray(row + x0, row + x1), row + x0);
   }
-  return tileFrom(data);
+  return maskTile(data);
 }
 
 /** A pixel-aligned rectangle (Rectangular Marquee), clipped to the canvas. Hard edges by definition. */
@@ -398,7 +399,7 @@ export function polygonMask(points: readonly Point[], width: number, height: num
 
   const out = new Map<TileKey, MaskTile>();
   for (const [key, data] of tiles) {
-    const t = tileFrom(data);
+    const t = maskTile(data);
     if (t) out.set(key, t);
   }
   return Mask.fromTiles(out, width, height);

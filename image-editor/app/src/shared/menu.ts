@@ -61,6 +61,12 @@ export const MENU_COMMANDS = [
   'select.inverse',
   'edit.clear',
   'image.cropToSelection',
+  'select.colorRange',
+  'select.feather',
+  'select.expand',
+  'select.contract',
+  'select.border',
+  'select.smooth',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 

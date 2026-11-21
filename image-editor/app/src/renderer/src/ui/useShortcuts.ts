@@ -13,6 +13,8 @@ export type ShortcutActions = {
   closeDocument(): void;
   copyMerged(): void;
   imageSize(): void;
+  /** Select › Modify › Feather (Shift+F6). */
+  feather(): void;
   canvasSize(): void;
 };
 
@@ -102,6 +104,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
           (e.target === document.body || e.target instanceof HTMLCanvasElement)
         )
           return run(() => actions.toggleUi());
+        if (e.shiftKey && e.key === 'F6') return run(() => actions.feather());
         if (e.shiftKey && key === 'b') return run(() => editor.selectBrushTool(true));
         if (e.shiftKey && key === 'm') return run(() => editor.selectMarqueeTool(true));
         if (e.shiftKey && key === 'l') return run(() => editor.selectLassoTool(true));

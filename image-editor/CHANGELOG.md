@@ -14,6 +14,9 @@ All notable changes to ImageEditor are documented here. The format follows
 - Lasso (L) and Polygonal Lasso (Shift+L): draw around an area, or click its corners and press Enter. Magic
   Wand (W) selects similar colours, touching the click or anywhere in the image, from the active layer or
   all layers, with an adjustable tolerance.
+- Select › Modify: Feather (Shift+F6), Expand, Contract, Border and Smooth. Select › Color Range selects
+  colours close to the foreground colour. Copy, Copy Merged and Cut (Ctrl+X) take only the selection, and
+  Image › Crop crops to it.
 - Automatic updates: new versions download in the background and install when you quit, or straight away
   with Restart Now. An update never restarts the app while a document has unsaved changes. Help › Check for
   Updates, and a Stable or Beta channel in Preferences › Updates.

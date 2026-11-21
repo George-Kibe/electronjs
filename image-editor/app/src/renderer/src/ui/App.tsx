@@ -27,6 +27,7 @@ import { PanelDock } from './components/PanelDock';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { SelectionOverlay } from './components/SelectionOverlay';
+import { ColorRangeDialog, ModifyDialog, type ModifyKind } from './components/SelectionDialogs';
 import { StatusBar } from './components/StatusBar';
 import { SwatchesPanel } from './components/SwatchesPanel';
 import { TabBar } from './components/TabBar';
@@ -61,6 +62,8 @@ export function App() {
   const [engineNotice, setEngineNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<'foreground' | 'background' | null>(null);
   const [imageDialog, setImageDialog] = useState<'imageSize' | 'canvasSize' | 'rotate' | null>(null);
+  /** Select › Modify › … or Select › Color Range (FR-SEL-05). */
+  const [selectDialog, setSelectDialog] = useState<ModifyKind | 'colorRange' | null>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
   const swatches = useSwatches();
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -185,9 +188,10 @@ export function App() {
       closeDocument: () => void files.closeDocument(),
       copyMerged: () => void clipboard.copyMerged(),
       imageSize: () => setImageDialog('imageSize'),
+      feather: () => editor?.hasSelection && setSelectDialog('feather'),
       canvasSize: () => setImageDialog('canvasSize'),
     }),
-    [files, clipboard],
+    [files, clipboard, editor],
   );
   useShortcuts(editor, actions);
 
@@ -258,6 +262,12 @@ export function App() {
           'select.inverse': () => editor?.invertSelection(),
           'edit.clear': () => editor?.clearSelection(),
           'image.cropToSelection': () => editor?.cropToSelection(),
+          'select.colorRange': () => setSelectDialog('colorRange'),
+          'select.feather': () => editor?.hasSelection && setSelectDialog('feather'),
+          'select.expand': () => editor?.hasSelection && setSelectDialog('expand'),
+          'select.contract': () => editor?.hasSelection && setSelectDialog('contract'),
+          'select.border': () => editor?.hasSelection && setSelectDialog('border'),
+          'select.smooth': () => editor?.hasSelection && setSelectDialog('smooth'),
         };
         run[id]();
       }),
@@ -549,6 +559,26 @@ export function App() {
           onApply={(degrees) => {
             setImageDialog(null);
             void editor.rotateArbitrary(degrees);
+          }}
+        />
+      )}
+      {selectDialog === 'colorRange' && editor && snap && (
+        <ColorRangeDialog
+          color={snap.colors.foreground}
+          onCancel={() => setSelectDialog(null)}
+          onApply={(fuzziness, sampleAll) => {
+            setSelectDialog(null);
+            void editor.selectColorRange(fuzziness, sampleAll);
+          }}
+        />
+      )}
+      {selectDialog && selectDialog !== 'colorRange' && editor && (
+        <ModifyDialog
+          kind={selectDialog}
+          onCancel={() => setSelectDialog(null)}
+          onApply={(op) => {
+            setSelectDialog(null);
+            void editor.modifySelection(op);
           }}
         />
       )}

@@ -42,6 +42,7 @@ import { sampleColor, type RGB, type SampleSize, type SampleSource } from './doc
 import {
   ellipseMask,
   Mask,
+  maskTile,
   polygonMask,
   rectMask,
   type Bounds,
@@ -103,6 +104,7 @@ import {
 } from './tools/lasso';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import type { WandOptions } from './ops/wand';
+import type { ModifyOp } from './ops/modify';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
 import { nextZoomStep, Viewport } from './render/viewport';
 import {
@@ -1432,31 +1434,40 @@ export class Editor {
             blendMode: 'normal' as const,
           },
         ];
-    const label = 'Magic Wand';
+    const { tolerance, contiguous, antiAlias } = o;
+    await this.runSelectionJob(
+      'Magic Wand',
+      {
+        op: 'wand',
+        layers,
+        size: { width: doc.width, height: doc.height },
+        seed: { x: p.x, y: p.y },
+        options: { tolerance, contiguous, antiAlias },
+      },
+      op,
+    );
+  }
+
+  /** Runs a selection job in the ops worker and applies its mask in `op` (one history step). */
+  private async runSelectionJob(label: string, job: OpsJob, op: SelectionOp): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
     const version = this.version;
     this.job = { label, progress: 0 };
     this.changed();
     const run =
       this.options.runOps ?? ((j: OpsJob, f: (v: number) => void) => Promise.resolve(runOpsJob(j, f)));
     try {
-      const { tolerance, contiguous, antiAlias } = o;
-      const job: OpsJob = {
-        op: 'wand',
-        layers,
-        size: { width: doc.width, height: doc.height },
-        seed: { x: p.x, y: p.y },
-        options: { tolerance, contiguous, antiAlias },
-      };
       const [result] = await run(job, () => undefined);
       this.job = null;
       if (this.doc !== doc || this.version !== version)
         return this.notice(`${label} was cancelled because the document changed.`);
-      const tiles = new Map(
-        (result?.tiles ?? []).map(([key, bytes]) => [
-          key,
-          { data: new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength), full: false },
-        ]),
-      );
+      const tiles = new Map<TileKey, NonNullable<ReturnType<typeof maskTile>>>();
+      for (const [key, bytes] of result?.tiles ?? []) {
+        const t = maskTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+        if (t) tiles.set(key, t);
+      }
       const shape = Mask.fromTiles(tiles, doc.width, doc.height);
       const base = doc.selection ?? Mask.empty(doc.width, doc.height);
       this.setSelection(base.combine(op, shape), label);
@@ -1466,6 +1477,56 @@ export class Editor {
     } finally {
       this.changed();
     }
+  }
+
+  /** Select › Modify › Feather / Expand / Contract / Border / Smooth (FR-SEL-05). */
+  modifySelection(modify: ModifyOp): Promise<void> {
+    const doc = this.doc;
+    const clip = doc?.selection?.toClip();
+    if (!doc || !clip) return Promise.resolve(this.notice('Make a selection first.'));
+    const label = {
+      feather: 'Feather',
+      expand: 'Expand',
+      contract: 'Contract',
+      border: 'Border',
+      smooth: 'Smooth',
+    }[modify.kind];
+    const job: OpsJob = {
+      op: 'modify',
+      tiles: clip.tiles,
+      bounds: clip.bounds,
+      size: { width: doc.width, height: doc.height },
+      modify,
+    };
+    return this.runSelectionJob(label, job, 'replace');
+  }
+
+  /** Select › Color Range: pixels close to the foreground colour, on the active layer or all layers. */
+  selectColorRange(fuzziness: number, sampleAll: boolean): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return Promise.resolve();
+    const active = doc.activeLayer;
+    if (!sampleAll && active.type !== 'raster')
+      return Promise.resolve(this.notice('Select a layer to sample, or sample all layers.'));
+    const layers = sampleAll
+      ? toSnapshot(doc).layers
+      : [
+          {
+            ...layerToSnapshot(active),
+            visible: true,
+            opacity: 1,
+            fillOpacity: 1,
+            blendMode: 'normal' as const,
+          },
+        ];
+    const job: OpsJob = {
+      op: 'colorRange',
+      layers,
+      size: { width: doc.width, height: doc.height },
+      color: [...this.colors.foreground],
+      fuzziness,
+    };
+    return this.runSelectionJob('Color Range', job, 'replace');
   }
 
   /** A polygon is being drawn: Enter closes it, Esc cancels, Backspace removes the last vertex. */

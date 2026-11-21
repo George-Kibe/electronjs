@@ -161,6 +161,18 @@ export function menuTemplate(
         cmd('Deselect', 'select.deselect', 'CmdOrCtrl+D'),
         cmd('Reselect', 'select.reselect', 'CmdOrCtrl+Shift+D'),
         cmd('Inverse', 'select.inverse', 'CmdOrCtrl+Shift+I'),
+        { type: 'separator' },
+        cmd('Color Range…', 'select.colorRange'),
+        {
+          label: 'Modify',
+          submenu: [
+            cmd('Border…', 'select.border'),
+            cmd('Smooth…', 'select.smooth'),
+            cmd('Expand…', 'select.expand'),
+            cmd('Contract…', 'select.contract'),
+            cmd('Feather…', 'select.feather', 'Shift+F6'),
+          ],
+        },
       ],
     },
     {
