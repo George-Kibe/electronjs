@@ -417,7 +417,12 @@ const ADJUSTMENT_ICONS: Record<AdjustmentKind, string> = {
 function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind) => void }) {
   // Where the menu opens: above the button, right-aligned, in viewport px (it lives in a portal so the
   // panel's scrolling does not clip it).
-  const [at, setAt] = useState<{ right: number; bottom: number } | null>(null);
+  const [at, setAt] = useState<{
+    right: number;
+    top?: number;
+    bottom?: number;
+    maxHeight: number;
+  } | null>(null);
   const open = at !== null;
   useEffect(() => {
     if (!open) return;
@@ -437,7 +442,17 @@ function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind) => void }) 
         title="New adjustment layer"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          setAt(open ? null : { right: window.innerWidth - r.right, bottom: window.innerHeight - r.top + 4 });
+          const right = window.innerWidth - r.right;
+          const above = r.top - 8;
+          const below = window.innerHeight - r.bottom - 8;
+          // Opens upward unless there is more room below; scrolls when the window is short.
+          setAt(
+            open
+              ? null
+              : above >= below
+                ? { right, bottom: window.innerHeight - r.top + 4, maxHeight: above }
+                : { right, top: r.bottom + 4, maxHeight: below },
+          );
         }}
       >
         ◑
@@ -448,8 +463,8 @@ function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind) => void }) 
             id="adjustment-menu"
             role="menu"
             aria-label="New adjustment layer"
-            style={{ right: at.right, bottom: at.bottom }}
-            className="bg-ui-panel border-ui-border fixed z-50 min-w-44 rounded border py-1 shadow-lg"
+            style={{ right: at.right, top: at.top, bottom: at.bottom, maxHeight: at.maxHeight }}
+            className="bg-ui-panel border-ui-border fixed z-50 min-w-44 overflow-y-auto rounded border py-1 shadow-lg"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setAt(null);
             }}

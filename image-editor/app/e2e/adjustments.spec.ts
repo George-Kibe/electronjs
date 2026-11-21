@@ -33,6 +33,12 @@ const layers = (win: Page) => win.getByRole('listbox', { name: 'Layers' });
 
 test(`[${target}] adjustment layers: add, change in Properties, hide, paint the mask, undo (FR-ADJ-01)`, async () => {
   const { app, win, close } = await launch();
+  // A short window, as on the CI runners: the ◑ menu must still fit (it scrolls).
+  await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0]!;
+    w.unmaximize();
+    w.setSize(1000, 640);
+  });
   const at = await newDocument(win, 300, 200);
   await win.getByRole('button', { name: 'New layer', exact: true }).click();
   await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('30');
@@ -51,6 +57,11 @@ test(`[${target}] adjustment layers: add, change in Properties, hide, paint the 
 
   // The Layers panel's ◑ menu adds Levels; the Properties panel changes it live, as one undo step.
   await win.getByRole('button', { name: 'New adjustment layer' }).click();
+  // The menu stays inside the window, however short (it scrolls).
+  const menuBox = (await win.getByRole('menu', { name: 'New adjustment layer' }).boundingBox())!;
+  const height = await win.evaluate(() => window.innerHeight);
+  expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(height);
   await win.getByRole('menuitem', { name: /Levels/ }).click();
   const props = win.getByRole('region', { name: 'Levels properties' });
   await props.getByRole('spinbutton', { name: 'Output white' }).fill('100');
