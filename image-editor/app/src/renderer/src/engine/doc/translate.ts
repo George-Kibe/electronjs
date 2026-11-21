@@ -80,11 +80,12 @@ export class TranslateCommand implements Command {
 
   private apply(doc: Document, pixels: Pixels): DirtySet {
     for (const [id, entries] of pixels) {
-      const grid = doc.raster(id).tiles;
+      // `<id>#mask`: the layer's linked mask moves with it.
+      const grid = id.endsWith('#mask') ? doc.raster(id.slice(0, -5)).mask!.grid : doc.raster(id).tiles;
       grid.clear();
       for (const [key, tile] of entries) grid.set(key, tile);
     }
-    return { layerIds: [...pixels.keys()], tiles: 'all' };
+    return { layerIds: [...pixels.keys()].map((id) => id.replace(/#mask$/, '')), tiles: 'all' };
   }
 
   do(doc: Document): DirtySet {
@@ -131,6 +132,10 @@ export function translateLayer(
   for (const layer of movedRasters(doc, id)) {
     before.set(layer.id, [...layer.tiles.entries()]);
     after.set(layer.id, [...translateGrid(layer.tiles, dx, dy, range).entries()]);
+    if (layer.mask?.linked) {
+      before.set(`${layer.id}#mask`, [...layer.mask.grid.entries()]);
+      after.set(`${layer.id}#mask`, [...translateGrid(layer.mask.grid, dx, dy, range).entries()]);
+    }
   }
   return new TranslateCommand(label, before, after);
 }

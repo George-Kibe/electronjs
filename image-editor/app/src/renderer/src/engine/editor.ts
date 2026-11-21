@@ -1857,8 +1857,13 @@ export class Editor {
   }
 
   /** Every raster layer's tiles as plain bytes for the ops worker (structured-cloned, never mutated). */
+  /** Every raster layer's tiles for a pixel job, and its mask under `<id>#mask` (resampled the same way). */
   private layerTiles(): LayerTiles[] {
-    return this.doc!.allLayers().flatMap((l) => (l.type === 'raster' ? [fromGrid(l.id, l.tiles)] : []));
+    return this.doc!.allLayers().flatMap((l) =>
+      l.type === 'raster'
+        ? [fromGrid(l.id, l.tiles), ...(l.mask ? [fromGrid(`${l.id}#mask`, l.mask.grid)] : [])]
+        : [],
+    );
   }
 
   /**

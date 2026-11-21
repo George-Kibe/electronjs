@@ -35,7 +35,14 @@ function transformRasters(
         const tiles = transform(l, range, old);
         const shared = new Set([...l.tiles.entries()].map(([, t]) => t.id));
         for (const [, t] of tiles.entries()) if (!shared.has(t.id)) newTileBytes += TILE_BYTES;
-        return { ...l, tiles } as RasterLayer;
+        // The mask is transformed exactly like the pixels (it is an RGBA grid too), under the id `<id>#mask`.
+        let mask = l.mask ?? null;
+        if (mask) {
+          const grid = transform({ ...l, id: `${l.id}#mask`, tiles: mask.grid }, range, old);
+          newTileBytes += grid.size * TILE_BYTES;
+          mask = { ...mask, grid };
+        }
+        return { ...l, tiles, mask } as RasterLayer;
       });
     return {
       root: visit(cloneTree(d.layers)),
