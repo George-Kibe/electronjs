@@ -198,6 +198,14 @@ on a downscaled proxy while a slider is being dragged, then at full resolution o
 
 - Free transform: a live preview as a textured quad with an affine (later projective) matrix. On commit,
   it re-rasterizes into tiles with bicubic sampling in the shader.
+  *As built (M2 slice 3a):* the preview draws each tile of the transformed layers through a `u_transform`
+  matrix in `tile.vert`, sampled bilinear (nearest from 200 %); the other layers and the blend stack are
+  unchanged. The commit runs on the CPU in the ops worker (`engine/ops/affine.ts`). It inverse-maps each
+  destination pixel and samples bicubic in premultiplied alpha. For reductions it widens the kernel by the
+  inverse scale along each source axis, so the result does not alias. Flips and quarter turns at 100 % are
+  snapped to whole-pixel offsets, so they are exact copies. A linked mask is transformed with its layer.
+  A reveal-all mask is inverted before and after the transform, so its missing tiles stay revealed. A GPU
+  commit path is a later optimisation, as for Image Size.
 - Image size: Lanczos3 / bicubic / bilinear / nearest, as two-pass separable resampling in premultiplied
   gamma space, widened when downscaling, edges extended at the canvas. M1 runs it on the CPU in the ops
   worker (`engine/ops/resample.ts`, band by band so memory follows the output width); a GPU path for

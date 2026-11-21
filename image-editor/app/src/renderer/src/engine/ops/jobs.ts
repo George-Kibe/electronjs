@@ -2,6 +2,7 @@ import { tileRange } from '@shared/iep-schema';
 import { createTile, TILE_BYTES, TileGrid, type TileKey } from '../tiles/tile';
 import { snapshotLayers, type LayerSnapshot } from '../io/snapshot';
 import { resampleGrid, rotateArbitraryGrid, type ResampleFilter } from './resample';
+import { affineGrid, invertAlpha, type Affine } from './affine';
 import { modifySelection, type ClipTiles, type ModifyOp } from './modify';
 import { colorRange, magicWand, type WandOptions } from './wand';
 
@@ -25,6 +26,11 @@ export type OpsJob =
       size: Size;
       modify: ModifyOp;
     }
+  /**
+   * Free Transform (FR-TRF-04): each layer re-rasterized under `matrix` (document px → document px).
+   * `inverted`: layers (reveal-all masks) whose missing tiles mean opaque, so they transform inverted.
+   */
+  | { op: 'affine'; layers: LayerTiles[]; size: Size; matrix: Affine; inverted?: string[] }
   /** Select › Color Range (FR-SEL-05). */
   | {
       op: 'colorRange';
@@ -64,6 +70,18 @@ export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerT
           : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
     onProgress?.(1);
     return [{ id: 'mask', tiles }];
+  }
+  if (job.op === 'affine') {
+    const range = tileRange(job.size.width, job.size.height);
+    const inverted = new Set(job.inverted);
+    return job.layers.map((layer, i) => {
+      const flip = inverted.has(layer.id);
+      const src = toGrid(layer.tiles);
+      const out = affineGrid(flip ? invertAlpha(src) : src, job.matrix, range, (done, rows) =>
+        onProgress?.((i + done / rows) / Math.max(1, job.layers.length)),
+      );
+      return fromGrid(layer.id, flip ? invertAlpha(out) : out);
+    });
   }
   const range = tileRange(job.dst.width, job.dst.height);
   const total = Math.max(1, job.layers.length);

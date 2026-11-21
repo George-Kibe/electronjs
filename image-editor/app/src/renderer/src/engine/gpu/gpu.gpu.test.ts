@@ -17,7 +17,10 @@ import { translateLayer } from '../doc/translate';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
 import { createTile, TILE_SIZE, TileGrid } from '../tiles/tile';
-import { Compositor } from './compositor';
+import { tileRange } from '@shared/iep-schema';
+import { affineGrid, type Affine } from '../ops/affine';
+import { contentBounds } from '../ops/canvas';
+import { Compositor, type TransformPreview } from './compositor';
 import { StrokeBuffer } from './stroke-buffer';
 
 function context(width: number, height: number): WebGL2RenderingContext {
@@ -756,6 +759,166 @@ describe('editor canvas geometry (FR-TRF-01..03)', () => {
     ]);
     editor.goToHistory(-1);
     expect(editor.getSnapshot().doc).toMatchObject({ width: 200, height: 100 });
+    editor.dispose();
+  });
+});
+
+describe('Free Transform (FR-TRF-04, T-TRF-01)', () => {
+  function editorCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'width:400px;height:300px;display:block';
+    document.body.append(canvas);
+    return canvas;
+  }
+
+  function preview(matrix: Affine, size = 300) {
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    // A smooth, opaque image well inside the canvas, on white.
+    const rgba = new Uint8ClampedArray(size * size * 4);
+    for (let y = 60; y < 240; y++)
+      for (let x = 40; x < 260; x++)
+        rgba.set([x % 256, y % 256, Math.round(128 + 100 * Math.sin(x / 20)), 255], (y * size + x) * 4);
+    const layer = createRasterLayer('top', TileGrid.fromRgba(size, size, rgba));
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
+      layer,
+    ]);
+    const render = (transform?: TransformPreview, d = doc) => {
+      compositor.render(
+        d,
+        new Viewport(),
+        { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+        undefined,
+        undefined,
+        { transform },
+      );
+      const px = new Uint8Array(size * size * 4);
+      gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const live = render({ layerIds: new Set([layer.id]), matrix });
+    const after = new Document(size, size, [
+      doc.layers[0]!,
+      createRasterLayer('top', affineGrid(layer.tiles, matrix, tileRange(size, size))),
+    ]);
+    const committed = render(undefined, after);
+    let sum = 0;
+    let max = 0;
+    for (let i = 0; i < live.length; i++) {
+      const e = Math.abs(live[i]! - committed[i]!);
+      sum += e;
+      max = Math.max(max, e);
+    }
+    return { mean: sum / live.length, max };
+  }
+
+  it('a quarter turn previews exactly as it commits', () => {
+    expect(preview([0, 1, -1, 0, 300, 0])).toEqual({ mean: 0, max: 0 });
+  });
+
+  it('a rotation with scaling previews close to the bicubic commit', () => {
+    const a = 0.4;
+    const s = 0.8;
+    const c = Math.cos(a) * s;
+    const n = Math.sin(a) * s;
+    // About the canvas centre (150, 150).
+    const { mean } = preview([c, n, -n, c, 150 - c * 150 + n * 150, 150 - n * 150 - c * 150]);
+    expect(mean).toBeLessThan(1.5); // bilinear preview vs bicubic commit: edges differ slightly
+  });
+
+  it('Ctrl+T: drag-free numeric entry, apply as one undo step, cancel and undo leave pixels alone', async () => {
+    const notices: string[] = [];
+    const editor = new Editor(editorCanvas(), { onNotice: (m) => notices.push(m) });
+    editor.newDocument(200, 100);
+    const rgba = new Uint8Array(40 * 20 * 4);
+    for (let y = 0; y < 20; y++)
+      for (let x = 0; x < 40; x++) rgba.set(x < 20 ? [255, 0, 0, 255] : [0, 0, 255, 255], (y * 40 + x) * 4);
+    editor.pasteAsLayer(40, 20, rgba);
+    const doc = () => editor.exportState().doc!;
+    const pixels = () => doc().raster(doc().activeLayerId).tiles;
+    const before = pixels();
+    const box = contentBounds([before])!;
+    expect(box.x1 - box.x0).toBe(40);
+
+    editor.beginTransform();
+    const t = editor.getSnapshot().transform!;
+    expect(t.box).toEqual(box);
+    expect(t.handles.nw).toEqual([box.x0, box.y0]);
+    editor.addLayer(); // refused while the box is open
+    expect(editor.getSnapshot().layers).toHaveLength(2);
+    editor.setTransformParams({ sx: -1 }); // flip: red and blue swap sides
+    editor.cancelTransform();
+    expect(pixels()).toBe(before);
+    expect(editor.getSnapshot().transform).toBeNull();
+
+    editor.beginTransform();
+    editor.setTransformParams({ sx: -1, tx: 10 });
+    editor.nudge(0, 3); // arrows move the box
+    expect(editor.getSnapshot().transform!.params).toMatchObject({ tx: 10, ty: 3 });
+    await editor.commitTransform();
+    expect(editor.getSnapshot().history.entries.map((e) => e.label)).toEqual(['Paste', 'Free Transform']);
+    const flipped = pixels();
+    expect(flipped.pixel(box.x0 + 10 + 2, box.y0 + 3 + 5)).toEqual([0, 0, 255, 255]); // exact: no resampling
+    expect(flipped.pixel(box.x1 + 10 - 2, box.y0 + 3 + 5)).toEqual([255, 0, 0, 255]);
+    editor.undo();
+    expect(pixels()).toBe(before);
+
+    // Edit › Transform › Rotate 90° applies at once, about the content's centre, exactly.
+    editor.transformStep('rotate90cw');
+    await vi.waitFor(() => expect(editor.getSnapshot().job).toBeNull());
+    const turned = contentBounds([pixels()])!;
+    expect([turned.x1 - turned.x0, turned.y1 - turned.y0]).toEqual([20, 40]);
+    expect(pixels().pixel(turned.x0 + 5, turned.y0 + 2)).toEqual([255, 0, 0, 255]); // left half → top
+    expect(editor.getSnapshot().history.entries.at(-1)!.label).toBe('Rotate 90° Clockwise');
+
+    // Undo while the box is open closes it; a selection is not transformed yet.
+    editor.beginTransform();
+    editor.undo();
+    expect(editor.getSnapshot().transform).toBeNull();
+    expect(editor.getSnapshot().history.entries.at(-1)!.label).toBe('Rotate 90° Clockwise');
+    editor.selectAll();
+    editor.beginTransform();
+    expect(editor.getSnapshot().transform).toBeNull();
+    expect(notices.at(-1)).toMatch(/selection/);
+    editor.dispose();
+  });
+
+  it('a linked reveal-all mask transforms with its layer; missing tiles stay revealed', async () => {
+    const editor = new Editor(editorCanvas());
+    editor.newDocument(600, 300);
+    const rgba = new Uint8Array(300 * 100 * 4).fill(255);
+    editor.pasteAsLayer(300, 100, rgba);
+    editor.addLayerMask('reveal');
+    const doc = () => editor.exportState().doc!;
+    const layer = () => doc().raster(doc().activeLayerId);
+    const box = contentBounds([layer().tiles])!;
+    // Hide a 10 × 10 patch near the layer's left edge.
+    const hidden = new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4).fill(255);
+    const [tx, ty] = [Math.floor(box.x0 / TILE_SIZE), Math.floor(box.y0 / TILE_SIZE)];
+    const [lx, ly] = [box.x0 - tx * TILE_SIZE + 5, box.y0 - ty * TILE_SIZE + 5];
+    for (let y = ly; y < ly + 10; y++)
+      for (let x = lx; x < lx + 10; x++) hidden[(y * TILE_SIZE + x) * 4 + 3] = 0;
+    layer().mask!.grid.set(`${tx},${ty}`, createTile(hidden));
+
+    editor.beginTransform();
+    editor.setTransformParams({ angle: Math.PI / 2 });
+    await editor.commitTransform();
+    const mask = layer().mask!;
+    const cx = (box.x0 + box.x1) / 2;
+    const cy = (box.y0 + box.y1) / 2;
+    // The patch's centre (x0 + 10, y0 + 10) turns 90° clockwise about the box centre.
+    const [px, py] = [Math.floor(cx - (box.y0 + 10 - cy)), Math.floor(cy + (box.x0 + 10 - cx))];
+    const maskAlpha = (x: number, y: number) => {
+      const tile = mask.grid.get(`${Math.floor(x / TILE_SIZE)},${Math.floor(y / TILE_SIZE)}`);
+      return tile ? tile.data[((y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)) * 4 + 3] : mask.background;
+    };
+    expect(maskAlpha(px, py)).toBeLessThan(10);
+    // Elsewhere inside and right next to the turned layer, the mask still reveals.
+    expect(maskAlpha(Math.floor(cx), Math.floor(cy))).toBe(255);
+    expect(maskAlpha(Math.floor(cx) + 60, Math.floor(cy))).toBe(255);
     editor.dispose();
   });
 });

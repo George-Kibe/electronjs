@@ -39,6 +39,16 @@ export type QuickMaskOverlay = {
   stroke?: { buffer: StrokeBuffer; settings: BrushSettings; target: number } | null;
 };
 
+/** Free Transform in progress (FR-TRF-04): these raster layers are drawn under `matrix` (doc → doc). */
+export type TransformPreview = { layerIds: ReadonlySet<string>; matrix: readonly number[] };
+
+const IDENTITY3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+
+/** An affine [a, b, c, d, e, f] as a column-major mat3. */
+function mat3(m: readonly number[]): Float32Array {
+  return new Float32Array([m[0]!, m[1]!, 0, m[2]!, m[3]!, 0, m[4]!, m[5]!, 1]);
+}
+
 /** Move tool drag in progress (FR-TRF-07): these raster layers are drawn shifted by whole pixels. */
 export type MovePreview = { layerIds: ReadonlySet<string>; dx: number; dy: number };
 
@@ -51,6 +61,7 @@ type DrawContext = {
   size: Size;
   stroke?: StrokePreview;
   move?: MovePreview;
+  transform?: TransformPreview;
 };
 
 type Size = { cssWidth: number; cssHeight: number; width: number; height: number; dpr: number };
@@ -184,7 +195,11 @@ export class Compositor {
     size: Size,
     stroke?: StrokePreview,
     move?: MovePreview,
-    overlays: { pixelGrid?: boolean; quickMask?: QuickMaskOverlay | null } = {},
+    overlays: {
+      pixelGrid?: boolean;
+      quickMask?: QuickMaskOverlay | null;
+      transform?: TransformPreview | null;
+    } = {},
   ): void {
     const gl = this.gl;
     this.resizePool(size.width, size.height);
@@ -201,7 +216,8 @@ export class Compositor {
       x1: Math.min(doc.width, r.x1),
       y1: Math.min(doc.height, r.y1),
     };
-    this.drawLayers(doc.layers, main, { docToClip, visible, rect, viewport, size, stroke, move });
+    const transform = overlays.transform ?? undefined;
+    this.drawLayers(doc.layers, main, { docToClip, visible, rect, viewport, size, stroke, move, transform });
 
     // Present: surround, checkerboard under the document, then the composite (premultiplied source-over).
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -257,6 +273,7 @@ export class Compositor {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniformMatrix3fv(p.uniform('u_docToClip'), false, docToClip);
+    gl.uniformMatrix3fv(p.uniform('u_transform'), false, IDENTITY3);
     gl.uniform1f(p.uniform('u_tileSize'), TILE_SIZE);
     gl.uniform2f(p.uniform('u_docSize'), doc.width, doc.height);
     gl.uniform1i(p.uniform('u_mask'), 4);
@@ -354,6 +371,9 @@ export class Compositor {
       gl.bindTexture(gl.TEXTURE_2D, backdrop!.texture);
     }
     gl.uniformMatrix3fv(p.uniform('u_docToClip'), false, ctx.docToClip);
+    // A layer under Free Transform draws all its tiles through the matrix (the viewport culling does not apply).
+    const transformed = ctx.transform?.layerIds.has(layer.id) ? ctx.transform : undefined;
+    gl.uniformMatrix3fv(p.uniform('u_transform'), false, transformed ? mat3(transformed.matrix) : IDENTITY3);
     gl.uniform1f(p.uniform('u_tileSize'), TILE_SIZE);
     gl.uniform1i(p.uniform('u_tile'), 0);
     gl.uniform1i(p.uniform('u_stroke'), 1);
@@ -396,7 +416,12 @@ export class Compositor {
       gl.bindSampler(unit, ctx.viewport.zoom * ctx.size.dpr >= 2 ? this.nearestSampler : this.linearSampler);
     const moving = ctx.move?.layerIds.has(layer.id) ? ctx.move : undefined;
     const [ox, oy] = moving ? [moving.dx, moving.dy] : [0, 0];
-    for (const key of moving ? this.movedTiles(layer, moving, ctx.rect) : ctx.visible) {
+    const keys = transformed
+      ? [...layer.tiles.keys()]
+      : moving
+        ? this.movedTiles(layer, moving, ctx.rect)
+        : ctx.visible;
+    for (const key of keys) {
       const tile = layer.tiles.get(key);
       const mask = selection?.tile(key);
       // Outside the selection the stroke shows nothing; fully selected tiles need no mask.

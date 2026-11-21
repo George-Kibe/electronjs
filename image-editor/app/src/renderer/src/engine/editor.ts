@@ -76,12 +76,25 @@ import {
   replacePixels,
   resizeCanvas,
   rotateCanvas,
+  replaceLayers,
   type Anchor,
   type CropRect,
 } from './doc/geometry';
 import { History, type HistoryEntry } from './history/history';
 import { captureState, collectTileIds, restoreState, type DocState } from './history/snapshots';
-import { clipGrid, type Turns } from './ops/canvas';
+import { clipGrid, contentBounds, type Turns } from './ops/canvas';
+import { invert, isIdentity, snapExact, type Affine } from './ops/affine';
+import {
+  dragTransform,
+  hitTransform,
+  NO_TRANSFORM,
+  transformedHandles,
+  transformMatrix,
+  type Box,
+  type TransformHandle,
+  type TransformHit,
+  type TransformParams,
+} from './tools/transform';
 import {
   dragHandle,
   fitRatio,
@@ -284,6 +297,14 @@ export type EditorSnapshot = {
   quickMask: boolean;
   /** Layers selected in the Layers panel (FR-LAY-08), including the active one. */
   selectedLayerIds: string[];
+  /** Free Transform (Ctrl+T, FR-TRF-04): where the box's handles are (document px) and its parameters. */
+  transform: {
+    box: Box;
+    params: TransformParams;
+    handles: Record<TransformHandle, [number, number]>;
+    hover: TransformHit | null;
+    dragging: boolean;
+  } | null;
   options: ToolOptions;
   colors: Colors;
   /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
@@ -339,6 +360,22 @@ type ActiveMove = {
   dy: number;
   pointerId: number;
 };
+
+/** Free Transform in progress (Ctrl+T, FR-TRF-04). */
+type ActiveTransform = {
+  /** The layers being transformed (groups cover their children). */
+  layerIds: string[];
+  /** Their raster layers: drawn through the matrix while the transform is open. */
+  rasterIds: ReadonlySet<string>;
+  /** The content bounds the handles start on, document px. */
+  box: Box;
+  params: TransformParams;
+  drag: { pointerId: number; hit: TransformHit; start: TransformParams; from: [number, number] } | null;
+  hover: TransformHit | null;
+};
+
+/** How close (screen px) a press must be to grab a Free Transform handle. */
+const TRANSFORM_HANDLE_SLOP = 8;
 
 /** Everything needed to continue editing on a fresh canvas (CPU state only; GPU state is rebuilt). */
 export type EditorState = {
@@ -422,6 +459,9 @@ export class Editor {
   private colors: Colors = structuredClone(DEFAULT_COLORS);
   private stroke: ActiveStroke | null = null;
   private moving: ActiveMove | null = null;
+  private transform: ActiveTransform | null = null;
+  /** A committed transform, still drawn until its job replaces the pixels. */
+  private transformPreview: { layerIds: ReadonlySet<string>; matrix: Affine } | null = null;
   private sampling: { pointerId: number; target: 'foreground' | 'background' } | null = null;
   private pan: { x: number; y: number; pointerId: number } | null = null;
   private spaceHeld = false;
@@ -697,6 +737,7 @@ export class Editor {
     this.background.delete(s.id);
     this.stroke = null;
     this.moving = null;
+    this.transform = null;
     this.sampling = null;
     this.cropDrag = null;
     this.strokeBuffer.clear();
@@ -838,6 +879,7 @@ export class Editor {
     this.docId = id;
     this.stroke = null;
     this.moving = null;
+    this.transform = null;
     this.strokeBuffer.clear();
     this.doc = doc;
     this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: this.historyBytes }, () =>
@@ -928,6 +970,13 @@ export class Editor {
       editingMask: this.editingMask && doc?.activeLayer.type === 'raster' && Boolean(doc.activeLayer.mask),
       quickMask: this.quickMask && doc !== null,
       selectedLayerIds: doc ? this.selectedIds() : [],
+      transform: this.transform && {
+        box: this.transform.box,
+        params: this.transform.params,
+        handles: transformedHandles(this.transform.box, this.transform.params),
+        hover: this.transform.hover,
+        dragging: this.transform.drag !== null,
+      },
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
@@ -951,6 +1000,7 @@ export class Editor {
     return (
       this.stroke !== null ||
       this.moving !== null ||
+      this.transform !== null ||
       this.job !== null ||
       this.marqueeDrag !== null ||
       this.lassoDraw?.pointerId != null
@@ -958,6 +1008,8 @@ export class Editor {
   }
 
   undo(): void {
+    // Undo during Free Transform leaves it without changes (the layers are untouched until it is applied).
+    if (this.transform && !this.transform.drag) return this.cancelTransform();
     if (!this.busy) this.history?.undo();
   }
 
@@ -1288,6 +1340,8 @@ export class Editor {
   }
 
   setTool(tool: Tool): void {
+    // Choosing another tool applies an open Free Transform (Photoshop asks; applying loses nothing: undo).
+    if (this.transform) void this.commitTransform();
     if (tool === 'crop' && this.tool !== 'crop') this.resetCrop(false);
     if (tool !== 'lasso') this.lassoDraw = null; // an unfinished polygon is abandoned
     this.tool = tool;
@@ -1384,6 +1438,12 @@ export class Editor {
   /** Arrow keys with the Move tool: moves the active layer; nudges in quick succession are one undo step. */
   nudge(dx: number, dy: number): void {
     const doc = this.doc;
+    // With Free Transform open, the arrows move its box.
+    if (this.transform)
+      return this.setTransformParams({
+        tx: this.transform.params.tx + dx,
+        ty: this.transform.params.ty + dy,
+      });
     if (!doc || this.busy) return;
     const ids = topSelected(doc, this.selectedIds());
     const blocker = ids.map((id) => moveBlocker(doc, id)).find(Boolean);
@@ -2373,6 +2433,7 @@ export class Editor {
       return;
     }
     if (e.button !== 0) return;
+    if (this.transform) return this.transformDown(e);
     const ctrl = e.ctrlKey || e.metaKey;
     const tool = this.effectiveTool({ alt: e.altKey, ctrl });
     if (tool === 'zoom') {
@@ -2470,6 +2531,155 @@ export class Editor {
     };
   }
 
+  // ---- Free Transform (Ctrl+T, FR-TRF-04) -------------------------------------------------------
+
+  /** The layers a transform acts on (the active one, or every selected one) and their content box. */
+  private transformTarget(): { layerIds: string[]; rasterIds: Set<string>; box: Box } | string {
+    const doc = this.doc;
+    if (!doc) return 'No document.';
+    if (doc.selection)
+      return 'Transforming a selection arrives next. Deselect (Ctrl+D) to transform the whole layer.';
+    const layerIds = topSelected(doc, this.selectedIds());
+    const blocker = layerIds.map((id) => moveBlocker(doc, id)).find(Boolean);
+    if (blocker) return blocker;
+    const rasters = layerIds.flatMap((id) => movedRasters(doc, id));
+    if (rasters.some((l) => l.locks.pixels)) return 'This layer’s pixels are locked.';
+    const box = contentBounds(rasters.map((l) => l.tiles));
+    if (!box) return 'Nothing to transform: the layer is empty.';
+    return { layerIds, rasterIds: new Set(rasters.map((l) => l.id)), box };
+  }
+
+  /** Edit › Free Transform: shows the box and handles; nothing changes until it is applied. */
+  beginTransform(): void {
+    if (!this.doc || this.transform) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const target = this.transformTarget();
+    if (typeof target === 'string') return this.notice(target);
+    this.transform = { ...target, params: NO_TRANSFORM, drag: null, hover: null };
+    this.changed();
+  }
+
+  get transforming(): boolean {
+    return this.transform !== null;
+  }
+
+  /** Options bar fields (and Edit › Transform while the box is open). */
+  setTransformParams(patch: Partial<TransformParams>): void {
+    const t = this.transform;
+    if (!t || t.drag) return;
+    const next = { ...t.params, ...patch };
+    if (!Object.values(next).every(Number.isFinite) || next.sx === 0 || next.sy === 0) return;
+    this.transform = { ...t, params: next };
+    this.changed();
+  }
+
+  /** Esc: closes the box without changing anything. */
+  cancelTransform(): void {
+    if (!this.transform) return;
+    this.transform = null;
+    this.changed();
+  }
+
+  /** Enter: re-rasterizes the layers (and their linked masks) in the ops worker, as one undo step. */
+  async commitTransform(): Promise<void> {
+    const t = this.transform;
+    if (!t || t.drag) return;
+    this.transform = null;
+    await this.applyTransform('Free Transform', t, transformMatrix(t.box, t.params));
+  }
+
+  /**
+   * Edit › Transform › Flip / Rotate: changes the open box, or applies at once to the active (or selected)
+   * layers about their centre.
+   */
+  transformStep(step: 'flipHorizontal' | 'flipVertical' | 'rotate180' | 'rotate90cw' | 'rotate90ccw'): void {
+    const turn = { rotate180: Math.PI, rotate90cw: Math.PI / 2, rotate90ccw: -Math.PI / 2 } as const;
+    const change = (p: TransformParams): TransformParams =>
+      step === 'flipHorizontal'
+        ? { ...p, sx: -p.sx }
+        : step === 'flipVertical'
+          ? { ...p, sy: -p.sy }
+          : { ...p, angle: p.angle + turn[step] };
+    if (this.transform) return this.setTransformParams(change(this.transform.params));
+    if (!this.doc) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const target = this.transformTarget();
+    if (typeof target === 'string') return this.notice(target);
+    const labels = {
+      flipHorizontal: 'Flip Horizontal',
+      flipVertical: 'Flip Vertical',
+      rotate180: 'Rotate 180°',
+      rotate90cw: 'Rotate 90° Clockwise',
+      rotate90ccw: 'Rotate 90° Counter Clockwise',
+    } as const;
+    void this.applyTransform(labels[step], target, transformMatrix(target.box, change(NO_TRANSFORM)));
+  }
+
+  private async applyTransform(
+    label: string,
+    target: { rasterIds: ReadonlySet<string> },
+    m: Affine,
+  ): Promise<void> {
+    const doc = this.doc;
+    const matrix = snapExact(m);
+    if (!doc || isIdentity(matrix)) return this.changed();
+    try {
+      invert(matrix);
+    } catch {
+      this.notice('The transform has no area. Nothing was changed.');
+      return this.changed();
+    }
+    const layers: LayerTiles[] = [];
+    const inverted: string[] = [];
+    for (const id of target.rasterIds) {
+      const l = doc.raster(id);
+      layers.push(fromGrid(id, l.tiles));
+      // A linked mask transforms with its layer; a reveal-all one transforms inverted (see invertAlpha).
+      if (l.mask?.linked) {
+        layers.push(fromGrid(`${id}#mask`, l.mask.grid));
+        if (l.mask.background === 255) inverted.push(`${id}#mask`);
+      }
+    }
+    // Keep showing the result until the job's pixels replace it.
+    this.transformPreview = { layerIds: target.rasterIds, matrix };
+    try {
+      await this.runJob(label, { op: 'affine', layers, size: this.size(), matrix, inverted }, (grids) =>
+        replaceLayers(label, grids),
+      );
+    } finally {
+      this.transformPreview = null;
+      this.requestRender();
+    }
+  }
+
+  private transformDown(e: PointerEvent): void {
+    const t = this.transform!;
+    const p = this.docPoint(e);
+    const from: [number, number] = [p.x, p.y];
+    const hit = hitTransform(t.box, t.params, from, TRANSFORM_HANDLE_SLOP / this.viewport.zoom);
+    this.transform = { ...t, drag: { pointerId: e.pointerId, hit, start: t.params, from }, hover: hit };
+    this.changed();
+  }
+
+  private transformMove(e: PointerEvent): void {
+    const t = this.transform!;
+    const p = this.docPoint(e);
+    const at: [number, number] = [p.x, p.y];
+    if (t.drag && e.pointerId === t.drag.pointerId) {
+      const mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
+      const params = dragTransform(t.box, t.drag.start, t.drag.hit, t.drag.from, at, mods);
+      this.transform = { ...t, params };
+      this.changed();
+      return;
+    }
+    if (t.drag) return;
+    const hover = hitTransform(t.box, t.params, at, TRANSFORM_HANDLE_SLOP / this.viewport.zoom);
+    if (hover !== t.hover) {
+      this.transform = { ...t, hover };
+      this.changed();
+    }
+  }
+
   private sample(e: PointerEvent): void {
     if (!this.doc || !this.sampling) return;
     const p = this.docPoint(e);
@@ -2504,6 +2714,7 @@ export class Editor {
       }
       return;
     }
+    if (this.transform) return this.transformMove(e);
     if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
     if (this.lassoDraw) return this.lassoMove(e);
@@ -2526,6 +2737,10 @@ export class Editor {
       this.changed();
     }
     if (this.sampling && e.pointerId === this.sampling.pointerId) this.sampling = null;
+    if (this.transform?.drag && e.pointerId === this.transform.drag.pointerId) {
+      this.transform = { ...this.transform, drag: null };
+      this.changed();
+    }
     if (this.cropDrag && e.pointerId === this.cropDrag.pointerId) this.endCrop();
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
@@ -2712,6 +2927,12 @@ export class Editor {
       move,
       {
         pixelGrid: this.pixelGrid,
+        transform: this.transform
+          ? {
+              layerIds: this.transform.rasterIds,
+              matrix: transformMatrix(this.transform.box, this.transform.params),
+            }
+          : this.transformPreview,
         quickMask: this.quickMask
           ? {
               selection: this.doc.selection,

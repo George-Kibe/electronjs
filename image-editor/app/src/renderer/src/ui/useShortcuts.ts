@@ -59,6 +59,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && !e.shiftKey && key === 'n') return run(() => actions.newDocument());
         if (mod && e.shiftKey && key === 'n') return run(() => editor.addLayer());
         if (mod && !e.shiftKey && key === 'j') return run(() => editor.duplicateLayer());
+        if (mod && !e.shiftKey && !e.altKey && key === 't') return run(() => editor.beginTransform());
         // Ctrl+Alt+G: clipping mask (e.code: Alt changes e.key on macOS). Before Ctrl+G (group).
         if (mod && e.altKey && !e.shiftKey && e.code === 'KeyG') return run(() => editor.toggleClipped());
         if (mod && key === 'g')
@@ -78,7 +79,10 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (mod && (key === '=' || key === '+')) return run(() => editor.zoomStep(1));
         if (mod && key === '-') return run(() => editor.zoomStep(-1));
         if (mod || e.altKey) return false;
-        // Move tool: arrows nudge the layer, Shift = 10 px (FR-TRF-07).
+        // Free Transform takes Enter (apply) and Esc (cancel) before any tool (FR-TRF-04).
+        if (editor.transforming && e.key === 'Enter') return run(() => void editor.commitTransform());
+        if (editor.transforming && e.key === 'Escape') return run(() => editor.cancelTransform());
+        // Move tool: arrows nudge the layer, Shift = 10 px (FR-TRF-07); with Free Transform open, its box.
         const arrows: Record<string, [number, number]> = {
           ArrowLeft: [-1, 0],
           ArrowRight: [1, 0],
@@ -86,7 +90,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
           ArrowDown: [0, 1],
         };
         const arrow = arrows[e.key];
-        if (arrow && tool === 'move') {
+        if (arrow && (tool === 'move' || editor.transforming)) {
           const step = e.shiftKey ? 10 : 1;
           return run(() => editor.nudge(arrow[0] * step, arrow[1] * step));
         }
