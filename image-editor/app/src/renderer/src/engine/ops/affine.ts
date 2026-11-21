@@ -71,6 +71,31 @@ export function invertAlpha(grid: TileGrid): TileGrid {
   return out;
 }
 
+/** `top` over `bottom` (source-over, straight alpha); tiles only one of them has are shared. */
+export function sourceOver(top: TileGrid, bottom: TileGrid): TileGrid {
+  const out = new TileGrid();
+  for (const [key, t] of bottom.entries()) out.set(key, t);
+  for (const [key, t] of top.entries()) {
+    const b = bottom.get(key);
+    if (!b) {
+      out.set(key, t);
+      continue;
+    }
+    const data = new Uint8ClampedArray(b.data);
+    const s = t.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const at = s[i + 3]! / 255;
+      if (at === 0) continue;
+      const ab = (data[i + 3]! / 255) * (1 - at);
+      const a = at + ab;
+      for (let c = 0; c < 3; c++) data[i + c] = Math.round((s[i + c]! * at + data[i + c]! * ab) / a);
+      data[i + 3] = Math.round(a * 255);
+    }
+    out.set(key, createTile(data));
+  }
+  return out;
+}
+
 /** Premultiplied float RGBA of one source pixel (0 outside tiles). */
 function sampler(grid: TileGrid) {
   let lastKey = '';

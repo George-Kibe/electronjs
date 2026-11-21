@@ -206,7 +206,11 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         W/H %, angle and skew, Flip H/V, Cancel (Esc) and Apply (Enter). The preview runs on the GPU and the
         commit runs in the ops worker as one undo step. Edit › Transform › Rotate 180°/90° and Flip
         Horizontal/Vertical apply at once, bit-exact. T-TRF-01 (affine half) is covered by unit and GPU tests.
-  - [ ] 3b Transforming a selection: the selected pixels float, then merge back into the layer on Apply
+  - [ ] 3b Transforming a selection: with a selection, Ctrl+T (and Edit › Transform) move only the selected
+        pixels of the active or selected layers. They are lifted off (a soft edge splits each pixel by its
+        coverage), drawn through the matrix in a preview-only copy of the document, and put back over what
+        stayed (source-over) on Apply. The selection moves with them, and undo restores both. Layer masks
+        stay where they are. Preview and commit agree to ±1/255 (GPU test).
   - [ ] 3c Image › Trim and Image › Reveal All (FR-TRF-06)
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04

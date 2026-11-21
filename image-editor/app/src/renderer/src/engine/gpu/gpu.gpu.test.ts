@@ -12,13 +12,14 @@ import {
 import { IMPLEMENTED_BLEND_MODES } from '../doc/blend';
 import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
 import { compositePixel, liveLayers } from '../doc/flatten';
-import { ellipseMask, maskTile } from '../doc/selection';
+import { ellipseMask, maskTile, rectMask, type Mask } from '../doc/selection';
 import { translateLayer } from '../doc/translate';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
 import { createTile, TILE_SIZE, TileGrid } from '../tiles/tile';
 import { tileRange } from '@shared/iep-schema';
-import { affineGrid, type Affine } from '../ops/affine';
+import { affineGrid, sourceOver, type Affine } from '../ops/affine';
+import { floatingPreview, liftedId, splitBySelection } from '../doc/float';
 import { contentBounds } from '../ops/canvas';
 import { Compositor, type TransformPreview } from './compositor';
 import { StrokeBuffer } from './stroke-buffer';
@@ -771,7 +772,8 @@ describe('Free Transform (FR-TRF-04, T-TRF-01)', () => {
     return canvas;
   }
 
-  function preview(matrix: Affine, size = 300) {
+  /** Live preview vs the committed result; with a selection, only the selected pixels float (3b). */
+  function preview(matrix: Affine, selection?: (size: number) => Mask, size = 300) {
     const gl = context(size, size);
     const compositor = new Compositor(gl);
     const stroke = new StrokeBuffer(gl, compositor.quad);
@@ -799,12 +801,22 @@ describe('Free Transform (FR-TRF-04, T-TRF-01)', () => {
       gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, px);
       return px;
     };
-    const live = render({ layerIds: new Set([layer.id]), matrix });
-    const after = new Document(size, size, [
-      doc.layers[0]!,
-      createRasterLayer('top', affineGrid(layer.tiles, matrix, tileRange(size, size))),
-    ]);
-    const committed = render(undefined, after);
+    const range = tileRange(size, size);
+    let live: Uint8Array;
+    let result: TileGrid;
+    if (selection) {
+      const part = splitBySelection(layer.tiles, selection(size));
+      const floating = floatingPreview(doc, new Map([[layer.id, part]]));
+      live = render({ layerIds: new Set([liftedId(layer.id)]), matrix }, floating);
+      result = sourceOver(affineGrid(part.lifted, matrix, range), part.rest);
+    } else {
+      live = render({ layerIds: new Set([layer.id]), matrix });
+      result = affineGrid(layer.tiles, matrix, range);
+    }
+    const committed = render(
+      undefined,
+      new Document(size, size, [doc.layers[0]!, createRasterLayer('top', result)]),
+    );
     let sum = 0;
     let max = 0;
     for (let i = 0; i < live.length; i++) {
@@ -817,6 +829,12 @@ describe('Free Transform (FR-TRF-04, T-TRF-01)', () => {
 
   it('a quarter turn previews exactly as it commits', () => {
     expect(preview([0, 1, -1, 0, 300, 0])).toEqual({ mean: 0, max: 0 });
+  });
+
+  it('selected pixels float: a hard-edged selection turned a quarter previews as it commits', () => {
+    const rect = (size: number) => rectMask({ x0: 60, y0: 80, x1: 180, y1: 200 }, size, size);
+    const { max } = preview([0, 1, -1, 0, 300, 0], rect);
+    expect(max).toBeLessThanOrEqual(1); // the floating group renders through an intermediate buffer
   });
 
   it('a rotation with scaling previews close to the bicubic commit', () => {
@@ -879,10 +897,40 @@ describe('Free Transform (FR-TRF-04, T-TRF-01)', () => {
     editor.undo();
     expect(editor.getSnapshot().transform).toBeNull();
     expect(editor.getSnapshot().history.entries.at(-1)!.label).toBe('Rotate 90° Clockwise');
-    editor.selectAll();
+    expect(notices).toEqual([]);
+    editor.dispose();
+  });
+
+  it('with a selection only the selected pixels move, and the selection moves with them', async () => {
+    const editor = new Editor(editorCanvas());
+    editor.newDocument(200, 100);
+    const rgba = new Uint8Array(40 * 20 * 4);
+    for (let y = 0; y < 20; y++)
+      for (let x = 0; x < 40; x++) rgba.set(x < 20 ? [255, 0, 0, 255] : [0, 0, 255, 255], (y * 40 + x) * 4);
+    editor.pasteAsLayer(40, 20, rgba);
+    const doc = () => editor.exportState().doc!;
+    const pixels = () => doc().raster(doc().activeLayerId).tiles;
+    const before = pixels();
+    const box = contentBounds([before])!;
+    // Select the red half (and some empty canvas above it).
+    doc().selection = rectMask({ x0: box.x0, y0: 0, x1: box.x0 + 20, y1: box.y1 }, 200, 100);
     editor.beginTransform();
-    expect(editor.getSnapshot().transform).toBeNull();
-    expect(notices.at(-1)).toMatch(/selection/);
+    expect(editor.getSnapshot().transform!.box).toEqual({ ...box, x1: box.x0 + 20 }); // hugs the pixels
+    expect(editor.getSnapshot().selection).toBeNull(); // the box stands in for the ants
+    editor.setTransformParams({ ty: 30 });
+    await editor.commitTransform();
+    const after = pixels();
+    expect(after.pixel(box.x0 + 5, box.y0 + 5)[3]).toBe(0); // a hole where the red was
+    expect(after.pixel(box.x0 + 5, box.y0 + 35)).toEqual([255, 0, 0, 255]);
+    expect(after.pixel(box.x0 + 25, box.y0 + 5)).toEqual([0, 0, 255, 255]); // the blue half stays
+    const moved = doc().selection!;
+    expect(moved.value(box.x0 + 5, box.y0 + 35)).toBe(255);
+    expect(moved.value(box.x0 + 5, 10)).toBe(0);
+    expect(moved.value(box.x0 + 5, 40)).toBe(255); // the whole selection moved, not just the pixels
+    expect(editor.getSnapshot().selection).not.toBeNull();
+    editor.undo();
+    expect(pixels()).toBe(before);
+    expect(doc().selection!.value(box.x0 + 5, 10)).toBe(255);
     editor.dispose();
   });
 

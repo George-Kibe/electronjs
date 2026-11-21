@@ -218,6 +218,8 @@ export type TreeEdit = {
   newTileBytes?: number;
   /** New canvas size and guides (crop, image/canvas size, rotate canvas). */
   canvas?: CanvasGeometry;
+  /** A new selection (a transformed selection); left out = unchanged, unless the canvas changes. */
+  selection?: Mask | null;
 };
 
 export type CanvasGeometry = {
@@ -246,7 +248,7 @@ export class TreeCommand implements Command {
     root: Layer[],
     active: string,
     canvas?: CanvasGeometry,
-    selection: Mask | null = null,
+    selection?: Mask | null,
   ): DirtySet {
     doc.layers.splice(0, doc.layers.length, ...root);
     doc.activeLayerId = active;
@@ -254,10 +256,14 @@ export class TreeCommand implements Command {
       doc.width = canvas.width;
       doc.height = canvas.height;
       doc.meta.guides = canvas.guides;
-      // A new canvas size invalidates the selection's coordinates: it is dropped (undo brings it back).
-      doc.selection = selection;
     }
+    if (selection !== undefined) doc.selection = selection;
     return { layerIds: [], tiles: 'all' };
+  }
+
+  /** Whether this edit replaces the selection (a new canvas size invalidates its coordinates: dropped). */
+  private get setsSelection(): boolean {
+    return Boolean(this.after?.canvas) || this.after?.selection !== undefined;
   }
 
   do(doc: Document): DirtySet {
@@ -271,12 +277,25 @@ export class TreeCommand implements Command {
       this.after = this.build(doc);
       if (this.after.root.length === 0) throw new Error('A document needs at least one layer');
     }
-    return this.install(doc, this.after.root, this.after.activeLayerId, this.after.canvas);
+    const a = this.after;
+    return this.install(
+      doc,
+      a.root,
+      a.activeLayerId,
+      a.canvas,
+      this.setsSelection ? (a.selection ?? null) : undefined,
+    );
   }
 
   undo(doc: Document): DirtySet {
     const b = this.before!;
-    return this.install(doc, b.root, b.active, this.after?.canvas ? b.canvas : undefined, b.selection);
+    return this.install(
+      doc,
+      b.root,
+      b.active,
+      this.after?.canvas ? b.canvas : undefined,
+      this.setsSelection ? b.selection : undefined,
+    );
   }
 
   sizeBytes(): number {

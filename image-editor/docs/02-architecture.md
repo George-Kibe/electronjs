@@ -206,6 +206,13 @@ on a downscaled proxy while a slider is being dragged, then at full resolution o
   snapped to whole-pixel offsets, so they are exact copies. A linked mask is transformed with its layer.
   A reveal-all mask is inverted before and after the transform, so its missing tiles stay revealed. A GPU
   commit path is a later optimisation, as for Image Size.
+  *Selections (slice 3b):* `engine/doc/float.ts` splits each layer by the selection's coverage. Whole tiles
+  are shared, and only the tiles along the edge are computed on the UI thread. The preview renders a
+  preview-only `Document` in which each layer is an isolated group: what stays (with the layer mask)
+  under the lifted part (drawn through the matrix). The group carries the layer's blend mode and opacity,
+  so it combines the parts exactly as the commit does. The job transforms the lifted pixels and the
+  selection (as RGBA coverage), puts the pixels over what stayed, and `replaceLayers` sets the new
+  selection in the same undo step (`TreeEdit.selection`).
 - Image size: Lanczos3 / bicubic / bilinear / nearest, as two-pass separable resampling in premultiplied
   gamma space, widened when downscaling, edges extended at the canvas. M1 runs it on the CPU in the ops
   worker (`engine/ops/resample.ts`, band by band so memory follows the output width); a GPU path for

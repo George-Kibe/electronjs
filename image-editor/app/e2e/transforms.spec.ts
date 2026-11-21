@@ -168,5 +168,24 @@ test(`[${target}] Free Transform: rotate by number, drag to move, cancel, apply,
   await black(win, at(45, 50));
   await black(win, at(100, 120)); // the dot moved to the right end
   await white(win, at(40, 120));
+
+  // With a selection, only the selected pixels move, and the selection moves with them.
+  await win.keyboard.press('m');
+  await win.mouse.move(...at(20, 30));
+  await win.mouse.down();
+  await win.mouse.move(...at(60, 70), { steps: 8 });
+  await win.mouse.up();
+  await expect(docCanvas(win)).toHaveAccessibleName(/selection 40 by 40 at 2[01], 3[01]/);
+  await win.keyboard.press('ControlOrMeta+t');
+  await win.mouse.move(...at(45, 50));
+  await win.mouse.down();
+  await win.mouse.move(...at(45, 150), { steps: 8 });
+  await win.mouse.up();
+  await win.keyboard.press('Enter');
+  await expect(history(win)).toContainText('Free Transform', { timeout: 30_000 });
+  await black(win, at(45, 150)); // the bar's left end moved down
+  await white(win, at(45, 50)); // and left a hole
+  await black(win, at(90, 50)); // the rest of the bar stays
+  await expect(docCanvas(win)).toHaveAccessibleName(/selection 40 by 40 at 2[01], 13[01]/);
   await close();
 });

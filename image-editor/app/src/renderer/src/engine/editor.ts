@@ -67,6 +67,14 @@ import {
   type AlignEdge,
 } from './doc/translate';
 import { alignLayers, deleteLayers, distributeLayers, groupLayers, topSelected } from './doc/multi';
+import {
+  floatingPreview,
+  gridToSelection,
+  liftedId,
+  selectionToGrid,
+  splitBySelection,
+  type Floating,
+} from './doc/float';
 import { fromSnapshot, layerToSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
 import { Compositor } from './gpu/compositor';
 import { StrokeBuffer } from './gpu/stroke-buffer';
@@ -361,18 +369,38 @@ type ActiveMove = {
   pointerId: number;
 };
 
-/** Free Transform in progress (Ctrl+T, FR-TRF-04). */
-type ActiveTransform = {
+/** What Free Transform acts on (Ctrl+T, FR-TRF-04). */
+type TransformTarget = {
   /** The layers being transformed (groups cover their children). */
   layerIds: string[];
-  /** Their raster layers: drawn through the matrix while the transform is open. */
+  /** Their raster layers. */
   rasterIds: ReadonlySet<string>;
   /** The content bounds the handles start on, document px. */
   box: Box;
+  /**
+   * Transforming a selection: each layer's selected pixels (lifted) and the rest, the selection itself, and
+   * a preview document that draws the lifted parts (`liftedIds`) through the matrix.
+   */
+  floating: {
+    parts: ReadonlyMap<string, Floating>;
+    selection: Mask;
+    preview: Document;
+    liftedIds: ReadonlySet<string>;
+  } | null;
+};
+
+/** Free Transform in progress. */
+type ActiveTransform = TransformTarget & {
   params: TransformParams;
   drag: { pointerId: number; hit: TransformHit; start: TransformParams; from: [number, number] } | null;
   hover: TransformHit | null;
 };
+
+/** What the canvas draws for a transform: these layers through the matrix, in `doc` if not the document. */
+type TransformShown = { layerIds: ReadonlySet<string>; matrix: Affine; doc: Document | null };
+
+/** The id of the selection in a transform job's layers (the app's layer ids never start with '#'). */
+const SELECTION_JOB_ID = '#selection';
 
 /** How close (screen px) a press must be to grab a Free Transform handle. */
 const TRANSFORM_HANDLE_SLOP = 8;
@@ -461,7 +489,7 @@ export class Editor {
   private moving: ActiveMove | null = null;
   private transform: ActiveTransform | null = null;
   /** A committed transform, still drawn until its job replaces the pixels. */
-  private transformPreview: { layerIds: ReadonlySet<string>; matrix: Affine } | null = null;
+  private transformPreview: TransformShown | null = null;
   private sampling: { pointerId: number; target: 'foreground' | 'background' } | null = null;
   private pan: { x: number; y: number; pointerId: number } | null = null;
   private spaceHeld = false;
@@ -961,7 +989,8 @@ export class Editor {
       tool: this.tool,
       activeTool: this.effectiveTool(this.modifiers),
       crop: this.cropState(),
-      selection: this.selectionState(),
+      // While selected pixels float, the box shows where they go instead of the marching ants.
+      selection: this.transformShown()?.doc ? null : this.selectionState(),
       marquee: this.marqueeState(),
       lasso: this.lassoDraw
         ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
@@ -2534,19 +2563,45 @@ export class Editor {
   // ---- Free Transform (Ctrl+T, FR-TRF-04) -------------------------------------------------------
 
   /** The layers a transform acts on (the active one, or every selected one) and their content box. */
-  private transformTarget(): { layerIds: string[]; rasterIds: Set<string>; box: Box } | string {
+  /**
+   * The layers a transform acts on (the active one, or every selected one) and their content box. With a
+   * selection, only the selected pixels move: they are lifted off their layers.
+   */
+  private transformTarget(): TransformTarget | string {
     const doc = this.doc;
     if (!doc) return 'No document.';
-    if (doc.selection)
-      return 'Transforming a selection arrives next. Deselect (Ctrl+D) to transform the whole layer.';
     const layerIds = topSelected(doc, this.selectedIds());
     const blocker = layerIds.map((id) => moveBlocker(doc, id)).find(Boolean);
     if (blocker) return blocker;
     const rasters = layerIds.flatMap((id) => movedRasters(doc, id));
     if (rasters.some((l) => l.locks.pixels)) return 'This layer’s pixels are locked.';
-    const box = contentBounds(rasters.map((l) => l.tiles));
-    if (!box) return 'Nothing to transform: the layer is empty.';
-    return { layerIds, rasterIds: new Set(rasters.map((l) => l.id)), box };
+    const rasterIds = new Set(rasters.map((l) => l.id));
+    const selection = doc.selection;
+    if (!selection) {
+      const box = contentBounds(rasters.map((l) => l.tiles));
+      if (!box) return 'Nothing to transform: the layer is empty.';
+      return { layerIds, rasterIds, box, floating: null };
+    }
+    const parts = new Map(rasters.map((l) => [l.id, splitBySelection(l.tiles, selection)] as const));
+    const box = contentBounds([...parts.values()].map((p) => p.lifted));
+    if (!box) return 'Nothing to transform: the selected area is empty.';
+    const floating = {
+      parts,
+      selection,
+      preview: floatingPreview(doc, parts),
+      liftedIds: new Set([...parts.keys()].map(liftedId)),
+    };
+    return { layerIds, rasterIds, box, floating };
+  }
+
+  /** What the canvas shows for the open (or just applied) transform. */
+  private transformShown(): TransformShown | null {
+    const t = this.transform;
+    if (!t) return this.transformPreview;
+    const matrix = transformMatrix(t.box, t.params);
+    return t.floating
+      ? { layerIds: t.floating.liftedIds, matrix, doc: t.floating.preview }
+      : { layerIds: t.rasterIds, matrix, doc: null };
   }
 
   /** Edit › Free Transform: shows the box and handles; nothing changes until it is applied. */
@@ -2615,11 +2670,7 @@ export class Editor {
     void this.applyTransform(labels[step], target, transformMatrix(target.box, change(NO_TRANSFORM)));
   }
 
-  private async applyTransform(
-    label: string,
-    target: { rasterIds: ReadonlySet<string> },
-    m: Affine,
-  ): Promise<void> {
+  private async applyTransform(label: string, target: TransformTarget, m: Affine): Promise<void> {
     const doc = this.doc;
     const matrix = snapExact(m);
     if (!doc || isIdentity(matrix)) return this.changed();
@@ -2631,24 +2682,40 @@ export class Editor {
     }
     const layers: LayerTiles[] = [];
     const inverted: string[] = [];
-    for (const id of target.rasterIds) {
-      const l = doc.raster(id);
-      layers.push(fromGrid(id, l.tiles));
-      // A linked mask transforms with its layer; a reveal-all one transforms inverted (see invertAlpha).
-      if (l.mask?.linked) {
-        layers.push(fromGrid(`${id}#mask`, l.mask.grid));
-        if (l.mask.background === 255) inverted.push(`${id}#mask`);
+    const beneath: LayerTiles[] = [];
+    const floating = target.floating;
+    if (floating) {
+      // The selected pixels move and go back over the rest; the selection moves with them. Masks stay.
+      for (const [id, part] of floating.parts) {
+        layers.push(fromGrid(id, part.lifted));
+        beneath.push(fromGrid(id, part.rest));
       }
-    }
+      layers.push(fromGrid(SELECTION_JOB_ID, selectionToGrid(floating.selection)));
+    } else
+      for (const id of target.rasterIds) {
+        const l = doc.raster(id);
+        layers.push(fromGrid(id, l.tiles));
+        // A linked mask transforms with its layer; a reveal-all one transforms inverted (see invertAlpha).
+        if (l.mask?.linked) {
+          layers.push(fromGrid(`${id}#mask`, l.mask.grid));
+          if (l.mask.background === 255) inverted.push(`${id}#mask`);
+        }
+      }
     // Keep showing the result until the job's pixels replace it.
-    this.transformPreview = { layerIds: target.rasterIds, matrix };
+    this.transformPreview = floating
+      ? { layerIds: floating.liftedIds, matrix, doc: floating.preview }
+      : { layerIds: target.rasterIds, matrix, doc: null };
+    const job: OpsJob = { op: 'affine', layers, size: this.size(), matrix, inverted, beneath };
     try {
-      await this.runJob(label, { op: 'affine', layers, size: this.size(), matrix, inverted }, (grids) =>
-        replaceLayers(label, grids),
-      );
+      await this.runJob(label, job, (grids) => {
+        if (!floating) return replaceLayers(label, grids);
+        const moved = grids.get(SELECTION_JOB_ID);
+        grids.delete(SELECTION_JOB_ID);
+        return replaceLayers(label, grids, moved ? gridToSelection(moved, doc.width, doc.height) : null);
+      });
     } finally {
       this.transformPreview = null;
-      this.requestRender();
+      this.changed(); // the selection's ants come back
     }
   }
 
@@ -2919,20 +2986,16 @@ export class Editor {
     const move = this.moving
       ? { layerIds: this.moving.rasterIds, dx: this.moving.dx, dy: this.moving.dy }
       : undefined;
+    const shown = this.transformShown();
     this.compositor.render(
-      this.doc,
+      shown?.doc ?? this.doc,
       this.viewport,
       { cssWidth, cssHeight, width, height, dpr },
       preview,
       move,
       {
         pixelGrid: this.pixelGrid,
-        transform: this.transform
-          ? {
-              layerIds: this.transform.rasterIds,
-              matrix: transformMatrix(this.transform.box, this.transform.params),
-            }
-          : this.transformPreview,
+        transform: shown,
         quickMask: this.quickMask
           ? {
               selection: this.doc.selection,
