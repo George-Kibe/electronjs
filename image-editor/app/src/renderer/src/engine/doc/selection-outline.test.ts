@@ -38,7 +38,8 @@ describe('selectionOutline (marching ants, FR-SEL-06)', () => {
     expect(Math.abs(len - 800)).toBeLessThanOrEqual(8);
   });
 
-  it('is empty without a selection, and handles a 24 MP canvas', () => {
+  // Coverage instrumentation slows this ~40×: allow for it (real timing is in docs/02 §5.4).
+  it('is empty without a selection, and handles a 24 MP canvas', { timeout: 60_000 }, () => {
     expect(selectionOutline(Mask.empty(100, 100))).toBe('');
     // Timing is measured outside unit tests (coverage instrumentation slows this ~40×); see docs/02 §5.4.
     expect(length(selectionOutline(Mask.all(6000, 4000)))).toBe(2 * (6000 + 4000));

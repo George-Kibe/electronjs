@@ -16,6 +16,8 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
+          // Coverage instrumentation (the CI check runs it) slows the large-image tests several times over.
+          testTimeout: 30_000,
           include: ['src/**/*.test.ts'],
           exclude: ['src/**/*.gpu.test.ts'],
         },
