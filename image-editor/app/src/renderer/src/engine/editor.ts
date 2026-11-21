@@ -1350,6 +1350,16 @@ export class Editor {
     this.setSelection(last, 'Reselect');
   }
 
+  /** Image › Crop: the canvas becomes the selection's bounds (and the selection is dropped, FR-TRF-01). */
+  cropToSelection(): void {
+    const b = this.doc?.selection?.bounds();
+    if (!this.doc || !b) return this.notice('Make a selection to crop to.');
+    this.crop(
+      { x: b.x0, y: b.y0, width: b.x1 - b.x0, height: b.y1 - b.y0 },
+      this.toolOptions.crop.deletePixels,
+    );
+  }
+
   /** Select › Inverse (Ctrl+Shift+I). With no selection, everything becomes selected. */
   invertSelection(): void {
     const doc = this.doc;

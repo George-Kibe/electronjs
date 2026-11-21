@@ -257,6 +257,7 @@ export function App() {
           'select.reselect': () => editor?.reselect(),
           'select.inverse': () => editor?.invertSelection(),
           'edit.clear': () => editor?.clearSelection(),
+          'image.cropToSelection': () => editor?.cropToSelection(),
         };
         run[id]();
       }),

@@ -108,6 +108,7 @@ export function menuTemplate(
       submenu: [
         cmd('Image Size…', 'image.imageSize', 'CmdOrCtrl+Alt+I'),
         cmd('Canvas Size…', 'image.canvasSize', 'CmdOrCtrl+Alt+C'),
+        cmd('Crop', 'image.cropToSelection'),
         {
           label: 'Image Rotation',
           submenu: [

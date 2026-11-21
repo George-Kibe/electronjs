@@ -30,6 +30,47 @@ function tileFrom(data: Uint8ClampedArray): MaskTile | undefined {
   return { data, full: false };
 }
 
+/**
+ * A selection as plain data for workers (copy, cut): its bounds and the coverage tiles inside them, with
+ * fully selected tiles marked 'full' instead of copied.
+ */
+export type SelectionClip = { bounds: Bounds; tiles: Array<[TileKey, Uint8Array | 'full']> };
+
+/**
+ * The part of a row-major RGBA8 image inside the selection's bounds, with each pixel's alpha multiplied by
+ * its coverage (Copy / Cut of a selection, FR-DOC-12). Runs where the image was flattened (the file worker).
+ */
+export function clipToSelection(
+  rgba: Uint8ClampedArray,
+  width: number,
+  clip: SelectionClip,
+): { rgba: Uint8ClampedArray; width: number; height: number } {
+  const { x0, y0, x1, y1 } = clip.bounds;
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++)
+    out.set(rgba.subarray(((y0 + y) * width + x0) * 4, ((y0 + y) * width + x1) * 4), y * w * 4);
+  const tiles = new Map(clip.tiles);
+  for (let y = 0; y < h; y++) {
+    const gy = y0 + y;
+    const ty = Math.floor(gy / TILE_SIZE);
+    for (let x = 0; x < w; x++) {
+      const gx = x0 + x;
+      const tile = tiles.get(tileKey(Math.floor(gx / TILE_SIZE), ty));
+      const k = !tile
+        ? 0
+        : tile === 'full'
+          ? 255
+          : tile[(gy - ty * TILE_SIZE) * TILE_SIZE + (gx % TILE_SIZE)]!;
+      if (k === 255) continue;
+      const a = (y * w + x) * 4 + 3;
+      out[a] = Math.round((out[a]! * k) / 255);
+    }
+  }
+  return { rgba: out, width: w, height: h };
+}
+
 export class Mask {
   private cachedBounds: Bounds | null | undefined;
 
@@ -146,6 +187,15 @@ export class Mask {
       if (clipped) out.set(key, clipped);
     }
     return new Mask(out, this.width, this.height);
+  }
+
+  /** The selection as plain data for a worker (null when nothing is selected). */
+  toClip(): SelectionClip | null {
+    const bounds = this.bounds();
+    if (!bounds) return null;
+    const tiles: SelectionClip['tiles'] = [];
+    for (const [key, t] of this.tiles) tiles.push([key, t.full ? 'full' : new Uint8Array(t.data)]);
+    return { bounds, tiles };
   }
 
   /** Bytes of tile data this mask owns (shared full tiles are free), for the history memory budget. */

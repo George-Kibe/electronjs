@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { tileKey } from '../tiles/tile';
-import { ellipseMask, FULL_TILE, Mask, polygonMask, rectMask, type Point } from './selection';
+import {
+  clipToSelection,
+  ellipseMask,
+  FULL_TILE,
+  Mask,
+  polygonMask,
+  rectMask,
+  type Point,
+} from './selection';
 
 /** Selected area in pixels (coverage / 255 summed over the canvas). */
 function area(m: Mask): number {
@@ -191,5 +199,33 @@ describe('selection modes (FR-SEL-04)', () => {
     expect(Mask.all(W, H).invert().isEmpty).toBe(true);
     const soft = ellipseMask({ x0: 10, y0: 10, x1: 290, y1: 200 }, W, H);
     expect(same(soft.invert().invert(), soft)).toBe(true);
+  });
+});
+
+describe('clipToSelection (copy and cut of a selection, FR-DOC-12)', () => {
+  it('crops to the bounds and keeps alpha only where selected', () => {
+    const W = 300;
+    const H = 200;
+    const rgba = new Uint8ClampedArray(W * H * 4).fill(200); // alpha 200 everywhere
+    const sel = rectMask({ x0: 10, y0: 20, x1: 280, y1: 120 }, W, H).combine(
+      'subtract',
+      rectMask({ x0: 100, y0: 50, x1: 120, y1: 70 }, W, H),
+    );
+    const out = clipToSelection(rgba, W, sel.toClip()!);
+    expect([out.width, out.height]).toEqual([270, 100]);
+    expect(out.rgba[(5 * 270 + 5) * 4 + 3]).toBe(200); // selected: alpha kept
+    expect(out.rgba[((50 - 20) * 270 + (105 - 10)) * 4 + 3]).toBe(0); // the hole: transparent
+    expect(out.rgba[((50 - 20) * 270 + (105 - 10)) * 4]).toBe(200); // colour kept (straight alpha)
+  });
+
+  it('scales alpha by soft coverage', () => {
+    const W = 64;
+    const rgba = new Uint8ClampedArray(W * W * 4).fill(255);
+    const sel = ellipseMask({ x0: 4.5, y0: 4.5, x1: 60.5, y1: 60.5 }, W, W);
+    const out = clipToSelection(rgba, W, sel.toClip()!);
+    const b = sel.bounds()!;
+    const x = 4; // the anti-aliased left rim at y = 32
+    expect(out.rgba[((32 - b.y0) * out.width + (x - b.x0)) * 4 + 3]).toBe(sel.value(x, 32));
+    expect(Mask.empty(W, W).toClip()).toBeNull();
   });
 });

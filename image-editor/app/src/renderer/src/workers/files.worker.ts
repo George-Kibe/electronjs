@@ -3,6 +3,7 @@ import type { EncodeReply, RendererToCodec } from '@shared/codec-protocol';
 import { CODEC_CHUNK_BYTES, MAX_DOCUMENT_SIDE } from '@shared/constants';
 import type { ExportOptions } from '@shared/export-options';
 import { flatten, flattenPreview } from '../engine/doc/flatten';
+import { clipToSelection, type SelectionClip } from '../engine/doc/selection';
 import { IepError, readIep, writeIep } from '../engine/io/iep';
 import { snapshotLayers, type DocSnapshot, type LayerSnapshot } from '../engine/io/snapshot';
 
@@ -18,8 +19,8 @@ export type FilesRequest =
   | { op: 'thumbnail'; doc: DocSnapshot; maxSide: number }
   /** Clipboard paste (FR-DOC-02/12): decoded by Chromium inside the sandbox (docs/06 §2). */
   | { op: 'decodeClipboard'; blob: Blob }
-  /** Clipboard copy (FR-DOC-12): the snapshot's composite as PNG, transparency kept. */
-  | { op: 'encodePng'; doc: DocSnapshot }
+  /** Clipboard copy (FR-DOC-12): the snapshot's composite as PNG, transparency kept; only the selection, if any. */
+  | { op: 'encodePng'; doc: DocSnapshot; selection?: SelectionClip | null }
   | {
       op: 'export';
       doc: DocSnapshot;
@@ -86,11 +87,17 @@ async function decodeClipboard(blob: Blob): Promise<{ width: number; height: num
   return { width, height, rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) };
 }
 
-async function encodePng(doc: DocSnapshot): Promise<Uint8Array> {
-  // flatten() allocates a plain ArrayBuffer (never shared), so the cast is safe.
-  const rgba = flatten(layersOf(doc), doc.width, doc.height) as Uint8ClampedArray<ArrayBuffer>;
-  const canvas = new OffscreenCanvas(doc.width, doc.height);
-  canvas.getContext('2d')!.putImageData(new ImageData(rgba, doc.width, doc.height), 0, 0);
+async function encodePng(doc: DocSnapshot, selection?: SelectionClip | null): Promise<Uint8Array> {
+  const full = flatten(layersOf(doc), doc.width, doc.height);
+  // The selection's coverage applies to the composite, not to each layer (soft edges stay exact).
+  const { rgba, width, height } = selection
+    ? clipToSelection(full, doc.width, selection)
+    : { rgba: full, width: doc.width, height: doc.height };
+  const canvas = new OffscreenCanvas(width, height);
+  // Both buffers are plain ArrayBuffers (never shared), so the cast is safe.
+  canvas
+    .getContext('2d')!
+    .putImageData(new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
   const blob = await canvas.convertToBlob({ type: 'image/png' });
   return new Uint8Array(await blob.arrayBuffer());
 }
@@ -154,7 +161,7 @@ self.onmessage = async (event: MessageEvent<{ id: number } & FilesRequest>) => {
       const decoded = await decodeClipboard(req.blob);
       reply({ id, ok: true, result: decoded }, [decoded.rgba.buffer as ArrayBuffer]);
     } else if (req.op === 'encodePng') {
-      const png = await encodePng(req.doc);
+      const png = await encodePng(req.doc, req.selection);
       reply({ id, ok: true, result: png }, [png.buffer as ArrayBuffer]);
     } else if (req.op === 'thumbnail') {
       const png = await previewPng(req.doc, req.maxSide);
