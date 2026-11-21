@@ -167,10 +167,11 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         the foreground colour with a fuzziness falloff, one layer or all); Copy / Copy Merged / Cut take only
         the selection (the file worker masks the composite); Image › Crop to the selection; T-HIS-01 includes
         selections.
-  - [ ] 1d The selection is saved in `.iep` (`document.selection` → one-channel `selection/tiles.bin`;
+  - [x] 1d The selection is saved in `.iep` (`document.selection` → one-channel `selection/tiles.bin`;
         optional and additive, so no version bump; a missing or damaged entry only loses the selection),
         and so it also survives recovery snapshots and a tab moved to its own window. Quick Mask (Q) moves
-        to slice 2: it paints into a mask exactly like layer masks do.
+        to slice 2: it paints into a mask exactly like layer masks do. E2E green on 3 OSes (run
+        44845151962).
 - [ ] Slice 2 — layer masks and clipping masks (FR-LAY-04/05), Quick Mask (FR-SEL-06), multi-layer
       selection (FR-LAY-08)
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
