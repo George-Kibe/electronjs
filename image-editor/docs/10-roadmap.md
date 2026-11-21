@@ -228,12 +228,12 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         They are saved in `.iep` (docs/05 schema, range-checked), merge down, duplicate, and follow
         crop/resize/rotate. The GPU pass (`adjust.frag`) matches the CPU reference (`ops/adjust.ts`) within
         ±2/255 for every kind. E2E green on 3 OSes (run 44937126939).
-  - [ ] 4b Image › Adjustments as destructive commands: a dialog with the Properties controls previews on
+  - [x] 4b Image › Adjustments as destructive commands: a dialog with the Properties controls previews on
         the canvas (Preview toggles it), and OK replaces the active layer's pixels in the ops worker, within
         the selection by its coverage, as one undo step. Ctrl+L Levels, Ctrl+M Curves, Ctrl+U Hue/Saturation,
         Ctrl+B Color Balance, Ctrl+Alt+Shift+B Black & White; Ctrl+I inverts at once. Alt-choosing in the ◑
         menu applies the adjustment instead of adding a layer (docs/03 §5.2). Minimize moves to
-        Ctrl/⌘+Alt+M, so Ctrl/⌘+M is Curves.
+        Ctrl/⌘+Alt+M, so Ctrl/⌘+M is Curves. E2E green on 3 OSes (run 44938357278).
   - [ ] 4c Auto Tone, Auto Contrast and Auto Color (FR-ADJ-02); the Histogram panel and a Levels histogram
         (FR-ADJ-03); NFR-PERF-04 measured
 - [ ] Slice 5 — filters with live preview, respecting the selection (FR-FLT-01), NFR-PERF-05, journey 4
