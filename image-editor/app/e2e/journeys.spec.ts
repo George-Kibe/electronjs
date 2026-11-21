@@ -104,6 +104,11 @@ test(`[${target}] journey 2: open photo → crop 4:5 → export JPEG without loc
     .getByRole('spinbutton', { name: 'Output white' })
     .fill('240');
   await expect(win.getByRole('list', { name: 'History' })).toContainText('Levels');
+  // Leave the field: shortcuts are ignored while typing in one.
+  await win
+    .getByRole('region', { name: 'Levels properties' })
+    .getByRole('spinbutton', { name: 'Output white' })
+    .blur();
 
   const out = join(dir, 'journey-2.jpg');
   await stubSaveDialog(app, out);
