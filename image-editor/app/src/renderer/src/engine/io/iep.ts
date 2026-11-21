@@ -10,6 +10,7 @@ import {
   RasterLayerEntry,
   tileRange,
 } from '@shared/iep-schema';
+import { MASK_TILE_BYTES } from '../doc/selection';
 import { TILE_BYTES, TILE_SIZE, parseTileKey, tileKey, type TileKey } from '../tiles/tile';
 import type { DocSnapshot, LayerSnapshot } from './snapshot';
 
@@ -51,7 +52,7 @@ function uniformValue(data: Uint8Array): number | null {
   return first;
 }
 
-export function encodeTiles(tiles: ReadonlyArray<[TileKey, Uint8Array]>): Uint8Array {
+export function encodeTiles(tiles: ReadonlyArray<[TileKey, Uint8Array]>, channels: 1 | 4 = 4): Uint8Array {
   const parts: Uint8Array[] = [];
   let total = HEADER_BYTES;
   for (const [key, data] of tiles) {
@@ -77,7 +78,7 @@ export function encodeTiles(tiles: ReadonlyArray<[TileKey, Uint8Array]>): Uint8A
   out.set(MAGIC, 0);
   const dv = new DataView(out.buffer);
   dv.setUint16(4, 1, true); // version
-  dv.setUint8(6, 4); // channels
+  dv.setUint8(6, channels);
   dv.setUint8(7, 0); // alpha mode: straight
   dv.setUint16(8, TILE_SIZE, true);
   dv.setUint32(10, tiles.length, true);
@@ -93,11 +94,11 @@ export function encodeTiles(tiles: ReadonlyArray<[TileKey, Uint8Array]>): Uint8A
 type TileIndex = { tx: number; ty: number; kind: number; offset: number; length: number };
 
 /** Parses entry headers without inflating anything, so limits can be checked first. */
-function indexTiles(bin: Uint8Array, range: ReturnType<typeof tileRange>): TileIndex[] {
+function indexTiles(bin: Uint8Array, range: ReturnType<typeof tileRange>, channels: 1 | 4 = 4): TileIndex[] {
   if (bin.byteLength < HEADER_BYTES || MAGIC.some((m, i) => bin[i] !== m))
     throw new IepError('A layer in this project is damaged (bad tile header).');
   const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
-  if (dv.getUint16(4, true) !== 1 || dv.getUint8(6) !== 4 || dv.getUint16(8, true) !== TILE_SIZE)
+  if (dv.getUint16(4, true) !== 1 || dv.getUint8(6) !== channels || dv.getUint16(8, true) !== TILE_SIZE)
     throw new IepError('A layer in this project uses an unsupported tile format.');
   const count = dv.getUint32(10, true);
   if (count > IEP_LIMITS.maxTilesPerLayer || count > (range.tx1 - range.tx0) * (range.ty1 - range.ty0))
@@ -127,26 +128,25 @@ function indexTiles(bin: Uint8Array, range: ReturnType<typeof tileRange>): TileI
   return out;
 }
 
-function decodeTile(bin: Uint8Array, e: TileIndex): Uint8Array {
+function decodeTile(bin: Uint8Array, e: TileIndex, bytes: number = TILE_BYTES): Uint8Array {
   const payload = bin.subarray(e.offset, e.offset + e.length);
   if (e.kind === KIND_UNIFORM) {
-    const data = new Uint8Array(TILE_BYTES);
+    const data = new Uint8Array(bytes);
     const value = new DataView(payload.buffer, payload.byteOffset, 4).getUint32(0, true);
     new Uint32Array(data.buffer).fill(value);
     return data;
   }
   // Inflate into a fixed buffer one byte larger than a tile. fflate stops (without an error) when the
   // buffer is full, so memory stays bounded, and a stream that fills the extra byte is too long: a bomb.
-  const buffer = new Uint8Array(TILE_BYTES + 1);
+  const buffer = new Uint8Array(bytes + 1);
   let out: Uint8Array;
   try {
     out = inflateSync(payload, { out: buffer });
   } catch {
     throw new IepError('A layer in this project is damaged (bad compressed tile).');
   }
-  if (out.byteLength !== TILE_BYTES)
-    throw new IepError('A layer in this project is damaged (wrong tile size).');
-  return buffer.subarray(0, TILE_BYTES);
+  if (out.byteLength !== bytes) throw new IepError('A layer in this project is damaged (wrong tile size).');
+  return buffer.subarray(0, bytes);
 }
 
 // ---- project zip ---------------------------------------------------------------------------------
@@ -212,6 +212,10 @@ export function writeIep(
     document['exif'] = 'meta/exif.bin';
     files['meta/exif.bin'] = [doc.exif, { level: 6 }];
   }
+  if (doc.selection?.length) {
+    document['selection'] = 'selection/tiles.bin';
+    files['selection/tiles.bin'] = [encodeTiles(doc.selection, 1), { level: 0 }];
+  } else delete document['selection']; // never keep a stale reference from another version's file
   const manifest = {
     ...doc.extra?.manifest,
     format: 'iep',
@@ -311,7 +315,25 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
       `${skipped} layer${skipped === 1 ? '' : 's'} use features this version cannot show, so ${skipped === 1 ? 'it is' : 'they are'} left out.`,
     );
   if (plans.length === 0) throw new IepError('This project has no layers this version can open.');
-  if (tileCount * TILE_BYTES > opts.maxTileBytes)
+  // The saved selection: optional, so a missing or damaged entry only loses the selection, never the file.
+  // Its tiles must lie on the canvas.
+  let selectionIndex: { bin: Uint8Array; index: TileIndex[] } | null = null;
+  const selectionPath = manifest.document.selection;
+  if (selectionPath && entries[selectionPath]) {
+    try {
+      const canvas = {
+        tx0: 0,
+        ty0: 0,
+        tx1: Math.ceil(width / TILE_SIZE),
+        ty1: Math.ceil(height / TILE_SIZE),
+      };
+      selectionIndex = { bin: entries[selectionPath], index: indexTiles(entries[selectionPath], canvas, 1) };
+    } catch {
+      selectionIndex = null;
+    }
+  }
+  const selectionBytes = (selectionIndex?.index.length ?? 0) * MASK_TILE_BYTES;
+  if (tileCount * TILE_BYTES + selectionBytes > opts.maxTileBytes)
     throw new IepError('This project is too large to open with the current memory budget.');
 
   const build = (p: Plan): LayerSnapshot => {
@@ -345,6 +367,15 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
     return { ...common, type: 'raster', tiles, ...(extra ? { extra } : {}) };
   };
   const layers = plans.map(build);
+  let selection: Array<[TileKey, Uint8Array]> | null = null;
+  if (selectionIndex) {
+    try {
+      const { bin, index } = selectionIndex;
+      selection = index.map((t) => [tileKey(t.tx, t.ty), decodeTile(bin, t, MASK_TILE_BYTES)]);
+    } catch {
+      selection = null;
+    }
+  }
 
   const d = manifest.document;
   const exifPath = d.exif;
@@ -360,6 +391,7 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
     exif: exifPath && entries[exifPath] ? entries[exifPath] : null,
     activeLayerId: d.activeLayerId && ids.has(d.activeLayerId) ? d.activeLayerId : layers.at(-1)!.id,
     layers,
+    selection,
     ...(extraManifest || extraDocument
       ? {
           extra: {

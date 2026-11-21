@@ -1,5 +1,8 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { canvasPixel, docCanvas, launch, paintLine, target, zoomField } from './app';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { canvasPixel, docCanvas, launch, paintLine, stubSaveDialog, target, zoomField } from './app';
 
 async function newDocument(win: Page, width: number, height: number): Promise<void> {
   const form = win.getByRole('form', { name: 'New document' });
@@ -257,4 +260,31 @@ test(`[${target}] Select › Modify and Color Range (FR-SEL-05)`, async () => {
   await expect(selection(win)).toHaveAttribute('aria-label', /selection \d+ by \d+ at 18\d, 8\d$/);
   await expect(history(win)).toContainText('Color Range');
   await close();
+});
+
+test(`[${target}] the selection is saved in the project and comes back when it is opened (docs/05 §2)`, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ie-e2e-sel-'));
+  try {
+    const file = join(dir, 'with-selection');
+    {
+      const { app, win, close } = await launch();
+      await newDocument(win, 300, 200);
+      const at = await docToPage(win, 300, 200);
+      await win.keyboard.press('m');
+      await drag(win, at.edge(30, 40), at.edge(130, 90));
+      await stubSaveDialog(app, file);
+      await win.keyboard.press('ControlOrMeta+s');
+      await expect(win.getByLabel('Document', { exact: true })).toHaveText('with-selection.iep', {
+        timeout: 15_000,
+      });
+      await close();
+    }
+    const { win, close } = await launch([`${file}.iep`]);
+    await expect(selection(win)).toHaveAttribute('aria-label', /selection 100 by 50 at 30, 40$/, {
+      timeout: 15_000,
+    });
+    await close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
