@@ -1,5 +1,6 @@
 import { TILE_SIZE, tileKey, TileGrid } from '../tiles/tile';
 import type { Mask } from './selection';
+import type { Adjustment } from '../ops/adjust';
 
 /** The 18 blend modes of FR-LAY-03 (docs/05 §1). The compositor implements them per milestone. */
 export const BLEND_MODES = [
@@ -98,7 +99,16 @@ export type GroupLayer = Omit<RasterLayer, 'type' | 'tiles' | 'mask'> & {
   collapsed: boolean;
 };
 
-export type Layer = RasterLayer | GroupLayer;
+/**
+ * An adjustment layer (FR-ADJ-01, docs/05 §1): no pixels; the compositor adjusts everything below it in its
+ * container, through its mask and opacity. The `adjustment` object is replaced, never mutated, by commands.
+ */
+export type AdjustmentLayer = Omit<RasterLayer, 'type' | 'tiles'> & {
+  readonly type: 'adjustment';
+  adjustment: Adjustment;
+};
+
+export type Layer = RasterLayer | GroupLayer | AdjustmentLayer;
 
 export type LayerProps = Pick<
   RasterLayer,
@@ -129,6 +139,30 @@ export function createRasterLayer(
     locks: { ...NO_LOCKS },
     clipped: false,
     tiles,
+    ...rest,
+    ...(extra ? { extra } : {}),
+  };
+}
+
+/** A new adjustment layer (FR-ADJ-01); Photoshop gives it a reveal-all mask, so painting can hide it. */
+export function createAdjustmentLayer(
+  name: string,
+  adjustment: Adjustment,
+  props: Partial<LayerProps> & { id?: string; extra?: Record<string, unknown>; mask?: LayerMask | null } = {},
+): AdjustmentLayer {
+  const { id, extra, ...rest } = props;
+  return {
+    id: id ?? newLayerId(),
+    type: 'adjustment',
+    name,
+    visible: true,
+    opacity: 1,
+    fillOpacity: 1,
+    blendMode: 'normal',
+    locks: { ...NO_LOCKS },
+    clipped: false,
+    adjustment,
+    mask: { grid: new TileGrid(), background: 255, enabled: true, linked: true },
     ...rest,
     ...(extra ? { extra } : {}),
   };
@@ -255,6 +289,13 @@ export class Document {
   }
 
   /** The raster layer `id`; throws for groups (pixels live only in raster layers). */
+  /** A layer that can have a mask: a raster or an adjustment layer (FR-LAY-04). */
+  masked(id: string): RasterLayer | AdjustmentLayer {
+    const layer = this.layer(id);
+    if (layer.type === 'group') throw new Error(`Layer ${id} cannot have a mask`);
+    return layer;
+  }
+
   raster(id: string): RasterLayer {
     const layer = this.layer(id);
     if (layer.type !== 'raster') throw new Error(`Layer ${id} is not a raster layer`);

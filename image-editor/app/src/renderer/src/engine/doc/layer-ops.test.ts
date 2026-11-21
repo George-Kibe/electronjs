@@ -45,7 +45,7 @@ function shape(layers: readonly Layer[]): unknown {
           visible: l.visible,
           opacity: l.opacity,
           mode: l.blendMode,
-          tiles: [...l.tiles.entries()].map(([k, t]) => `${k}#${t.id}`),
+          tiles: l.type !== 'raster' ? [] : [...l.tiles.entries()].map(([k, t]) => `${k}#${t.id}`),
         },
   );
 }

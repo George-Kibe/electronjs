@@ -31,7 +31,7 @@ test(`[${target}] workspace: collapse, reorder, resize and hide panels; presets;
   const first = await launch([], profile);
   let win = first.win;
   await newDocument(win);
-  expect(await order(win)).toEqual(['layers', 'swatches', 'history']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'swatches', 'history']);
 
   // Collapse Swatches; move History up with Alt+↑ on its header.
   await header(win, 'Swatches').click();
@@ -39,7 +39,7 @@ test(`[${target}] workspace: collapse, reorder, resize and hide panels; presets;
   await expect(win.getByRole('group', { name: 'Saved swatches' })).toHaveCount(0);
   await header(win, 'History').focus();
   await win.keyboard.press('Alt+ArrowUp');
-  expect(await order(win)).toEqual(['layers', 'history', 'swatches']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'history', 'swatches']);
 
   // Drag the line below Layers down: Layers grows.
   const layers = dock(win).locator('section').first();
@@ -54,9 +54,9 @@ test(`[${target}] workspace: collapse, reorder, resize and hide panels; presets;
 
   // Window › History hides it; again shows it.
   await menu(first.app, ['Window', 'History']);
-  expect(await order(win)).toEqual(['layers', 'swatches']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'swatches']);
   await menu(first.app, ['Window', 'History']);
-  expect(await order(win)).toEqual(['layers', 'history', 'swatches']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'history', 'swatches']);
 
   // Tab (from the canvas) hides the toolbar, options bar and panels; Tab again brings them back.
   await win.locator('body').focus();
@@ -73,12 +73,12 @@ test(`[${target}] workspace: collapse, reorder, resize and hide panels; presets;
   const second = await launch([], profile);
   win = second.win;
   await newDocument(win);
-  expect(await order(win)).toEqual(['layers', 'history', 'swatches']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'history', 'swatches']);
   await expect(header(win, 'Swatches')).toHaveAttribute('aria-expanded', 'false');
   await menu(second.app, ['Window', 'Workspace', 'Essentials']);
-  expect(await order(win)).toEqual(['layers', 'swatches', 'history']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'swatches', 'history']);
   await expect(header(win, 'Swatches')).toHaveAttribute('aria-expanded', 'true');
   await menu(second.app, ['Window', 'Workspace', 'Photography']);
-  expect(await order(win)).toEqual(['layers', 'history', 'swatches']);
+  expect(await order(win)).toEqual(['layers', 'properties', 'history', 'swatches']);
   await second.close();
 });

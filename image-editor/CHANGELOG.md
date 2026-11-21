@@ -34,6 +34,12 @@ All notable changes to ImageEditor are documented here. The format follows
   several selected layers at once, and masks follow their layers. Edit › Transform rotates by 180° or 90° and
   flips the layer straight away. With a selection, only the selected pixels are transformed, and the
   selection moves with them.
+- Adjustment layers: Layer › New Adjustment Layer (or the ◑ button in Layers) adds Brightness/Contrast,
+  Levels, Curves, Exposure, Vibrance, Hue/Saturation, Color Balance, Black & White, Photo Filter, Invert,
+  Posterize or Threshold above the active layer. They change everything below without touching its pixels.
+  Their settings are in the new Properties panel. Paint on an adjustment layer to hide it in places, or
+  make a selection first so it applies only there. They have opacity and blend modes, can be clipped to the
+  layer below, and are saved in projects.
 - Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
   pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
   edge is visible again.
