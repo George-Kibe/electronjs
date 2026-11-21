@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   accumulateDabs,
   applyMaskStroke,
+  applySelectionStroke,
   applyStroke,
   DabGenerator,
   DEFAULT_BRUSH,
@@ -11,7 +12,7 @@ import {
 import { IMPLEMENTED_BLEND_MODES } from '../doc/blend';
 import { createGroupLayer, createRasterLayer, Document } from '../doc/document';
 import { compositePixel, liveLayers } from '../doc/flatten';
-import { ellipseMask } from '../doc/selection';
+import { ellipseMask, maskTile } from '../doc/selection';
 import { translateLayer } from '../doc/translate';
 import { Editor } from '../editor';
 import { Viewport } from '../render/viewport';
@@ -475,6 +476,62 @@ describe('clipping masks: GPU vs CPU (FR-LAY-05)', () => {
       }
     expect(maxErr).toBeLessThanOrEqual(2);
     expect(compositePixel(liveLayers(doc.layers), 250, 10)).toEqual([255, 255, 255, 255]); // no base: nothing
+  });
+});
+
+describe('Quick Mask overlay: GPU vs CPU (FR-SEL-06)', () => {
+  it('tints unselected pixels red and previews a stroke exactly as it commits', () => {
+    const size = 300;
+    const doc = new Document(size, size, [
+      createRasterLayer('bg', TileGrid.filled(size, size, [40, 160, 220, 255])),
+    ]);
+    const selection = ellipseMask({ x0: 30.5, y0: 30.5, x1: 230.5, y1: 200.5 }, size, size);
+    const gl = context(size, size);
+    const compositor = new Compositor(gl);
+    const stroke = new StrokeBuffer(gl, compositor.quad);
+    compositor.targetFormat = stroke.format;
+    const settings: BrushSettings = { ...DEFAULT_BRUSH, opacity: 0.7, hardness: 1, mode: 'paint' };
+    stroke.hardness = 1;
+    const strokeDabs: Dab[] = [40, 120, 200, 280].map((x) => ({ x, y: 110, radius: 30, alpha: 1 }));
+    stroke.addDabs(strokeDabs, size, size);
+    const target = 0; // black: deselect
+    compositor.render(
+      doc,
+      new Viewport(),
+      { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+      undefined,
+      undefined,
+      {
+        quickMask: { selection, stroke: { buffer: stroke, settings, target: target / 255 } },
+      },
+    );
+    const pixels = new Uint8Array(size * size * 4);
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    // CPU: the committed selection, then red at 0.5 × (1 − coverage) over the composite.
+    const updates = new Map<string, ReturnType<typeof maskTile>>();
+    for (const key of stroke.keys()) {
+      const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+      const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+      accumulateDabs(cov, tileX, tileY, strokeDabs, 1);
+      const old = selection.tile(key);
+      updates.set(
+        key,
+        maskTile(
+          applySelectionStroke(old && !old.full ? old.data : null, old ? 255 : 0, cov, target, settings),
+        ),
+      );
+    }
+    const after = selection.withTiles(updates);
+    let maxErr = 0;
+    for (let y = 2; y < size; y += 7)
+      for (let x = 2; x < size; x += 7) {
+        const comp = compositePixel(liveLayers(doc.layers), x, y);
+        const a = 0.5 * (1 - after.value(x, y) / 255);
+        const expected = [comp[0]! * (1 - a) + 255 * a, comp[1]! * (1 - a), comp[2]! * (1 - a)];
+        const i = ((size - 1 - y) * size + x) * 4;
+        for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+      }
+    expect(maxErr).toBeLessThanOrEqual(3);
   });
 });
 

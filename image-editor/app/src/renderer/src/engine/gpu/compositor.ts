@@ -12,6 +12,7 @@ import gridFrag from './shaders/grid.frag?raw';
 import groupFrag from './shaders/group.frag?raw';
 import layerFrag from './shaders/layer.frag?raw';
 import quadVert from './shaders/quad.vert?raw';
+import quickMaskFrag from './shaders/quickmask.frag?raw';
 import screenVert from './shaders/screen.vert?raw';
 import tileVert from './shaders/tile.vert?raw';
 import { StrokeBuffer, type StrokeFormat } from './stroke-buffer';
@@ -27,6 +28,15 @@ export type StrokePreview = {
   selection?: Mask | null;
   /** The stroke paints the layer's mask toward `maskTarget` (0..1) instead of its pixels (FR-LAY-04). */
   onMask?: { target: number } | null;
+};
+
+/**
+ * Quick Mask (FR-SEL-06): the selection shown as a red overlay on unselected pixels (null selection = all
+ * selected), and a stroke painting it toward `target` (0..1).
+ */
+export type QuickMaskOverlay = {
+  selection: Mask | null;
+  stroke?: { buffer: StrokeBuffer; settings: BrushSettings; target: number } | null;
 };
 
 /** Move tool drag in progress (FR-TRF-07): these raster layers are drawn shifted by whole pixels. */
@@ -71,6 +81,7 @@ export class Compositor {
   private readonly checkerProgram: Program;
   private readonly presentProgram: Program;
   private readonly gridProgram: Program;
+  private readonly quickMaskProgram: Program;
   private readonly grains = new Map<BrushTip, WebGLTexture>();
   /** Selection mask textures (R8) of the stroke preview, for the selection in `maskOwner`. */
   private readonly masks = new Map<MaskTile, WebGLTexture>();
@@ -93,6 +104,7 @@ export class Compositor {
     // never show, with exactly the same edge as the checkerboard.
     this.presentProgram = createProgram(gl, quadVert, withBlend(groupFrag));
     this.gridProgram = createProgram(gl, quadVert, gridFrag);
+    this.quickMaskProgram = createProgram(gl, tileVert, quickMaskFrag);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -172,7 +184,7 @@ export class Compositor {
     size: Size,
     stroke?: StrokePreview,
     move?: MovePreview,
-    overlays: { pixelGrid?: boolean } = {},
+    overlays: { pixelGrid?: boolean; quickMask?: QuickMaskOverlay | null } = {},
   ): void {
     const gl = this.gl;
     this.resizePool(size.width, size.height);
@@ -215,6 +227,7 @@ export class Compositor {
     gl.uniform1i(present.uniform('u_blendMode'), 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     this.release(main);
+    if (overlays.quickMask) this.drawQuickMask(overlays.quickMask, doc, visible, docToClip);
     if (overlays.pixelGrid && viewport.zoom >= PIXEL_GRID_ZOOM) {
       const grid = this.gridProgram;
       gl.useProgram(grid.program);
@@ -229,6 +242,51 @@ export class Compositor {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(null);
+  }
+
+  /** Quick Mask: 50 % red over unselected pixels, on screen after the composite (FR-SEL-06). */
+  private drawQuickMask(
+    qm: QuickMaskOverlay,
+    doc: Document,
+    visible: TileKey[],
+    docToClip: Float32Array,
+  ): void {
+    const gl = this.gl;
+    const p = this.quickMaskProgram;
+    gl.useProgram(p.program);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniformMatrix3fv(p.uniform('u_docToClip'), false, docToClip);
+    gl.uniform1f(p.uniform('u_tileSize'), TILE_SIZE);
+    gl.uniform2f(p.uniform('u_docSize'), doc.width, doc.height);
+    gl.uniform1i(p.uniform('u_mask'), 4);
+    gl.uniform1i(p.uniform('u_stroke'), 1);
+    gl.uniform1i(p.uniform('u_grain'), 3);
+    const stroke = qm.stroke ?? null;
+    const grain = stroke && !stroke.settings.aliased ? this.grainTexture(stroke.settings.tip) : null;
+    gl.uniform1i(p.uniform('u_hasGrain'), grain ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, grain);
+    gl.uniform1f(p.uniform('u_brushOpacity'), stroke?.settings.opacity ?? 1);
+    gl.uniform1f(p.uniform('u_target'), stroke?.target ?? 1);
+    for (const key of visible) {
+      const sel = qm.selection;
+      const tile = sel?.tile(key);
+      const strokeTex = stroke?.buffer.texture(key);
+      const mode = !sel || tile?.full ? 0 : tile ? 1 : 2;
+      if (mode === 0 && !strokeTex) continue; // fully selected and untouched: nothing to tint
+      const [tx, ty] = parseTileKey(key);
+      gl.uniform2f(p.uniform('u_tileOrigin'), tx * TILE_SIZE, ty * TILE_SIZE);
+      gl.uniform1i(p.uniform('u_maskMode'), mode);
+      gl.uniform1i(p.uniform('u_hasStroke'), strokeTex ? 1 : 0);
+      if (mode === 1) {
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this.maskTexture(sel!, tile!));
+      }
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, strokeTex ?? null);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
   }
 
   private drawLayers(layers: readonly Layer[], target: Target, ctx: DrawContext): void {

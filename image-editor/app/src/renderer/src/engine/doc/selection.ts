@@ -190,6 +190,16 @@ export class Mask {
     return new Mask(out, this.width, this.height);
   }
 
+  /** The same mask with some tiles replaced (undefined removes one); for Quick Mask strokes. */
+  withTiles(updates: ReadonlyMap<TileKey, MaskTile | undefined>): Mask {
+    const out = new Map(this.tiles);
+    for (const [key, tile] of updates) {
+      if (tile) out.set(key, tile);
+      else out.delete(key);
+    }
+    return Mask.fromTiles(out, this.width, this.height);
+  }
+
   /** The selection as plain data for a worker (null when nothing is selected). */
   toClip(): SelectionClip | null {
     const bounds = this.bounds();
