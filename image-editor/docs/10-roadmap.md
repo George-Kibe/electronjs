@@ -181,22 +181,24 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         crops, rotations, flips and resampling transform masks with their layers; saved in `.iep` as
         one-channel `masks/<n>/tiles.bin`. GPU preview and CPU commit agree (conformance tests). Masks on
         groups, Alt-click to view the mask, and density/feather properties are later.
-  - [ ] 2b Clipping masks (FR-LAY-05): Layer › Create / Release Clipping Mask (Ctrl+Alt+G); a clipped layer
+  - [x] 2b Clipping masks (FR-LAY-05): Layer › Create / Release Clipping Mask (Ctrl+Alt+G); a clipped layer
         shows only where the nearest unclipped layer below it in the same group has pixels (its alpha × its
         mask × its opacity), several layers can share one base, and a hidden base hides them. As built this
         multiplies each clipped layer by the base on its own, which matches Photoshop wherever the base is
         opaque; Photoshop's isolated clipping group (base opacity and mode applied to the whole group) needs
         source-atop blend modes in `blend.glsl`/`blend.ts`, a golden-image area, and is a follow-up. Groups
-        as bases clip nothing yet.
-  - [ ] 2b′ Quick Mask (Q, the toolbar's ◩): the unselected area shows under 50 % red instead of marching
+        as bases clip nothing yet. E2E green on 3 OSes (run 44848140590).
+  - [x] 2b′ Quick Mask (Q, the toolbar's ◩): the unselected area shows under 50 % red instead of marching
         ants, and the brush, pencil and eraser paint the selection itself (white selects, black deselects,
         greys in between); each stroke is one selection step in History, so leaving Quick Mask needs no
-        conversion. With no selection everything counts as selected. GPU overlay and CPU commit agree.
-  - [ ] 2c Several layers at once (FR-LAY-08): Ctrl/⌘-click toggles a layer in the selection and Shift-click
+        conversion. With no selection everything counts as selected. GPU overlay and CPU commit agree. E2E
+        green on 3 OSes (run 44848795338).
+  - [x] 2c Several layers at once (FR-LAY-08): Ctrl/⌘-click toggles a layer in the selection and Shift-click
         selects a range in the Layers panel; the Move tool, arrow-key nudges, Layer › Align (to each other
         with several, to the canvas with one), Layer › Distribute (three or more: the outer two stay), Group
         (Ctrl+G) and Delete act on all of them, each as one undo step. A group and a layer inside it never
-        both act. The layer selection is UI state, like the active layer.
+        both act. The layer selection is UI state, like the active layer. E2E green on 3 OSes (run
+        44849927215).
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04
