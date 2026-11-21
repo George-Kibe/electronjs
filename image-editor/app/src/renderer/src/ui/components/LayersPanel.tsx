@@ -153,12 +153,14 @@ export function LayersPanel({ editor, snap }: Props) {
       <ul
         role="listbox"
         aria-label="Layers"
+        aria-multiselectable
         tabIndex={0}
         onKeyDown={onListKey}
         className="min-h-0 flex-1 overflow-auto outline-none"
       >
         {rows.map((row) => {
-          const selected = row.id === snap.activeLayerId;
+          // Ctrl/⌘-click and Shift-click select several layers (FR-LAY-08).
+          const selected = snap.selectedLayerIds.includes(row.id);
           const marker =
             drop?.id === row.id
               ? drop.where === 'inside'
@@ -175,7 +177,11 @@ export function LayersPanel({ editor, snap }: Props) {
               aria-selected={selected}
               aria-level={row.depth + 1}
               draggable={renaming !== row.id}
-              onClick={() => editor.setActiveLayer(row.id)}
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey) editor.selectLayer(row.id, 'toggle');
+                else if (e.shiftKey) editor.selectLayer(row.id, 'range');
+                else editor.setActiveLayer(row.id);
+              }}
               onDoubleClick={() => setRenaming(row.id)}
               onDragStart={(e) => {
                 dragged.current = row.id;
