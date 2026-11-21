@@ -155,11 +155,12 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         preview and CPU commit agree); Edit › Clear (Delete). Canvas changes drop the selection (undo
         restores it). The selection is not yet saved in `.iep`, recovery snapshots or a moved tab. E2E green
         on 3 OSes (run 44815064333).
-  - [ ] 1b Lasso and Polygonal Lasso (L, Shift+L: freehand closes on release; polygon by clicks, closed
+  - [x] 1b Lasso and Polygonal Lasso (L, Shift+L: freehand closes on release; polygon by clicks, closed
         with Enter, a double-click or a click on the first point; Esc cancels, Backspace removes the last
         point; anti-aliased edges) and Magic Wand (W) in the ops worker: tolerance 0–255 compared on
         premultiplied colour (all transparent pixels match each other), contiguous (scanline flood fill)
-        or not, anti-alias, active layer or all layers (T-SEL-01). Every selection tool takes the four modes.
+        or not, anti-alias, active layer or all layers (T-SEL-01). Every selection tool takes the four modes. E2E
+        green on 3 OSes (run 44817086962).
   - [ ] 1c Select › Modify (feather, expand/contract, border, smooth), Color Range (basic), Quick Mask (Q),
         Copy/Cut of the selection, Image › Crop to the selection, saving the selection in `.iep`.
 - [ ] Slice 2 — layer masks and clipping masks (FR-LAY-04/05), multi-layer selection (FR-LAY-08)
