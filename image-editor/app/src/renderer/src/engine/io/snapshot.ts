@@ -25,8 +25,16 @@ type SnapshotBase = {
   extra?: Record<string, unknown>;
 };
 
+/** A layer mask as plain data: RGBA tiles with coverage in alpha (see document.ts LayerMask). */
+export type MaskSnapshot = {
+  background: 0 | 255;
+  enabled: boolean;
+  linked: boolean;
+  tiles: Array<[TileKey, Uint8Array]>;
+};
+
 export type LayerSnapshot =
-  | (SnapshotBase & { type: 'raster'; tiles: Array<[TileKey, Uint8Array]> })
+  | (SnapshotBase & { type: 'raster'; tiles: Array<[TileKey, Uint8Array]>; mask?: MaskSnapshot | null })
   | (SnapshotBase & { type: 'group'; passThrough: boolean; collapsed: boolean; children: LayerSnapshot[] });
 
 export type DocSnapshot = {
@@ -70,11 +78,34 @@ export function layerToSnapshot(l: Layer): LayerSnapshot {
   return {
     ...base,
     type: 'raster',
-    tiles: [...l.tiles.entries()].map(([key, tile]) => [
-      key,
-      new Uint8Array(tile.data.buffer, tile.data.byteOffset, tile.data.byteLength),
-    ]),
+    tiles: gridEntries(l.tiles),
+    ...(l.mask
+      ? {
+          mask: {
+            background: l.mask.background,
+            enabled: l.mask.enabled,
+            linked: l.mask.linked,
+            tiles: gridEntries(l.mask.grid),
+          },
+        }
+      : {}),
   };
+}
+
+function gridEntries(grid: TileGrid): Array<[TileKey, Uint8Array]> {
+  return [...grid.entries()].map(([key, tile]) => [
+    key,
+    new Uint8Array(tile.data.buffer, tile.data.byteOffset, tile.data.byteLength),
+  ]);
+}
+
+function gridFrom(tiles: ReadonlyArray<[TileKey, Uint8Array]>): TileGrid {
+  const grid = new TileGrid();
+  for (const [key, bytes] of tiles) {
+    if (bytes.byteLength !== TILE_BYTES) throw new RangeError(`Tile ${key} has the wrong size`);
+    grid.set(key, createTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength)));
+  }
+  return grid;
 }
 
 export function toSnapshot(doc: Document): DocSnapshot {
@@ -103,13 +134,20 @@ function layerFromSnapshot(l: LayerSnapshot): Layer {
     const { children, type: _type, ...props } = l;
     return createGroupLayer(l.name, children.map(layerFromSnapshot), props);
   }
-  const grid = new TileGrid();
-  for (const [key, bytes] of l.tiles) {
-    if (bytes.byteLength !== TILE_BYTES) throw new RangeError(`Tile ${key} has the wrong size`);
-    grid.set(key, createTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength)));
-  }
-  const { tiles: _tiles, type: _type, ...props } = l;
-  return createRasterLayer(l.name, grid, props);
+  const { tiles, type: _type, mask, ...props } = l;
+  return createRasterLayer(l.name, gridFrom(tiles), {
+    ...props,
+    ...(mask
+      ? {
+          mask: {
+            grid: gridFrom(mask.tiles),
+            background: mask.background,
+            enabled: mask.enabled,
+            linked: mask.linked,
+          },
+        }
+      : {}),
+  });
 }
 
 export function fromSnapshot(s: DocSnapshot): Document {
@@ -141,6 +179,13 @@ export function snapshotLayers(layers: readonly LayerSnapshot[]): import('../doc
   return layers.map((l) => {
     if (l.type === 'group') return { ...l, kind: 'group', children: snapshotLayers(l.children) };
     const tiles = new Map(l.tiles);
-    return { ...l, kind: 'raster', tile: (key: TileKey) => tiles.get(key) };
+    const m = l.mask?.enabled ? l.mask : null;
+    const maskTiles = m ? new Map(m.tiles) : null;
+    return {
+      ...l,
+      kind: 'raster',
+      tile: (key: TileKey) => tiles.get(key),
+      mask: m && maskTiles ? { tile: (key: TileKey) => maskTiles.get(key), background: m.background } : null,
+    };
   });
 }

@@ -192,9 +192,28 @@ export function writeIep(
         collapsed: l.collapsed,
         children: l.children.map(entry),
       };
-    const tiles = `layers/${next++}/tiles.bin`;
+    const n = next++;
+    const tiles = `layers/${n}/tiles.bin`;
     files[tiles] = [encodeTiles(l.tiles), { level: 0 }]; // payloads are already deflated
-    return { ...common, tiles };
+    if (!l.mask) {
+      delete (common as Record<string, unknown>)['mask']; // never keep a stale reference from another version
+      return { ...common, tiles };
+    }
+    // Masks live in memory as RGBA (coverage in alpha) and on disk as one channel (docs/05 §2.2).
+    const maskPath = `masks/${n}/tiles.bin`;
+    const alpha = l.mask.tiles.map(([key, rgba]): [TileKey, Uint8Array] => {
+      const a = new Uint8Array(TILE_SIZE * TILE_SIZE);
+      for (let i = 0; i < a.length; i++) a[i] = rgba[i * 4 + 3]!;
+      return [key, a];
+    });
+    files[maskPath] = [encodeTiles(alpha, 1), { level: 0 }];
+    const mask = {
+      background: l.mask.background,
+      enabled: l.mask.enabled,
+      linked: l.mask.linked,
+      tiles: maskPath,
+    };
+    return { ...common, tiles, mask };
   };
   const layers = doc.layers.map(entry);
   const document: Record<string, unknown> = {
@@ -274,10 +293,17 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
 
   // Validate the whole tree and index every tile before inflating anything (bomb guard).
   type Plan =
-    | { kind: 'raster'; entry: RasterLayerEntry; bin: Uint8Array; index: TileIndex[] }
+    | {
+        kind: 'raster';
+        entry: RasterLayerEntry;
+        bin: Uint8Array;
+        index: TileIndex[];
+        mask: { bin: Uint8Array; index: TileIndex[] } | null;
+      }
     | { kind: 'group'; entry: GroupLayerEntry; children: Plan[] };
   const ids = new Set<string>();
   let skipped = 0;
+  let missingMasks = 0;
   let tileCount = 0;
   let layerCount = 0;
   const plan = (list: unknown[], depth: number): Plan[] => {
@@ -305,7 +331,19 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
       if (!bin) throw new IepError(`Layer “${layer.data.name}” is missing its pixels.`);
       const index = indexTiles(bin, range);
       tileCount += index.length;
-      out.push({ kind: 'raster', entry: layer.data, bin, index });
+      // The layer mask: damaged = a damaged file (like pixels); missing (an older version re-saved the file
+      // without it) = the layer opens without it and the document read-only, so nothing hidden is saved over.
+      let mask: { bin: Uint8Array; index: TileIndex[] } | null = null;
+      const maskEntry = layer.data.mask;
+      if (maskEntry) {
+        const maskBin = entries[maskEntry.tiles];
+        if (!maskBin) missingMasks++;
+        else {
+          mask = { bin: maskBin, index: indexTiles(maskBin, range, 1) };
+          tileCount += mask.index.length; // held as RGBA in memory
+        }
+      }
+      out.push({ kind: 'raster', entry: layer.data, bin, index, mask });
     }
     return out;
   };
@@ -313,6 +351,10 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
   if (skipped > 0)
     reasons.push(
       `${skipped} layer${skipped === 1 ? '' : 's'} use features this version cannot show, so ${skipped === 1 ? 'it is' : 'they are'} left out.`,
+    );
+  if (missingMasks > 0)
+    reasons.push(
+      `${missingMasks} layer mask${missingMasks === 1 ? ' is' : 's are'} missing from this file, so ${missingMasks === 1 ? 'its layer shows' : 'their layers show'} unmasked.`,
     );
   if (plans.length === 0) throw new IepError('This project has no layers this version can open.');
   // The saved selection: optional, so a missing or damaged entry only loses the selection, never the file.
@@ -364,7 +406,22 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
       tileKey(t.tx, t.ty),
       decodeTile(p.bin, t),
     ]);
-    return { ...common, type: 'raster', tiles, ...(extra ? { extra } : {}) };
+    const m = p.entry.mask;
+    const mask =
+      m && p.mask
+        ? {
+            background: m.background,
+            enabled: m.enabled,
+            linked: m.linked,
+            tiles: p.mask.index.map((t): [TileKey, Uint8Array] => {
+              const a = decodeTile(p.mask!.bin, t, MASK_TILE_BYTES);
+              const rgba = new Uint8Array(TILE_BYTES);
+              for (let i = 0; i < a.length; i++) rgba[i * 4 + 3] = a[i]!;
+              return [tileKey(t.tx, t.ty), rgba];
+            }),
+          }
+        : null;
+    return { ...common, type: 'raster', tiles, ...(mask ? { mask } : {}), ...(extra ? { extra } : {}) };
   };
   const layers = plans.map(build);
   let selection: Array<[TileKey, Uint8Array]> | null = null;

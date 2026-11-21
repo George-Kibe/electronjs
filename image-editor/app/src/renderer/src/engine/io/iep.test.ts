@@ -369,6 +369,51 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
     });
   });
 
+  describe('layer masks (FR-LAY-04, docs/05 §2.1)', () => {
+    const masked = () => {
+      const doc = sampleDoc();
+      const layer = doc.layers.find((l) => l.type === 'raster')! as RasterLayer;
+      const data = new Uint8ClampedArray(TILE_BYTES);
+      for (let i = 0; i < 256 * 256; i++) data[i * 4 + 3] = i % 256;
+      const grid = new TileGrid();
+      grid.set('0,0', createTile(data));
+      layer.mask = { grid, background: 0, enabled: false, linked: false };
+      return { doc, id: layer.id };
+    };
+
+    it('round-trips the mask exactly, stored as one channel', () => {
+      const { doc, id } = masked();
+      const back = roundTrip(doc).doc.raster(id).mask!;
+      expect([back.background, back.enabled, back.linked]).toEqual([0, false, false]);
+      expect(sameBytes(back.grid.get('0,0')!.data, doc.raster(id).mask!.grid.get('0,0')!.data)).toBe(true);
+      const files = unzipSync(writeIep(toSnapshot(doc), { appVersion: '0.1.0' }));
+      const entry = JSON.parse(strFromU8(files['manifest.json']!)).layers.find(
+        (l: { id: string }) => l.id === id,
+      );
+      expect(entry.mask).toMatchObject({ background: 0, enabled: false, linked: false });
+      expect(files[entry.mask.tiles]![6]).toBe(1); // one channel
+    });
+
+    it('a missing mask opens the layer unmasked and the document read-only; a damaged one fails', () => {
+      const mask = { background: 255, tiles: 'masks/0/tiles.bin' };
+      const missing = readIep(
+        zip(manifest({}, [layerEntry({ mask })]), { 'layers/0/tiles.bin': oneTile() }),
+        BUDGET,
+      );
+      expect(missing.readOnlyReason).toMatch(/mask is missing/);
+      expect((missing.doc.layers[0] as { mask?: unknown }).mask).toBeUndefined();
+      expect(() =>
+        readIep(
+          zip(manifest({}, [layerEntry({ mask })]), {
+            'layers/0/tiles.bin': oneTile(),
+            'masks/0/tiles.bin': oneTile(),
+          }),
+          BUDGET,
+        ),
+      ).toThrow(IepError); // 4-channel tiles where a mask belongs
+    });
+  });
+
   it('loads the committed v1 golden fixture (must load forever, docs/05 §2.3)', () => {
     const bytes = readFileSync(
       join(import.meta.dirname, '../../../../../test/fixtures/iep/v1/two-layers.iep'),

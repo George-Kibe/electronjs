@@ -63,6 +63,9 @@
 6. Batch: folder of 10 → resize + WebP → outputs verified.
 7. Undo/redo via the History panel. Snapshot and restore.
 
+Layer masks (M2 slice 2a): `e2e/masks.spec.ts` adds a mask, paints it to hide part of a layer, disables
+and re-enables it, applies and undoes it, and hides a selection.
+
 Selections (M2 slice 1a): `e2e/selections.spec.ts` drags marquees in every mode, paints across the edge of
 a selection, clears it with Delete, and drives the Select menu and its keys.
 

@@ -17,6 +17,11 @@ uniform bool u_hasGrain;
 uniform sampler2D u_grain;  // R8 GRAIN_SIZE² brush grain (brush/tips.ts), sampled at whole document pixels
 uniform bool u_hasMask;
 uniform sampler2D u_mask;   // R8 selection coverage of this tile (doc/selection.ts), sampled at whole pixels
+uniform int u_layerMask;      // 0 = none, 1 = a tile in u_layerMaskTile, 2 = the background value
+uniform sampler2D u_layerMaskTile; // the layer mask's RGBA tile, coverage in alpha (doc/document.ts LayerMask)
+uniform float u_layerMaskBackground;
+uniform bool u_strokeOnMask;  // the stroke paints the layer mask (toward u_maskTarget), not the pixels
+uniform float u_maskTarget;
 uniform float u_layerOpacity;
 uniform int u_blendMode;    // 0 = Normal (GL blending), else index into blend.glsl
 uniform sampler2D u_backdrop; // premultiplied copy of the target (only when u_blendMode != 0)
@@ -26,7 +31,15 @@ out vec4 o_color;
 
 void main() {
   vec4 d = u_hasTile ? texture(u_tile, v_uv) : vec4(0.0);
-  if (u_hasStroke) {
+  float m = u_layerMask == 1 ? texture(u_layerMaskTile, v_uv).a : u_layerMaskBackground;
+  if (u_hasStroke && u_strokeOnMask) {
+    // Mask painting: coverage moves toward the target (white reveals, black hides), as brush.ts applyMaskStroke.
+    float a = texture(u_stroke, v_uv).a * u_brushOpacity;
+    ivec2 px = min(ivec2(floor(v_uv * 256.0)), ivec2(255));
+    if (u_hasGrain) a *= texelFetch(u_grain, px % 128, 0).r;
+    if (u_hasMask) a *= texelFetch(u_mask, px, 0).r;
+    m = mix(m, u_maskTarget, a);
+  } else if (u_hasStroke) {
     float a = texture(u_stroke, v_uv).a * u_brushOpacity;
     ivec2 px = min(ivec2(floor(v_uv * 256.0)), ivec2(255)); // tile-local pixel
     if (u_hasGrain) a *= texelFetch(u_grain, px % 128, 0).r; // tile origins are multiples of 128
@@ -37,6 +50,8 @@ void main() {
       d = u_mode == 0 ? vec4(u_color * a, a) + d * (1.0 - a) : d * (1.0 - a);
     }
   }
+  // The layer mask scales the layer before opacity and blending (as doc/flatten.ts compositeSpan).
+  if (u_layerMask != 0) d *= m;
   d *= u_layerOpacity;
   if (u_blendMode == 0) {
     o_color = d;

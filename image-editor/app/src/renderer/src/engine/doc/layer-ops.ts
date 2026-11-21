@@ -9,6 +9,7 @@ import {
   type Document,
   type Layer,
   type RasterLayer,
+  copyMask,
 } from './document';
 import { compositeTile, liveLayers, type FlatLayer } from './flatten';
 
@@ -62,7 +63,13 @@ function deepCopy(layer: Layer, suffix: string): Layer {
     return { ...common, type: 'group', children: layer.children.map((c) => deepCopy(c, '')) } as Layer;
   const grid = new TileGrid();
   for (const [k, t] of layer.tiles.entries()) grid.set(k, t); // tiles are immutable: share them
-  return { ...common, type: 'raster', tiles: grid } as RasterLayer;
+  // The copy gets its own mask grid: painting one mask must not change the other.
+  return {
+    ...common,
+    type: 'raster',
+    tiles: grid,
+    mask: layer.mask ? copyMask(layer.mask) : null,
+  } as RasterLayer;
 }
 
 /** Layer › Duplicate (Ctrl+J): a copy above the original, selected. */

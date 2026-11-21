@@ -5,8 +5,15 @@ import type { BlendMode, Layer } from './document';
 type NodeProps = { visible: boolean; opacity: number; fillOpacity: number; blendMode: BlendMode };
 
 /** What the CPU compositor needs from the layer tree; satisfied by live layers and by worker snapshots. */
+/** An enabled layer mask: RGBA tiles with coverage in alpha, `background` where there is no tile. */
+export type FlatMask = { tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined; background: number };
+
 export type FlatLayer =
-  | (NodeProps & { kind: 'raster'; tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined })
+  | (NodeProps & {
+      kind: 'raster';
+      tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined;
+      mask?: FlatMask | null;
+    })
   | (NodeProps & { kind: 'group'; passThrough: boolean; children: FlatLayer[] });
 
 const TILE_PIXELS = TILE_SIZE * TILE_SIZE;
@@ -40,12 +47,18 @@ function compositeSpan(
       const t = node.tile(key);
       const k = node.opacity * node.fillOpacity;
       if (!t || k === 0) continue;
+      // The layer mask scales each pixel's alpha (FR-LAY-04), before opacity and blending.
+      const mask = node.mask;
+      const mt = mask?.tile(key);
+      if (mask && !mt && mask.background === 0) continue;
       const mode = blendModeIndex(node.blendMode);
       for (let p = 0; p < count; p++) {
         const s = (first + p) * 4;
         const a = t[s + 3]!;
         if (a === 0) continue;
-        blendInto(acc, p * 4, mode, t[s]! / 255, t[s + 1]! / 255, t[s + 2]! / 255, (a / 255) * k);
+        const m = mask ? (mt ? mt[s + 3]! : mask.background) / 255 : 1;
+        if (m === 0) continue;
+        blendInto(acc, p * 4, mode, t[s]! / 255, t[s + 1]! / 255, t[s + 2]! / 255, (a / 255) * k * m);
       }
     } else if (node.passThrough && node.opacity === 1) {
       compositeSpan(node.children, key, acc, first, count, depth);
@@ -183,6 +196,12 @@ export function liveLayers(layers: readonly Layer[]): FlatLayer[] {
     };
     if (l.type === 'group')
       return { ...props, kind: 'group', passThrough: l.passThrough, children: liveLayers(l.children) };
-    return { ...props, kind: 'raster', tile: (key) => l.tiles.get(key)?.data };
+    const m = l.mask?.enabled ? l.mask : null;
+    return {
+      ...props,
+      kind: 'raster',
+      tile: (key) => l.tiles.get(key)?.data,
+      mask: m ? { tile: (key) => m.grid.get(key)?.data, background: m.background } : null,
+    };
   });
 }

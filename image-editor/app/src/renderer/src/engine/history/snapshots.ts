@@ -1,5 +1,5 @@
 import { TreeCommand, type CanvasGeometry } from '../doc/commands';
-import type { Document, Layer } from '../doc/document';
+import { copyMask, type Document, type Layer } from '../doc/document';
 import { TileGrid } from '../tiles/tile';
 
 /**
@@ -18,7 +18,8 @@ function copyLayer(l: Layer): Layer {
   if (l.type === 'group') return { ...l, locks: { ...l.locks }, children: l.children.map(copyLayer) };
   const tiles = new TileGrid();
   for (const [k, t] of l.tiles.entries()) tiles.set(k, t);
-  return { ...l, locks: { ...l.locks }, tiles };
+  // The mask grid is changed in place by mask painting too: the snapshot owns its own copy.
+  return { ...l, locks: { ...l.locks }, tiles, mask: l.mask ? copyMask(l.mask) : null };
 }
 
 export function captureState(doc: Document): DocState {
@@ -59,7 +60,10 @@ function captureStateOf(state: DocState): DocState {
 export function collectTileIds(layers: readonly Layer[], into: Set<number>): Set<number> {
   for (const l of layers) {
     if (l.type === 'group') collectTileIds(l.children, into);
-    else for (const [, t] of l.tiles.entries()) into.add(t.id);
+    else {
+      for (const [, t] of l.tiles.entries()) into.add(t.id);
+      if (l.mask) for (const [, t] of l.mask.grid.entries()) into.add(t.id);
+    }
   }
   return into;
 }

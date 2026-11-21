@@ -9,7 +9,7 @@ import {
   SetSelectionCommand,
   type Command,
 } from '../doc/commands';
-import { createRasterLayer, Document, type Layer } from '../doc/document';
+import { createGroupLayer, createRasterLayer, Document, type Layer } from '../doc/document';
 import { cropDocument, flipCanvas, resizeCanvas, rotateCanvas } from '../doc/geometry';
 import {
   duplicateLayer,
@@ -24,7 +24,7 @@ import { ellipseMask, Mask, rectMask } from '../doc/selection';
 import { translateLayer } from '../doc/translate';
 import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
 import { History } from './history';
-import { captureState, restoreState } from './snapshots';
+import { captureState, collectTileIds, restoreState } from './snapshots';
 
 const W = 300;
 const H = 200;
@@ -227,5 +227,32 @@ describe('snapshots (FR-HIS-02)', () => {
     history.undo();
     history.undo();
     expect(state(doc)).toEqual(edited);
+  });
+});
+
+describe('memory accounting (FR-NAV-06)', () => {
+  it('counts each distinct tile once: pixels, masks and groups, shared tiles once', () => {
+    const shared = tile(1);
+    const a = createRasterLayer('a');
+    a.tiles.set('0,0', shared);
+    a.tiles.set('1,0', tile(2));
+    const maskGrid = new TileGrid();
+    maskGrid.set('0,0', tile(3));
+    maskGrid.set('1,0', shared);
+    a.mask = { grid: maskGrid, background: 255, enabled: true, linked: true };
+    const b = createRasterLayer('b');
+    b.tiles.set('0,0', shared);
+    const ids = collectTileIds([a, createGroupLayer('g', [b])], new Set());
+    expect(ids.size).toBe(3);
+  });
+
+  it('a snapshot owns a copy of each mask grid', () => {
+    const doc = newDoc();
+    const ink = doc.raster(doc.layers[1]!.id);
+    ink.mask = { grid: new TileGrid(), background: 0, enabled: true, linked: true };
+    const snap = captureState(doc);
+    ink.mask.grid.set('0,0', tile(7));
+    const copy = snap.layers[1]!;
+    expect(copy.type === 'raster' && copy.mask?.grid.get('0,0')).toBeFalsy();
   });
 });

@@ -25,6 +25,8 @@ export type StrokePreview = {
   preserveAlpha: boolean;
   /** The stroke only reaches selected pixels (FR-SEL-06); null or absent = everywhere. */
   selection?: Mask | null;
+  /** The stroke paints the layer's mask toward `maskTarget` (0..1) instead of its pixels (FR-LAY-04). */
+  onMask?: { target: number } | null;
 };
 
 /** Move tool drag in progress (FR-TRF-07): these raster layers are drawn shifted by whole pixels. */
@@ -303,6 +305,13 @@ export class Compositor {
     gl.uniform1i(p.uniform('u_mask'), 4);
     gl.uniform1i(p.uniform('u_hasMask'), 0);
     const selection = preview?.selection ?? null;
+    // The layer mask (FR-LAY-04): sampled with the layer's sampler on unit 5, so filtering matches.
+    const layerMask = layer.mask?.enabled || preview?.onMask ? (layer.mask ?? null) : null;
+    gl.uniform1i(p.uniform('u_layerMaskTile'), 5);
+    gl.uniform1f(p.uniform('u_layerMaskBackground'), (layerMask?.background ?? 255) / 255);
+    gl.uniform1i(p.uniform('u_strokeOnMask'), preview?.onMask ? 1 : 0);
+    gl.uniform1f(p.uniform('u_maskTarget'), preview?.onMask?.target ?? 1);
+    gl.bindSampler(5, ctx.viewport.zoom * ctx.size.dpr >= 2 ? this.nearestSampler : this.linearSampler);
     const moving = ctx.move?.layerIds.has(layer.id) ? ctx.move : undefined;
     const [ox, oy] = moving ? [moving.dx, moving.dy] : [0, 0];
     for (const key of moving ? this.movedTiles(layer, moving, ctx.rect) : ctx.visible) {
@@ -311,6 +320,16 @@ export class Compositor {
       // Outside the selection the stroke shows nothing; fully selected tiles need no mask.
       const strokeTex = selection && !mask ? undefined : preview?.buffer.texture(key);
       if (!tile && !strokeTex) continue;
+      // Mask painting changes how the layer's own pixels show: nothing to draw without pixels.
+      if (!tile && preview?.onMask) continue;
+      const maskTileOf = layerMask?.grid.get(key);
+      // A hidden tile (hide-all background, no mask tile) draws nothing unless a mask stroke reaches it.
+      if (layerMask && !maskTileOf && layerMask.background === 0 && !(strokeTex && preview?.onMask)) continue;
+      gl.uniform1i(p.uniform('u_layerMask'), !layerMask ? 0 : maskTileOf ? 1 : 2);
+      if (maskTileOf) {
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, this.textures.get(maskTileOf));
+      }
       const partial = strokeTex && mask && !mask.full ? mask : null;
       gl.uniform1i(p.uniform('u_hasMask'), partial ? 1 : 0);
       if (partial) {
@@ -328,6 +347,7 @@ export class Compositor {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
     gl.bindSampler(0, null);
+    gl.bindSampler(5, null);
   }
 
   /** Composites a screen-space buffer onto the bound framebuffer. */

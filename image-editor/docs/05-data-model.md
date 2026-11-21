@@ -127,6 +127,8 @@ Layers are listed bottom → top. Groups nest their children. `document` may als
 metadata policy). Tile paths are derived from the raster layer's depth-first position
 (`layers/<n>/tiles.bin`), never from its id, because ids come from files. Groups (`type: "group"`) carry
 `passThrough`, `collapsed` and nested `children`; nesting is limited to 32 levels and 1,000 layers in total,
+and raster layers may carry `mask: { background: 0|255, enabled, linked, tiles }` with one-channel tiles at
+`masks/<n>/tiles.bin` (as built in M2; a missing mask entry opens the layer unmasked and the file read-only),
 and layer ids must be unique across the whole tree. A layer type the reader does not know is left out and
 the document opens read-only (Save becomes Save As), so it is never silently dropped from the original
 file. The manifest is validated with zod on load. Unknown fields are preserved on save (forward

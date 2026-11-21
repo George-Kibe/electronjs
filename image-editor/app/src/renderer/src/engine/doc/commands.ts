@@ -1,6 +1,6 @@
 import type { Tile, TileKey } from '../tiles/tile';
 import { TILE_BYTES } from '../tiles/tile';
-import { createRasterLayer, type Document, type Layer, type LayerProps } from './document';
+import { createRasterLayer, type Document, type Layer, type LayerMask, type LayerProps } from './document';
 import type { Mask } from './selection';
 
 export type DirtySet = { layerIds: string[]; tiles: TileKey[] | 'all' };
@@ -16,17 +16,22 @@ export interface Command {
   mergeWith?(next: Command): Command | null;
 }
 
-/** Swaps tile references on one raster layer: the core of brush/eraser/fill undo (ADR-0005). */
+/**
+ * Swaps tile references on one raster layer, or on its mask: the core of brush/eraser/fill undo (ADR-0005).
+ */
 export class PaintTilesCommand implements Command {
   constructor(
     readonly label: string,
     private readonly layerId: string,
     private readonly before: ReadonlyMap<TileKey, Tile | undefined>,
     private readonly after: ReadonlyMap<TileKey, Tile | undefined>,
+    /** 'mask': the layer mask's tiles (FR-LAY-04). */
+    private readonly target: 'pixels' | 'mask' = 'pixels',
   ) {}
 
   private apply(doc: Document, tiles: ReadonlyMap<TileKey, Tile | undefined>): DirtySet {
-    const grid = doc.raster(this.layerId).tiles;
+    const layer = doc.raster(this.layerId);
+    const grid = this.target === 'mask' ? layer.mask!.grid : layer.tiles;
     for (const [key, tile] of tiles) grid.set(key, tile);
     return { layerIds: [this.layerId], tiles: [...tiles.keys()] };
   }
@@ -200,7 +205,8 @@ export function cloneTree(layers: readonly Layer[]): Layer[] {
 /** Tile bytes held by the raster layers in `layers` (for history accounting). */
 export function tileBytes(layers: readonly Layer[]): number {
   let n = 0;
-  for (const l of layers) n += l.type === 'group' ? tileBytes(l.children) : l.tiles.size * TILE_BYTES;
+  for (const l of layers)
+    n += l.type === 'group' ? tileBytes(l.children) : (l.tiles.size + (l.mask?.grid.size ?? 0)) * TILE_BYTES;
   return n;
 }
 
@@ -303,5 +309,72 @@ export class SetSelectionCommand implements Command {
 
   sizeBytes(): number {
     return 64 + (this.after?.sizeBytes() ?? 0);
+  }
+}
+
+/**
+ * Adds, replaces or removes a raster layer's mask (FR-LAY-04): Reveal All / Hide All / from the selection,
+ * Delete, Invert, Disable / Enable, Link / Unlink. The masks are whole values, so undo is exact.
+ */
+export class SetLayerMaskCommand implements Command {
+  private before: LayerMask | null = null;
+
+  constructor(
+    readonly label: string,
+    private readonly layerId: string,
+    private readonly after: LayerMask | null,
+  ) {}
+
+  do(doc: Document): DirtySet {
+    const layer = doc.raster(this.layerId);
+    this.before = layer.mask ?? null;
+    layer.mask = this.after;
+    return { layerIds: [this.layerId], tiles: 'all' };
+  }
+
+  undo(doc: Document): DirtySet {
+    doc.raster(this.layerId).mask = this.before;
+    return { layerIds: [this.layerId], tiles: 'all' };
+  }
+
+  sizeBytes(): number {
+    return 128 + (this.after ? this.after.grid.size * TILE_BYTES : 0);
+  }
+}
+
+/** Layer › Layer Mask › Apply: the pixels with the mask baked into their alpha, and no mask (one step). */
+export class ApplyLayerMaskCommand implements Command {
+  readonly label = 'Apply Layer Mask';
+
+  constructor(
+    private readonly layerId: string,
+    private readonly mask: LayerMask,
+    private readonly before: ReadonlyMap<TileKey, Tile | undefined>,
+    private readonly after: ReadonlyMap<TileKey, Tile | undefined>,
+  ) {}
+
+  private apply(
+    doc: Document,
+    tiles: ReadonlyMap<TileKey, Tile | undefined>,
+    mask: LayerMask | null,
+  ): DirtySet {
+    const layer = doc.raster(this.layerId);
+    for (const [key, tile] of tiles) layer.tiles.set(key, tile);
+    layer.mask = mask;
+    return { layerIds: [this.layerId], tiles: 'all' };
+  }
+
+  do(doc: Document): DirtySet {
+    return this.apply(doc, this.after, null);
+  }
+
+  undo(doc: Document): DirtySet {
+    return this.apply(doc, this.before, this.mask);
+  }
+
+  sizeBytes(): number {
+    let n = 128;
+    for (const t of this.after.values()) if (t) n += TILE_BYTES;
+    return n;
   }
 }

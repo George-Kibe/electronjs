@@ -1,4 +1,4 @@
-import { TileGrid } from '../tiles/tile';
+import { TILE_SIZE, tileKey, TileGrid } from '../tiles/tile';
 import type { Mask } from './selection';
 
 /** The 18 blend modes of FR-LAY-03 (docs/05 §1). The compositor implements them per milestone. */
@@ -33,6 +33,39 @@ export const NO_LOCKS: LayerLocks = Object.freeze({
   transparency: false,
 });
 
+/**
+ * A layer mask (FR-LAY-04): coverage (0 hides, 255 shows) in the alpha channel of RGBA tiles, RGB 0, so every
+ * tile operation (move, crop, rotate, flip, resample) applies to masks unchanged. Outside its tiles the mask
+ * is `background` (255 after Reveal All, 0 after Hide All). Like a layer's tiles, the grid is changed in
+ * place by commands only; copy it with copyMask when a layer is duplicated or snapshotted.
+ */
+export type LayerMask = {
+  grid: TileGrid;
+  background: 0 | 255;
+  /** Off: the layer shows as if it had no mask (Shift-click the thumbnail). */
+  enabled: boolean;
+  /** Linked: the mask moves with the layer's pixels. */
+  linked: boolean;
+};
+
+/** The same mask with its own grid (tiles are immutable and shared). */
+export function copyMask(m: LayerMask): LayerMask {
+  const grid = new TileGrid();
+  for (const [k, t] of m.grid.entries()) grid.set(k, t);
+  return { ...m, grid };
+}
+
+/** Mask coverage 0..255 at a document pixel (integer coordinates). */
+export function maskAt(m: LayerMask, x: number, y: number): number {
+  const tile = m.grid.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)));
+  if (!tile) return m.background;
+  return tile.data[
+    ((y - Math.floor(y / TILE_SIZE) * TILE_SIZE) * TILE_SIZE + (x - Math.floor(x / TILE_SIZE) * TILE_SIZE)) *
+      4 +
+      3
+  ]!;
+}
+
 export type RasterLayer = {
   readonly id: string;
   readonly type: 'raster';
@@ -46,6 +79,8 @@ export type RasterLayer = {
   locks: LayerLocks;
   clipped: boolean;
   readonly tiles: TileGrid;
+  /** Layer mask (FR-LAY-04); absent or null = none. */
+  mask?: LayerMask | null;
   /** Manifest fields this version does not understand, kept so saving does not drop them (docs/05 §2.1). */
   extra?: Record<string, unknown>;
 };
@@ -55,7 +90,7 @@ export type RasterLayer = {
  * with everything below; otherwise the group is composited on its own first ("isolated") and the result is
  * blended with the group's mode and opacity.
  */
-export type GroupLayer = Omit<RasterLayer, 'type' | 'tiles'> & {
+export type GroupLayer = Omit<RasterLayer, 'type' | 'tiles' | 'mask'> & {
   readonly type: 'group';
   children: Layer[];
   passThrough: boolean;
@@ -80,7 +115,7 @@ export function newLayerId(): string {
 export function createRasterLayer(
   name: string,
   tiles = new TileGrid(),
-  props: Partial<LayerProps> & { id?: string; extra?: Record<string, unknown> } = {},
+  props: Partial<LayerProps> & { id?: string; extra?: Record<string, unknown>; mask?: LayerMask | null } = {},
 ): RasterLayer {
   const { id, extra, ...rest } = props;
   return {

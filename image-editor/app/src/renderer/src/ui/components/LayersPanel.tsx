@@ -6,12 +6,22 @@ import { Button } from './Button';
 
 const THUMB = 32;
 
-/** Throttled, lazily generated layer thumbnail (FR-LAY-06). */
-function Thumbnail({ editor, row }: { editor: Editor; row: LayerRow }) {
+/** Throttled, lazily generated layer or mask thumbnail (FR-LAY-06, FR-LAY-04). */
+function Thumbnail({
+  editor,
+  row,
+  kind = 'pixels',
+}: {
+  editor: Editor;
+  row: LayerRow;
+  kind?: 'pixels' | 'mask';
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const key = kind === 'mask' ? row.mask?.key : row.contentKey;
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const thumb = editor.layerThumbnail(row.id, THUMB);
+      const thumb =
+        kind === 'mask' ? editor.maskThumbnail(row.id, THUMB) : editor.layerThumbnail(row.id, THUMB);
       const c = canvas.current;
       if (!thumb || !c) return;
       c.width = thumb.width;
@@ -23,7 +33,7 @@ function Thumbnail({ editor, row }: { editor: Editor; row: LayerRow }) {
       );
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [editor, row.id, row.contentKey]);
+  }, [editor, row.id, key, kind]);
   return (
     <span className="border-ui-border flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden border bg-[conic-gradient(#ccc_25%,#fff_0_50%,#ccc_0_75%,#fff_0)] bg-[length:8px_8px]">
       <canvas ref={canvas} className="max-h-full max-w-full" aria-hidden="true" />
@@ -216,7 +226,65 @@ export function LayersPanel({ editor, snap }: Props) {
                   {row.collapsed ? '▸' : '▾'}
                 </button>
               ) : (
-                <Thumbnail editor={editor} row={row} />
+                <>
+                  {/* What painting edits: the pixels or the mask (FR-LAY-04). */}
+                  <button
+                    aria-label={`Edit ${row.name} pixels`}
+                    aria-pressed={row.mask ? row.id === snap.activeLayerId && !snap.editingMask : undefined}
+                    title="Paint on the layer's pixels"
+                    className={`shrink-0 rounded ${row.mask && row.id === snap.activeLayerId && !snap.editingMask ? 'ring-brand ring-2' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      editor.setActiveLayer(row.id);
+                      editor.editLayerMask(false);
+                    }}
+                  >
+                    <Thumbnail editor={editor} row={row} />
+                  </button>
+                  {row.mask && (
+                    <>
+                      <button
+                        aria-label={row.mask.linked ? 'Unlink mask from layer' : 'Link mask to layer'}
+                        aria-pressed={row.mask.linked}
+                        title={
+                          row.mask.linked
+                            ? 'The mask moves with the layer. Click to unlink.'
+                            : 'Click to link the mask to the layer.'
+                        }
+                        className="text-ui-muted w-3 shrink-0 text-[10px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          editor.setActiveLayer(row.id);
+                          editor.setLayerMaskLinked(!row.mask!.linked);
+                        }}
+                      >
+                        {row.mask.linked ? '⛓' : '·'}
+                      </button>
+                      <button
+                        aria-label={`Edit ${row.name} mask`}
+                        aria-pressed={row.id === snap.activeLayerId && snap.editingMask}
+                        title={`Paint on the mask (white shows, black hides). Shift-click to ${row.mask.enabled ? 'disable' : 'enable'} it.`}
+                        className={`relative shrink-0 rounded ${row.id === snap.activeLayerId && snap.editingMask ? 'ring-brand ring-2' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          editor.setActiveLayer(row.id);
+                          if (e.shiftKey) editor.setLayerMaskEnabled(!row.mask!.enabled);
+                          else editor.editLayerMask(true);
+                        }}
+                      >
+                        <Thumbnail editor={editor} row={row} kind="mask" />
+                        {!row.mask.enabled && (
+                          <span
+                            aria-label="mask disabled"
+                            className="text-danger absolute inset-0 flex items-center justify-center text-lg font-bold"
+                          >
+                            ✕
+                          </span>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </>
               )}
               {renaming === row.id ? (
                 <input
@@ -257,6 +325,15 @@ export function LayersPanel({ editor, snap }: Props) {
       <div className="flex justify-end gap-1 px-2 py-1">
         <Button aria-label="New group" title="New group" onClick={() => editor.addGroup()}>
           ▭
+        </Button>
+        <Button
+          aria-label="Add layer mask"
+          title={
+            snap.selection ? 'Add a layer mask that reveals the selection' : 'Add a layer mask (reveal all)'
+          }
+          onClick={() => editor.addLayerMask(snap.selection ? 'revealSelection' : 'reveal')}
+        >
+          ◐
         </Button>
         <Button aria-label="New layer" title="New layer (Ctrl+Shift+N)" onClick={() => editor.addLayer()}>
           ＋

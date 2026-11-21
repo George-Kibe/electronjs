@@ -67,6 +67,14 @@ export const MENU_COMMANDS = [
   'select.contract',
   'select.border',
   'select.smooth',
+  'layer.maskRevealAll',
+  'layer.maskHideAll',
+  'layer.maskRevealSelection',
+  'layer.maskHideSelection',
+  'layer.maskDelete',
+  'layer.maskApply',
+  'layer.maskToggle',
+  'layer.maskLink',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 
