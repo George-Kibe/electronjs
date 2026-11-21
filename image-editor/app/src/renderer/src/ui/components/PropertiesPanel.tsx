@@ -10,7 +10,9 @@ import {
   type LevelsChannel,
   type RGB,
 } from '../../engine/ops/adjust';
+import type { Histogram } from '../../engine/ops/histogram';
 import { Button } from './Button';
+import { HistogramGraph, useHistogram } from './HistogramPanel';
 import { Modal } from './Modal';
 
 type Props = { editor: Editor; snap: EditorSnapshot };
@@ -31,7 +33,16 @@ export function PropertiesPanel({ editor, snap }: Props) {
         Adjustment Layer.
       </p>
     );
-  const { id, adjustment } = active;
+  return <ActiveProperties editor={editor} snap={snap} active={active} />;
+}
+
+function ActiveProperties({
+  editor,
+  snap,
+  active: { id, adjustment },
+}: Props & { active: NonNullable<EditorSnapshot['activeAdjustment']> }) {
+  // Levels shows the histogram of what the layer adjusts (everything below it).
+  const histogram = useHistogram(editor, snap, adjustment.kind === 'levels' ? { below: id } : null);
   const change: Change = (next, drag = false) => editor.setAdjustment(id, next, { coalesce: drag });
   const end = () => editor.endAdjustmentEdit();
   return (
@@ -54,12 +65,28 @@ export function PropertiesPanel({ editor, snap }: Props) {
           Reset
         </Button>
       </header>
-      <Controls adjustment={adjustment} change={change} />
+      <Controls
+        adjustment={adjustment}
+        change={change}
+        histogram={histogram}
+        onAuto={() => void editor.autoLevels().then((levels) => levels && change(levels))}
+      />
     </section>
   );
 }
 
-export function Controls({ adjustment: a, change }: { adjustment: Adjustment; change: Change }) {
+export function Controls({
+  adjustment: a,
+  change,
+  histogram = null,
+  onAuto,
+}: {
+  adjustment: Adjustment;
+  change: Change;
+  /** Levels: the histogram behind the input sliders, and its Auto button (FR-ADJ-02/03). */
+  histogram?: Histogram | null;
+  onAuto?: () => void;
+}) {
   switch (a.kind) {
     case 'brightness-contrast':
       return (
@@ -88,7 +115,7 @@ export function Controls({ adjustment: a, change }: { adjustment: Adjustment; ch
         </>
       );
     case 'levels':
-      return <LevelsControls a={a} change={change} />;
+      return <LevelsControls a={a} change={change} histogram={histogram} onAuto={onAuto} />;
     case 'curves':
       return <CurvesControls a={a} change={change} />;
     case 'exposure':
@@ -287,14 +314,36 @@ function ChannelSelect(props: { value: ChannelKey; onChange: (c: ChannelKey) => 
   );
 }
 
-function LevelsControls({ a, change }: { a: AdjustmentOf<'levels'>; change: Change }) {
+function LevelsControls({
+  a,
+  change,
+  histogram,
+  onAuto,
+}: {
+  a: AdjustmentOf<'levels'>;
+  change: Change;
+  histogram: Histogram | null;
+  onAuto?: () => void;
+}) {
   const [channel, setChannel] = useState<ChannelKey>('rgb');
   const c = a.channels[channel];
   const set = (patch: Partial<LevelsChannel>, drag?: boolean) =>
     change({ ...a, channels: { ...a.channels, [channel]: { ...c, ...patch } } }, drag);
   return (
     <>
-      <ChannelSelect value={channel} onChange={setChannel} />
+      <div className="flex items-center gap-2">
+        <ChannelSelect value={channel} onChange={setChannel} />
+        {onAuto && (
+          <Button
+            className="ml-auto"
+            title="Stretch each channel to the full range (Auto Tone)"
+            onClick={onAuto}
+          >
+            Auto
+          </Button>
+        )}
+      </div>
+      <HistogramGraph histogram={histogram} channel={channel} />
       <Slider
         label="Input black"
         value={c.inBlack}
@@ -557,6 +606,8 @@ function ColorField(props: { label: string; value: RGB; onChange: (v: RGB) => vo
  * layer's pixels (within the selection) on OK. The canvas previews them live; Preview off shows the original.
  */
 export function AdjustmentDialog(props: {
+  editor: Editor;
+  snap: EditorSnapshot;
   adjusting: NonNullable<EditorSnapshot['adjusting']>;
   onChange: (a: Adjustment) => void;
   onPreview: (on: boolean) => void;
@@ -565,6 +616,7 @@ export function AdjustmentDialog(props: {
 }) {
   const id = useId();
   const { adjustment, preview } = props.adjusting;
+  const histogram = useHistogram(props.editor, props.snap, adjustment.kind === 'levels' ? 'layer' : null);
   return (
     <Modal
       title={ADJUSTMENT_LABELS[adjustment.kind]}
@@ -592,7 +644,12 @@ export function AdjustmentDialog(props: {
           props.onApply();
         }}
       >
-        <Controls adjustment={adjustment} change={(next) => props.onChange(next)} />
+        <Controls
+          adjustment={adjustment}
+          change={(next) => props.onChange(next)}
+          histogram={histogram}
+          onAuto={() => void props.editor.autoLevels().then((levels) => levels && props.onChange(levels))}
+        />
         <div className="flex justify-end">
           <Button onClick={() => props.onChange(defaultAdjustment(adjustment.kind))}>Reset</Button>
         </div>

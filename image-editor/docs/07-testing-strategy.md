@@ -106,6 +106,11 @@ CI runners have no real GPU, so the GPU budgets are validated on the **release h
 Windows laptop with Intel Iris Xe, a Windows desktop with an NVIDIA GPU, a MacBook Air M1, and a Linux
 laptop with AMD graphics. Results are recorded in the release checklist.
 
+*As built (M2):* E2E records `brush-latency` (pointer → frame) and `adjust-latency` (adjustment change →
+frame, NFR-PERF-04, `adjustments.spec.ts` on a 6000×4000 document) as test annotations on every OS. They
+assert only that frames were measured, since CI uses SwiftShader. A Linux laptop with Intel Iris Xe
+measured `adjust-latency` p95 of 14–22 ms (≥ 45 fps).
+
 ## 7. Coverage gates
 
 engine `doc/` + `history/` + `tiles/` 90 % · CPU references 95 % · renderer overall 70 % · main 70 % · codec-host 80 %.

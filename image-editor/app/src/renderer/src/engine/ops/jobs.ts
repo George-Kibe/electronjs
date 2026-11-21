@@ -5,6 +5,7 @@ import { resampleGrid, rotateArbitraryGrid, type ResampleFilter } from './resamp
 import { affineGrid, invertAlpha, sourceOver, type Affine } from './affine';
 import { modifySelection, type ClipTiles, type ModifyOp } from './modify';
 import { adjustTiles, prepareAdjustment, type Adjustment } from './adjust';
+import { histogramOf, packHistogram } from './histogram';
 import { trimContent, type TrimBasis } from './trim';
 import { colorRange, magicWand, type WandOptions } from './wand';
 
@@ -46,6 +47,13 @@ export type OpsJob =
       op: 'adjust';
       layer: LayerTiles;
       adjustment: Adjustment;
+      selection: Array<[TileKey, Uint8Array]> | null;
+    }
+  /** Histogram (FR-ADJ-02/03) of the composite of `layers`, within the selection (one-byte tiles) if any. */
+  | {
+      op: 'histogram';
+      layers: LayerSnapshot[];
+      size: Size;
       selection: Array<[TileKey, Uint8Array]> | null;
     }
   /** Image › Trim (FR-TRF-06): the composite pixels to keep, as a mask. */
@@ -91,6 +99,15 @@ export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerT
             : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
     onProgress?.(1);
     return [{ id: 'mask', tiles }];
+  }
+  if (job.op === 'histogram') {
+    const h = histogramOf(
+      snapshotLayers(job.layers),
+      job.size,
+      job.selection ? new Map(job.selection) : null,
+    );
+    onProgress?.(1);
+    return [{ id: 'histogram', tiles: [['0,0', packHistogram(h)]] }];
   }
   if (job.op === 'adjust') {
     const selection = job.selection ? new Map(job.selection) : null;

@@ -139,6 +139,10 @@ export function menuTemplate(
           ],
         },
         { type: 'separator' },
+        cmd('Auto Tone', 'image.autoTone', 'CmdOrCtrl+Shift+L'),
+        cmd('Auto Contrast', 'image.autoContrast', 'CmdOrCtrl+Alt+Shift+L'),
+        cmd('Auto Color', 'image.autoColor', 'CmdOrCtrl+Shift+B'),
+        { type: 'separator' },
         cmd('Image Size…', 'image.imageSize', 'CmdOrCtrl+Alt+I'),
         cmd('Canvas Size…', 'image.canvasSize', 'CmdOrCtrl+Alt+C'),
         cmd('Crop', 'image.cropToSelection'),
@@ -281,6 +285,7 @@ export function menuTemplate(
         cmd('Swatches', 'window.swatches'),
         cmd('History', 'window.history'),
         cmd('Properties', 'window.properties'),
+        cmd('Histogram', 'window.histogram'),
         { type: 'separator' },
         {
           label: 'Workspace',

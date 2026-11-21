@@ -141,7 +141,9 @@ import {
   isNeutral,
   type Adjustment,
   type AdjustmentKind,
+  type AdjustmentOf,
 } from './ops/adjust';
+import { autoLevels, unpackHistogram, type Histogram } from './ops/histogram';
 import type { ModifyOp } from './ops/modify';
 import type { TrimBasis } from './ops/trim';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
@@ -317,6 +319,8 @@ export type EditorSnapshot = {
   selectedLayerIds: string[];
   /** The active layer's adjustment, when it is an adjustment layer (the Properties panel, FR-ADJ-01). */
   activeAdjustment: { id: string; adjustment: Adjustment } | null;
+  /** Changes with every document change (the Histogram panel recomputes when it does). */
+  docVersion: number;
   /** Image › Adjustments open for the active layer (destructive, FR-ADJ-01): its settings and preview. */
   adjusting: { layerId: string; adjustment: Adjustment; preview: boolean } | null;
   /** Free Transform (Ctrl+T, FR-TRF-04): where the box's handles are (document px) and its parameters. */
@@ -417,6 +421,9 @@ type TransformShown = { layerIds: ReadonlySet<string>; matrix: Affine; doc: Docu
 
 /** The id of the selection in a transform job's layers (the app's layer ids never start with '#'). */
 const SELECTION_JOB_ID = '#selection';
+
+/** What a histogram measures (FR-ADJ-03): the image as shown, the active layer, or what is below a layer. */
+export type HistogramSource = 'image' | 'layer' | { below: string };
 
 /** How close (screen px) a press must be to grab a Free Transform handle. */
 const TRANSFORM_HANDLE_SLOP = 8;
@@ -579,6 +586,8 @@ export class Editor {
   private cursor: EditorSnapshot['cursor'] = null;
   private frame = 0;
   private pendingInputTimes: number[] = [];
+  /** Adjustment changes waiting for their frame (NFR-PERF-04: 'adjust-latency'). */
+  private pendingAdjustTimes: number[] = [];
   private listeners = new Set<() => void>();
   private snapshot: EditorSnapshot;
   private readonly resizeObserver: ResizeObserver;
@@ -1033,6 +1042,7 @@ export class Editor {
       quickMask: this.quickMask && doc !== null,
       selectedLayerIds: doc ? this.selectedIds() : [],
       activeAdjustment: this.activeAdjustment,
+      docVersion: this.version,
       adjusting: this.adjusting && {
         layerId: this.adjusting.layerId,
         adjustment: this.adjusting.adjustment,
@@ -1705,6 +1715,7 @@ export class Editor {
     const doc = this.doc;
     if (!doc?.has(id) || doc.layer(id).type !== 'adjustment') return;
     if (doc.layer(id).locks.all) return this.notice('This layer is locked.');
+    this.pendingAdjustTimes.push(performance.now());
     this.exec(new SetAdjustmentCommand(id, adjustment), { coalesce });
   }
 
@@ -1758,6 +1769,7 @@ export class Editor {
   setAdjusting(adjustment: Adjustment): void {
     if (!this.adjusting || this.adjusting.adjustment.kind !== adjustment.kind) return;
     this.adjusting = { ...this.adjusting, adjustment };
+    this.pendingAdjustTimes.push(performance.now());
     this.refreshAdjustPreview();
     this.changed();
   }
@@ -1803,13 +1815,13 @@ export class Editor {
     layerId: string,
     adjustment: Adjustment,
     mask: RasterLayerOf['mask'],
+    label = ADJUSTMENT_LABELS[adjustment.kind],
   ): Promise<void> {
     const doc = this.doc;
     if (!doc || !doc.has(layerId) || isNeutral(adjustment)) {
       this.adjustPreview = null;
       return this.changed();
     }
-    const label = ADJUSTMENT_LABELS[adjustment.kind];
     // The preview stays on the canvas until the job's pixels replace it.
     this.adjustPreview = this.adjustedDocument(doc, layerId, adjustment, mask);
     const selection = doc.selection
@@ -1870,6 +1882,102 @@ export class Editor {
     const preview = new Document(doc.width, doc.height, swap(doc.layers));
     preview.selection = doc.selection;
     return preview;
+  }
+
+  // ---- histograms and Auto (FR-ADJ-02/03) -----------------------------------------------------------
+
+  /** The selection as one-byte tiles for a job, or null. */
+  private selectionTiles(): Array<[TileKey, Uint8Array]> | null {
+    const sel = this.doc?.selection;
+    return sel
+      ? [...sel.entries()].map(([k, t]): [TileKey, Uint8Array] => [
+          k,
+          new Uint8Array(t.data.buffer, t.data.byteOffset, t.data.byteLength),
+        ])
+      : null;
+  }
+
+  /** What a histogram measures: the image as shown, the active layer alone, or what is below a layer. */
+  private histogramLayers(source: HistogramSource): DocSnapshot['layers'] | null {
+    const doc = this.doc!;
+    if (source === 'image') return toSnapshot(doc).layers;
+    if (source === 'layer') {
+      const active = doc.activeLayer;
+      // An adjustment layer has no pixels of its own: measure what it adjusts.
+      if (active.type === 'adjustment') return this.histogramLayers({ below: active.id });
+      const plain = {
+        ...layerToSnapshot(active),
+        visible: true,
+        opacity: 1,
+        fillOpacity: 1,
+        blendMode: 'normal' as const,
+      };
+      return [plain.type === 'group' ? { ...plain, passThrough: false } : plain];
+    }
+    const below = (list: readonly Layer[]): Layer[] | null => {
+      for (let i = 0; i < list.length; i++) {
+        const l = list[i]!;
+        if (l.id === source.below) return list.slice(0, i);
+        if (l.type === 'group') {
+          const inner = below(l.children);
+          if (inner) return [...list.slice(0, i), { ...l, children: inner }];
+        }
+      }
+      return null;
+    };
+    const kept = below(doc.layers);
+    return kept ? kept.map(layerToSnapshot) : null;
+  }
+
+  /**
+   * The Histogram panel's and Levels' data (FR-ADJ-03), within the selection, computed in the ops worker
+   * without blocking editing. Null when there is no document or it changed meanwhile.
+   */
+  async histogram(source: HistogramSource): Promise<Histogram | null> {
+    const doc = this.doc;
+    if (!doc) return null;
+    const version = this.version;
+    const layers = this.histogramLayers(source);
+    if (!layers) return null;
+    const run = this.options.runOps ?? ((j: OpsJob) => Promise.resolve(runOpsJob(j)));
+    try {
+      const [result] = await run(
+        { op: 'histogram', layers, size: this.size(), selection: this.selectionTiles() },
+        () => undefined,
+      );
+      if (this.doc !== doc || this.version !== version || !result?.tiles[0]) return null;
+      return unpackHistogram(result.tiles[0][1]);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Image › Auto Tone / Auto Contrast / Auto Color (FR-ADJ-02): Levels computed from the active layer's
+   * histogram (within the selection) and applied to its pixels, as one step.
+   */
+  async autoAdjust(mode: 'tone' | 'contrast' | 'color'): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
+    const blocker = this.adjustBlocker();
+    if (blocker) return this.notice(blocker);
+    const label = { tone: 'Auto Tone', contrast: 'Auto Contrast', color: 'Auto Color' }[mode];
+    const id = doc.activeLayerId;
+    const h = await this.histogram('layer');
+    if (!h || this.doc !== doc || doc.activeLayerId !== id) return;
+    if (h.count === 0) return this.notice('There are no pixels to adjust.');
+    const sel = doc.selection;
+    const mask = sel
+      ? { grid: maskGridOf(sel, doc, 0), background: 0 as const, enabled: true, linked: true }
+      : null;
+    await this.applyAdjustment(id, autoLevels(h, mode), mask, label);
+  }
+
+  /** Levels' Auto button: per-channel levels for what an adjustment layer or the open dialog adjusts. */
+  async autoLevels(): Promise<AdjustmentOf<'levels'> | null> {
+    const h = await this.histogram('layer');
+    return h && h.count > 0 ? autoLevels(h, 'tone') : null;
   }
 
   /** Layer › Layer Mask › Delete. */
@@ -3322,6 +3430,8 @@ export class Editor {
     }
     // NFR-PERF-02: pointer event → frame submitted. Read by the benchmark/E2E via the Performance API.
     const now = performance.now();
+    for (const t of this.pendingAdjustTimes.splice(0))
+      performance.measure('adjust-latency', { start: t, end: now });
     for (const t of this.pendingInputTimes.splice(0))
       performance.measure('brush-latency', { start: t, end: now });
   }

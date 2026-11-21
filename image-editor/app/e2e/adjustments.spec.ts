@@ -129,3 +129,68 @@ test(`[${target}] Image › Adjustments: a dialog previews on the canvas and OK 
   await pixel(win, at(200, 150), [255, 255, 255]);
   await close();
 });
+
+test(`[${target}] NFR-PERF-04: adjustment-layer slider preview on a 24 MP document`, async () => {
+  const { app, win, close } = await launch();
+  await win.getByRole('spinbutton').nth(0).fill('6000');
+  await win.getByRole('spinbutton').nth(1).fill('4000');
+  await win.getByRole('button', { name: 'Create' }).click();
+  await expect(win.locator('footer')).toContainText('6000 × 4000 px');
+  await menu(app, ['Layer', 'New Adjustment Layer', 'Levels']);
+  const slider = win
+    .getByRole('region', { name: 'Levels properties' })
+    .getByRole('slider', { name: 'Output white' });
+  await slider.focus();
+  for (let i = 0; i < 40; i++) await win.keyboard.press('ArrowLeft');
+  await expect(
+    win.getByRole('region', { name: 'Levels properties' }).getByRole('spinbutton', { name: 'Output white' }),
+  ).toHaveValue('215');
+  await expect(history(win)).toContainText('Levels');
+  const frames = await win.evaluate(() =>
+    performance.getEntriesByName('adjust-latency').map((e) => e.duration),
+  );
+  frames.sort((a, b) => a - b);
+  const p95 = frames[Math.floor(frames.length * 0.95)] ?? 0;
+  const page = await win.evaluate(() => document.body.innerText);
+  const gpu = /[^\n·]*· strokes \S+/.exec(page)?.[0].trim() ?? 'unknown GPU';
+  test.info().annotations.push({
+    type: 'adjust-latency',
+    description: `n=${frames.length} p95=${p95.toFixed(1)}ms on ${gpu}`,
+  });
+  console.log(
+    `[${process.platform}/${target}] adjustment preview p95 ${p95.toFixed(1)} ms over ${frames.length} changes — ${gpu}`,
+  );
+  expect(frames.length).toBeGreaterThan(10);
+  await close();
+});
+
+test(`[${target}] Histogram panel and Auto Tone (FR-ADJ-02/03)`, async () => {
+  const { app, win, close } = await launch();
+  const at = await newDocument(win, 300, 200);
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('30');
+  await paintLine(win, at(40, 50), at(120, 50)); // black on the white background itself
+
+  // Window › Histogram: every pixel of the image counted, mostly white.
+  await menu(app, ['Window', 'Histogram']);
+  const panel = win.getByRole('complementary', { name: 'Panels' });
+  await expect(panel.getByRole('img', { name: 'RGB histogram' })).toBeVisible();
+  await expect(panel.getByLabel('Pixels', { exact: true })).toHaveText('60000');
+  const mean = async () => Number(await panel.getByLabel('Mean', { exact: true }).innerText());
+  await expect.poll(mean).toBeLessThan(255);
+  await expect.poll(mean).toBeGreaterThan(230);
+
+  // Darken the whites to 200, then Auto Tone (Shift+Ctrl+L) stretches 0..200 back to the full range.
+  await win.keyboard.press('ControlOrMeta+l');
+  await win
+    .getByRole('dialog', { name: 'Levels' })
+    .getByRole('spinbutton', { name: 'Output white' })
+    .fill('200');
+  await win.getByRole('dialog', { name: 'Levels' }).getByRole('button', { name: 'OK' }).click();
+  await near(win, at(200, 150), [200, 200, 200]);
+  await expect.poll(mean).toBeLessThan(200);
+  await win.keyboard.press('ControlOrMeta+Shift+l');
+  await expect(history(win)).toContainText('Auto Tone', { timeout: 30_000 });
+  await pixel(win, at(200, 150), [255, 255, 255]);
+  await pixel(win, at(80, 50), [0, 0, 0]);
+  await close();
+});
