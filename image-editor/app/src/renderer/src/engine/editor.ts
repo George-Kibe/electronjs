@@ -63,8 +63,10 @@ import {
   movedRasters,
   translateGrid,
   translateLayer,
+  translateMoves,
   type AlignEdge,
 } from './doc/translate';
+import { alignLayers, deleteLayers, distributeLayers, groupLayers, topSelected } from './doc/multi';
 import { fromSnapshot, layerToSnapshot, toSnapshot, type DocSnapshot } from './io/snapshot';
 import { Compositor } from './gpu/compositor';
 import { StrokeBuffer } from './gpu/stroke-buffer';
@@ -280,6 +282,8 @@ export type EditorSnapshot = {
   editingMask: boolean;
   /** Quick Mask mode (Q, FR-SEL-06): the selection shows as red and painting tools edit it. */
   quickMask: boolean;
+  /** Layers selected in the Layers panel (FR-LAY-08), including the active one. */
+  selectedLayerIds: string[];
   options: ToolOptions;
   colors: Colors;
   /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
@@ -327,6 +331,8 @@ type ActiveStroke = {
 
 type ActiveMove = {
   layerId: string;
+  /** Every selected layer that moves (FR-LAY-08); `layerId` is the active one. */
+  layerIds: string[];
   rasterIds: ReadonlySet<string>;
   start: { x: number; y: number };
   dx: number;
@@ -460,6 +466,8 @@ export class Editor {
   private editingMask = false;
   /** Quick Mask mode (FR-SEL-06). */
   private quickMask = false;
+  /** Other layers selected with the active one, per document (FR-LAY-08). */
+  private readonly layerSelection = new WeakMap<Document, Set<string>>();
   /** The last selection removed by Deselect, per document (Select › Reselect). */
   private readonly lastSelection = new WeakMap<Document, Mask>();
   /** Canvas size the view was last fitted to (refit when a command changes it). */
@@ -919,6 +927,7 @@ export class Editor {
       canReselect: doc !== null && !doc.selection && this.lastSelection.has(doc),
       editingMask: this.editingMask && doc?.activeLayer.type === 'raster' && Boolean(doc.activeLayer.mask),
       quickMask: this.quickMask && doc !== null,
+      selectedLayerIds: doc ? this.selectedIds() : [],
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
@@ -1037,6 +1046,13 @@ export class Editor {
   deleteLayer(id = this.doc?.activeLayerId): void {
     const doc = this.doc;
     if (!doc || !id) return;
+    // Several selected: delete them all (FR-LAY-08).
+    if (id === doc.activeLayerId && this.selectedIds().length > 1) {
+      const cmd = deleteLayers(doc, this.selectedIds());
+      if (!cmd) return this.notice('A document needs at least one layer.');
+      this.layerSelection.delete(doc);
+      return this.exec(cmd);
+    }
     if (doc.layer(id).locks.all) return this.notice('This layer is locked.');
     if (doc.layers.length <= 1 && doc.locate(id).parent === null)
       return this.notice('A document needs at least one layer.');
@@ -1053,7 +1069,11 @@ export class Editor {
   }
 
   groupActiveLayer(): void {
-    if (this.doc) this.exec(groupLayer(this.doc, this.doc.activeLayerId));
+    const doc = this.doc;
+    if (!doc) return;
+    const ids = this.selectedIds();
+    this.exec(ids.length > 1 ? groupLayers(doc, ids) : groupLayer(doc, doc.activeLayerId));
+    this.layerSelection.delete(doc);
   }
 
   ungroupActiveLayer(): void {
@@ -1223,7 +1243,47 @@ export class Editor {
   setActiveLayer(id: string): void {
     if (!this.doc) return;
     if (id !== this.doc.activeLayerId) this.editingMask = false; // painting goes back to pixels
+    this.layerSelection.delete(this.doc); // a plain click selects just this layer
     new SetActiveLayerCommand(id).do(this.doc);
+    this.changed();
+  }
+
+  /** The selected layers (FR-LAY-08): the active one plus any Ctrl/Shift-clicked, that still exist. */
+  selectedIds(): string[] {
+    const doc = this.doc;
+    if (!doc) return [];
+    const extra = this.layerSelection.get(doc);
+    const ids = new Set([...(extra ?? [])].filter((id) => doc.has(id)));
+    ids.add(doc.activeLayerId);
+    return [...ids];
+  }
+
+  /**
+   * Ctrl/⌘-click toggles a layer in the selection; Shift-click selects every row between the active layer
+   * and this one (FR-LAY-08). The clicked layer becomes active (unless it was toggled off).
+   */
+  selectLayer(id: string, mode: 'toggle' | 'range'): void {
+    const doc = this.doc;
+    if (!doc || !doc.has(id)) return;
+    const current = new Set(this.selectedIds());
+    if (mode === 'toggle') {
+      if (current.has(id) && current.size > 1) {
+        current.delete(id);
+        if (doc.activeLayerId === id) new SetActiveLayerCommand([...current].at(-1)!).do(doc);
+      } else {
+        current.add(id);
+        new SetActiveLayerCommand(id).do(doc);
+      }
+    } else {
+      const rows = layerRows(doc.layers).map((r) => r.id);
+      const a = rows.indexOf(doc.activeLayerId);
+      const b = rows.indexOf(id);
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      for (const rid of rows.slice(lo, hi + 1)) current.add(rid);
+      new SetActiveLayerCommand(id).do(doc);
+    }
+    this.editingMask = false;
+    this.layerSelection.set(doc, current);
     this.changed();
   }
 
@@ -1325,22 +1385,42 @@ export class Editor {
   nudge(dx: number, dy: number): void {
     const doc = this.doc;
     if (!doc || this.busy) return;
-    const blocker = moveBlocker(doc, doc.activeLayerId);
+    const ids = topSelected(doc, this.selectedIds());
+    const blocker = ids.map((id) => moveBlocker(doc, id)).find(Boolean);
     if (blocker) return this.notice(blocker);
     const now = performance.now();
     if (now - this.lastNudge > NUDGE_COALESCE_MS) this.history?.endCoalesce();
     this.lastNudge = now;
-    this.exec(translateLayer(doc, doc.activeLayerId, dx, dy, 'Nudge'), { coalesce: true });
+    this.exec(
+      translateMoves(
+        doc,
+        ids.map((id) => ({ id, dx, dy })),
+        'Nudge',
+      ),
+      { coalesce: true },
+    );
   }
 
   /** Aligns the active layer's content with the canvas (Layer › Align). */
   align(edge: AlignEdge): void {
     const doc = this.doc;
     if (!doc) return;
+    // Several selected: align them to each other (FR-LAY-08); one: to the canvas.
+    if (topSelected(doc, this.selectedIds()).length > 1)
+      return this.exec(alignLayers(doc, this.selectedIds(), edge));
     const blocker = moveBlocker(doc, doc.activeLayerId);
     if (blocker) return this.notice(blocker);
     const [dx, dy] = alignOffset(doc, doc.activeLayerId, edge);
     this.exec(translateLayer(doc, doc.activeLayerId, dx, dy, 'Align'));
+  }
+
+  /** Layer › Distribute (three or more selected layers; FR-LAY-08). */
+  distribute(edge: AlignEdge): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const cmd = distributeLayers(doc, this.selectedIds(), edge);
+    if (!cmd) return this.notice('Select three or more layers to distribute.');
+    this.exec(cmd);
   }
 
   setSpaceHeld(held: boolean): void {
@@ -2375,11 +2455,14 @@ export class Editor {
       if (hit && hit !== doc.activeLayerId) this.setActiveLayer(hit);
     }
     const id = doc.activeLayerId;
-    const blocker = moveBlocker(doc, id);
+    // The active layer, or all selected ones when it is part of the selection (FR-LAY-08).
+    const ids = topSelected(doc, this.selectedIds());
+    const blocker = ids.map((x) => moveBlocker(doc, x)).find(Boolean);
     if (blocker) return this.notice(blocker);
     this.moving = {
       layerId: id,
-      rasterIds: new Set(movedRasters(doc, id).map((l) => l.id)),
+      layerIds: ids,
+      rasterIds: new Set(ids.flatMap((x) => movedRasters(doc, x).map((l) => l.id))),
       start: { x: p.x, y: p.y },
       dx: 0,
       dy: 0,
@@ -2447,9 +2530,15 @@ export class Editor {
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
     if (this.moving && e.pointerId === this.moving.pointerId) {
-      const { layerId, dx, dy } = this.moving;
+      const { layerIds, dx, dy } = this.moving;
       this.moving = null;
-      if (this.doc && (dx !== 0 || dy !== 0)) this.exec(translateLayer(this.doc, layerId, dx, dy));
+      if (this.doc && (dx !== 0 || dy !== 0))
+        this.exec(
+          translateMoves(
+            this.doc,
+            layerIds.map((id) => ({ id, dx, dy })),
+          ),
+        );
       else this.requestRender();
     }
     if (this.stroke && e.pointerId === this.stroke.pointerId) {

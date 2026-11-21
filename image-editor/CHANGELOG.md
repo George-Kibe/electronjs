@@ -21,6 +21,8 @@ All notable changes to ImageEditor are documented here. The format follows
   layer mask button), then click the mask thumbnail and paint: black hides, white shows. Shift-click the
   thumbnail to turn the mask off, Ctrl+I inverts it, and Apply bakes it into the layer. Masks move, crop,
   rotate and resize with their layers and are saved in the project.
+- Select several layers with Ctrl/⌘-click or Shift-click in the Layers panel, then move, nudge, align,
+  distribute (Layer › Distribute), group (Ctrl+G) or delete them together.
 - Quick Mask (Q): the selection shows as a red overlay on what is not selected, and painting changes it:
   white adds, black removes. Press Q again to see the selection as marching ants.
 - Clipping masks: Layer › Create Clipping Mask (Ctrl+Alt+G) shows a layer only where the layer below it has

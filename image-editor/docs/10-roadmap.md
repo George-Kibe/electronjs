@@ -192,7 +192,11 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         ants, and the brush, pencil and eraser paint the selection itself (white selects, black deselects,
         greys in between); each stroke is one selection step in History, so leaving Quick Mask needs no
         conversion. With no selection everything counts as selected. GPU overlay and CPU commit agree.
-  - [ ] 2c Multi-layer selection: move, group, align and distribute (FR-LAY-08)
+  - [ ] 2c Several layers at once (FR-LAY-08): Ctrl/⌘-click toggles a layer in the selection and Shift-click
+        selects a range in the Layers panel; the Move tool, arrow-key nudges, Layer › Align (to each other
+        with several, to the canvas with one), Layer › Distribute (three or more: the outer two stay), Group
+        (Ctrl+G) and Delete act on all of them, each as one undo step. A group and a layer inside it never
+        both act. The layer selection is UI state, like the active layer.
 - [ ] Slice 3 — free transform of a layer or selection, trim / reveal all (FR-TRF-04/06), T-TRF-01
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04

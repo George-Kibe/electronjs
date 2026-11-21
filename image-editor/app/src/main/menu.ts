@@ -159,7 +159,8 @@ export function menuTemplate(
         },
         { type: 'separator' },
         {
-          label: 'Align to Canvas',
+          // One layer aligns to the canvas, several to each other (FR-LAY-08).
+          label: 'Align',
           submenu: [
             cmd('Left Edges', 'layer.alignLeft'),
             cmd('Horizontal Centers', 'layer.alignHCenter'),
@@ -168,6 +169,18 @@ export function menuTemplate(
             cmd('Top Edges', 'layer.alignTop'),
             cmd('Vertical Centers', 'layer.alignVCenter'),
             cmd('Bottom Edges', 'layer.alignBottom'),
+          ],
+        },
+        {
+          label: 'Distribute',
+          submenu: [
+            cmd('Left Edges', 'layer.distributeLeft'),
+            cmd('Horizontal Centers', 'layer.distributeHCenter'),
+            cmd('Right Edges', 'layer.distributeRight'),
+            { type: 'separator' },
+            cmd('Top Edges', 'layer.distributeTop'),
+            cmd('Vertical Centers', 'layer.distributeVCenter'),
+            cmd('Bottom Edges', 'layer.distributeBottom'),
           ],
         },
       ],

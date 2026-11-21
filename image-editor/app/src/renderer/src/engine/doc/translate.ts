@@ -123,21 +123,37 @@ export function translateLayer(
   dy: number,
   label = 'Move',
 ): TranslateCommand | null {
-  dx = Math.round(dx);
-  dy = Math.round(dy);
-  if ((dx === 0 && dy === 0) || moveBlocker(doc, id)) return null;
+  return translateMoves(doc, [{ id, dx, dy }], label);
+}
+
+/**
+ * Moves several layers, each by its own whole-pixel offset, as one command (FR-LAY-08: move, align and
+ * distribute several layers). Linked masks move with their layers. Null if nothing moves or one is locked.
+ */
+export function translateMoves(
+  doc: Document,
+  moves: ReadonlyArray<{ id: string; dx: number; dy: number }>,
+  label = 'Move',
+): TranslateCommand | null {
   const range = tileRange(doc.width, doc.height, TILE_SIZE);
   const before = new Map<string, [TileKey, Tile][]>();
   const after = new Map<string, [TileKey, Tile][]>();
-  for (const layer of movedRasters(doc, id)) {
-    before.set(layer.id, [...layer.tiles.entries()]);
-    after.set(layer.id, [...translateGrid(layer.tiles, dx, dy, range).entries()]);
-    if (layer.mask?.linked) {
-      before.set(`${layer.id}#mask`, [...layer.mask.grid.entries()]);
-      after.set(`${layer.id}#mask`, [...translateGrid(layer.mask.grid, dx, dy, range).entries()]);
+  for (const move of moves) {
+    const dx = Math.round(move.dx);
+    const dy = Math.round(move.dy);
+    if (dx === 0 && dy === 0) continue;
+    if (moveBlocker(doc, move.id)) return null;
+    for (const layer of movedRasters(doc, move.id)) {
+      if (before.has(layer.id)) continue; // already moved (a layer inside a moved group)
+      before.set(layer.id, [...layer.tiles.entries()]);
+      after.set(layer.id, [...translateGrid(layer.tiles, dx, dy, range).entries()]);
+      if (layer.mask?.linked) {
+        before.set(`${layer.id}#mask`, [...layer.mask.grid.entries()]);
+        after.set(`${layer.id}#mask`, [...translateGrid(layer.mask.grid, dx, dy, range).entries()]);
+      }
     }
   }
-  return new TranslateCommand(label, before, after);
+  return before.size ? new TranslateCommand(label, before, after) : null;
 }
 
 export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
