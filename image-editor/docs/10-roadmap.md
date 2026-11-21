@@ -220,14 +220,14 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         E2E green on 3 OSes (run 44884835490).
 - [ ] Slice 4 — adjustments as layers and commands, auto tone/contrast/colour, Histogram panel
       (FR-ADJ-01..03), NFR-PERF-04
-  - [ ] 4a Adjustment layers: all 12 kinds of FR-ADJ-01 (Brightness/Contrast, Levels, Curves, Exposure,
+  - [x] 4a Adjustment layers: all 12 kinds of FR-ADJ-01 (Brightness/Contrast, Levels, Curves, Exposure,
         Vibrance, Hue/Saturation with Colorize, Color Balance, Black & White with Tint, Photo Filter, Invert,
         Posterize, Threshold) from Layer › New Adjustment Layer or the Layers panel's ◑ button. The new
         Properties panel changes them live, and a slider drag is one undo step. They carry a mask (the
         selection, if any, else reveal-all) that the brush paints, plus opacity, blend mode and clipping.
         They are saved in `.iep` (docs/05 schema, range-checked), merge down, duplicate, and follow
         crop/resize/rotate. The GPU pass (`adjust.frag`) matches the CPU reference (`ops/adjust.ts`) within
-        ±2/255 for every kind.
+        ±2/255 for every kind. E2E green on 3 OSes (run 44937126939).
   - [ ] 4b Image › Adjustments as destructive commands (on the active layer, within the selection, live
         preview), Alt-choosing an adjustment applies it directly (docs/03 §5.2); a Levels histogram
   - [ ] 4c Auto Tone, Auto Contrast and Auto Color (FR-ADJ-02); the Histogram panel (FR-ADJ-03);
