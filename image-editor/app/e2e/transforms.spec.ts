@@ -189,3 +189,31 @@ test(`[${target}] Free Transform: rotate by number, drag to move, cancel, apply,
   await expect(docCanvas(win)).toHaveAccessibleName(/selection 40 by 40 at 2[01], 13[01]/);
   await close();
 });
+
+test(`[${target}] Image › Trim and Reveal All (FR-TRF-06)`, async () => {
+  const { app, win, close } = await launch();
+  await newDocument(win, 300, 200);
+  const at = await docToPage(win, 300, 200);
+  await win.getByRole('button', { name: 'New layer', exact: true }).click();
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('20');
+  await paintLine(win, at(40, 50), at(100, 50));
+  await black(win, at(45, 50));
+
+  // Trim based on the top-left (white) colour: the canvas shrinks to the bar.
+  await menu(app, ['Image', 'Trim…']);
+  const dialog = win.getByRole('dialog', { name: 'Trim' });
+  await dialog.getByRole('radio', { name: 'Top left pixel colour' }).check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(history(win)).toContainText('Trim', { timeout: 30_000 });
+  await expect(footer(win)).toContainText(/\b[7-9]\d × [12]\d px/);
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect(footer(win)).toContainText('300 × 200 px');
+
+  // Move the bar 60 px off the left edge, then Reveal All brings it back by widening the canvas.
+  await win.keyboard.press('v');
+  for (let i = 0; i < 6; i++) await win.keyboard.press('Shift+ArrowLeft');
+  await menu(app, ['Image', 'Reveal All']);
+  await expect(history(win)).toContainText('Reveal All');
+  await expect(footer(win)).toContainText(/3[23]\d × 200 px/);
+  await close();
+});

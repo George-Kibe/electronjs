@@ -4,6 +4,7 @@ import { snapshotLayers, type LayerSnapshot } from '../io/snapshot';
 import { resampleGrid, rotateArbitraryGrid, type ResampleFilter } from './resample';
 import { affineGrid, invertAlpha, sourceOver, type Affine } from './affine';
 import { modifySelection, type ClipTiles, type ModifyOp } from './modify';
+import { trimContent, type TrimBasis } from './trim';
 import { colorRange, magicWand, type WandOptions } from './wand';
 
 /**
@@ -39,6 +40,8 @@ export type OpsJob =
       inverted?: string[];
       beneath?: LayerTiles[];
     }
+  /** Image › Trim (FR-TRF-06): the composite pixels to keep, as a mask. */
+  | { op: 'trim'; layers: LayerSnapshot[]; size: Size; basis: TrimBasis }
   /** Select › Color Range (FR-SEL-05). */
   | {
       op: 'colorRange';
@@ -69,13 +72,15 @@ export function fromGrid(id: string, grid: TileGrid): LayerTiles {
 
 /** Runs a job; `onProgress` gets 0..1. */
 export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerTiles[] {
-  if (job.op === 'wand' || job.op === 'modify' || job.op === 'colorRange') {
+  if (job.op === 'wand' || job.op === 'modify' || job.op === 'colorRange' || job.op === 'trim') {
     const tiles =
       job.op === 'wand'
         ? magicWand(snapshotLayers(job.layers), job.size, job.seed, job.options)
         : job.op === 'modify'
           ? modifySelection(job.tiles, job.bounds, job.size, job.modify)
-          : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
+          : job.op === 'trim'
+            ? trimContent(snapshotLayers(job.layers), job.size, job.basis)
+            : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
     onProgress?.(1);
     return [{ id: 'mask', tiles }];
   }

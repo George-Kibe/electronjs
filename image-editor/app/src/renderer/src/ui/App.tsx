@@ -18,7 +18,7 @@ import { BrushCursor } from './components/BrushCursor';
 import { Button } from './components/Button';
 import { ColorPickerDialog } from './components/ColorPickerDialog';
 import { CropOverlay } from './components/CropOverlay';
-import { CanvasSizeDialog, ImageSizeDialog, RotateDialog } from './components/ImageDialogs';
+import { CanvasSizeDialog, ImageSizeDialog, RotateDialog, TrimDialog } from './components/ImageDialogs';
 import { ExportDialog } from './components/ExportDialog';
 import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
@@ -63,7 +63,7 @@ export function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [engineNotice, setEngineNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<'foreground' | 'background' | null>(null);
-  const [imageDialog, setImageDialog] = useState<'imageSize' | 'canvasSize' | 'rotate' | null>(null);
+  const [imageDialog, setImageDialog] = useState<'imageSize' | 'canvasSize' | 'rotate' | 'trim' | null>(null);
   /** Select › Modify › … or Select › Color Range (FR-SEL-05). */
   const [selectDialog, setSelectDialog] = useState<ModifyKind | 'colorRange' | null>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
@@ -276,6 +276,8 @@ export function App() {
           'select.inverse': () => editor?.invertSelection(),
           'edit.clear': () => editor?.clearSelection(),
           'image.cropToSelection': () => editor?.cropToSelection(),
+          'image.trim': () => setImageDialog('trim'),
+          'image.revealAll': () => editor?.revealAll(),
           'select.colorRange': () => setSelectDialog('colorRange'),
           'layer.clip': () => editor?.setClipped(true),
           'layer.unclip': () => editor?.setClipped(false),
@@ -598,6 +600,15 @@ export function App() {
           onApply={(degrees) => {
             setImageDialog(null);
             void editor.rotateArbitrary(degrees);
+          }}
+        />
+      )}
+      {imageDialog === 'trim' && snap?.doc && editor && (
+        <TrimDialog
+          onCancel={() => setImageDialog(null)}
+          onApply={(basis, sides) => {
+            setImageDialog(null);
+            void editor.trim(basis, sides);
           }}
         />
       )}

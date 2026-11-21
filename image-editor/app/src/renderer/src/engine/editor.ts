@@ -134,6 +134,7 @@ import {
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import type { WandOptions } from './ops/wand';
 import type { ModifyOp } from './ops/modify';
+import type { TrimBasis } from './ops/trim';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
 import { nextZoomStep, Viewport } from './render/viewport';
 import {
@@ -2310,7 +2311,21 @@ export class Editor {
   private async runJob(
     label: string,
     job: OpsJob,
-    command: (grids: Map<string, TileGrid>) => Command,
+    command: (grids: Map<string, TileGrid>) => Command | null,
+  ): Promise<void> {
+    await this.runJobFor(label, job, (result) => {
+      this.exec(command(new Map(result.map((l) => [l.id, toGrid(l.tiles)]))));
+    });
+  }
+
+  /**
+   * Runs a pixel job and hands its result to `onResult` while the document is still the one it was computed for
+   * (if it changed meanwhile, the result is dropped). Editing is blocked until it ends.
+   */
+  private async runJobFor(
+    label: string,
+    job: OpsJob,
+    onResult: (result: LayerTiles[]) => void,
   ): Promise<void> {
     if (this.busy) return this.notice(`Wait for ${this.job?.label ?? 'the current action'} to finish.`);
     const doc = this.doc;
@@ -2327,13 +2342,56 @@ export class Editor {
       this.job = null;
       if (this.doc !== doc || this.version !== version)
         return this.notice(`${label} was cancelled because the document changed.`);
-      this.exec(command(new Map(result.map((l) => [l.id, toGrid(l.tiles)]))));
+      onResult(result);
     } catch (err) {
       this.job = null;
       this.notice(err instanceof Error ? err.message : `${label} failed.`);
     } finally {
       this.changed();
     }
+  }
+
+  /**
+   * Image › Trim (FR-TRF-06): crops away the edges that are transparent, or the colour of the top-left or
+   * bottom-right pixel, on the chosen sides. Pixels outside the new canvas are deleted.
+   */
+  trim(
+    basis: TrimBasis,
+    sides: { top: boolean; bottom: boolean; left: boolean; right: boolean },
+  ): Promise<void> {
+    const doc = this.doc;
+    if (!doc) return Promise.resolve();
+    const job: OpsJob = { op: 'trim', layers: toSnapshot(doc).layers, size: this.size(), basis };
+    return this.runJobFor('Trim', job, ([result]) => {
+      const tiles = new Map<TileKey, NonNullable<ReturnType<typeof maskTile>>>();
+      for (const [key, bytes] of result?.tiles ?? []) {
+        const t = maskTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+        if (t) tiles.set(key, t);
+      }
+      const b = Mask.fromTiles(tiles, doc.width, doc.height).bounds();
+      if (!b) return this.notice('Nothing to trim: the whole image would be removed.');
+      const x0 = sides.left ? b.x0 : 0;
+      const y0 = sides.top ? b.y0 : 0;
+      const x1 = sides.right ? b.x1 : doc.width;
+      const y1 = sides.bottom ? b.y1 : doc.height;
+      if (x0 === 0 && y0 === 0 && x1 === doc.width && y1 === doc.height)
+        return this.notice('Nothing to trim.');
+      this.exec(cropDocument(doc, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, true, 'Trim'));
+    });
+  }
+
+  /** Image › Reveal All (FR-TRF-06): grows the canvas to show every layer's pixels outside it. */
+  revealAll(): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const b = contentBounds(doc.allLayers().flatMap((l) => (l.type === 'raster' ? [l.tiles] : [])));
+    const x0 = Math.min(0, b?.x0 ?? 0);
+    const y0 = Math.min(0, b?.y0 ?? 0);
+    const x1 = Math.max(doc.width, b?.x1 ?? 0);
+    const y1 = Math.max(doc.height, b?.y1 ?? 0);
+    if (x0 === 0 && y0 === 0 && x1 === doc.width && y1 === doc.height)
+      return this.notice('Every pixel is already on the canvas.');
+    this.exec(cropDocument(doc, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, false, 'Reveal All'));
   }
 
   // ---- view ------------------------------------------------------------------------------------

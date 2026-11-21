@@ -145,7 +145,12 @@ export type CropRect = { x: number; y: number; width: number; height: number };
  * Crop (FR-TRF-01): the canvas becomes `rect` (whole pixels). With `deletePixels`, everything outside the new
  * canvas is removed; otherwise it is kept as hidden pixels that Move and Canvas Size can bring back.
  */
-export function cropDocument(doc: Document, rect: CropRect, deletePixels: boolean): TreeCommand | null {
+export function cropDocument(
+  doc: Document,
+  rect: CropRect,
+  deletePixels: boolean,
+  label = 'Crop',
+): TreeCommand | null {
   const r = {
     x: Math.round(rect.x),
     y: Math.round(rect.y),
@@ -155,7 +160,7 @@ export function cropDocument(doc: Document, rect: CropRect, deletePixels: boolea
   if (r.x === 0 && r.y === 0 && r.width === doc.width && r.height === doc.height && !deletePixels)
     return null;
   return transformRasters(
-    'Crop',
+    label,
     (d) => ({ width: r.width, height: r.height, guides: shiftGuides(d.meta.guides, -r.x, -r.y) }),
     (l, range) => {
       const moved = translateGrid(l.tiles, -r.x, -r.y, range);

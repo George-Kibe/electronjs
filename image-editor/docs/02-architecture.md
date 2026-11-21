@@ -213,6 +213,10 @@ on a downscaled proxy while a slider is being dragged, then at full resolution o
   so it combines the parts exactly as the commit does. The job transforms the lifted pixels and the
   selection (as RGBA coverage), puts the pixels over what stayed, and `replaceLayers` sets the new
   selection in the same undo step (`TreeEdit.selection`).
+- Trim and Reveal All (FR-TRF-06, slice 3c) are crops. For Trim, the ops worker composites tile by tile
+  (`engine/ops/trim.ts`) and returns the pixels to keep as a mask, and the editor crops to its bounds,
+  deleting what falls outside. Reveal All crops to the union of the canvas and every raster layer's
+  content bounds, keeping all pixels.
 - Image size: Lanczos3 / bicubic / bilinear / nearest, as two-pass separable resampling in premultiplied
   gamma space, widened when downscaling, edges extended at the canvas. M1 runs it on the CPU in the ops
   worker (`engine/ops/resample.ts`, band by band so memory follows the output width); a GPU path for
