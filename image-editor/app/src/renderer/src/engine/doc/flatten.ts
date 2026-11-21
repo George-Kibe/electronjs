@@ -1,5 +1,6 @@
 import { TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
-import { blendInto, blendModeIndex } from './blend';
+import { adjustPixel, preparedFor, type PreparedAdjustment } from '../ops/adjust';
+import { blendChannel, blendInto, blendModeIndex } from './blend';
 import type { BlendMode, Layer } from './document';
 
 type NodeProps = { visible: boolean; opacity: number; fillOpacity: number; blendMode: BlendMode };
@@ -14,6 +15,12 @@ export type FlatLayer =
       tile(key: TileKey): Uint8Array | Uint8ClampedArray | undefined;
       mask?: FlatMask | null;
       /** Clipped to the nearest unclipped layer below it in the same container (FR-LAY-05). */
+      clipped?: boolean;
+    })
+  | (NodeProps & {
+      kind: 'adjustment';
+      prepared: PreparedAdjustment;
+      mask?: FlatMask | null;
       clipped?: boolean;
     })
   | (NodeProps & { kind: 'group'; passThrough: boolean; children: FlatLayer[] });
@@ -46,7 +53,7 @@ function compositeSpan(
   /** The clipping base for the nodes above it: the last unclipped node seen (FR-LAY-05). */
   let base: FlatLayer | null = null;
   for (const node of nodes) {
-    const clipped = node.kind === 'raster' && node.clipped && base !== null;
+    const clipped = node.kind !== 'group' && node.clipped === true && base !== null;
     if (!clipped) base = node;
     if (!node.visible) continue;
     // A clipped layer shows only where its base does; a hidden base hides it.
@@ -80,6 +87,8 @@ function compositeSpan(
         if (m === 0) continue;
         blendInto(acc, p * 4, mode, t[s]! / 255, t[s + 1]! / 255, t[s + 2]! / 255, (a / 255) * k * m);
       }
+    } else if (node.kind === 'adjustment') {
+      adjustSpan(node, clipped && base!.kind === 'raster' ? base : null, key, acc, first, count);
     } else if (node.passThrough && node.opacity === 1) {
       compositeSpan(node.children, key, acc, first, count, depth);
     } else {
@@ -95,6 +104,52 @@ function compositeSpan(
         blendInto(acc, i, mode, group[i]! / a, group[i + 1]! / a, group[i + 2]! / a, a * node.opacity);
       }
     }
+  }
+}
+
+/**
+ * An adjustment layer (FR-ADJ-01): each pixel below is adjusted, blended with it by the layer's mode, and
+ * mixed in by opacity × fill × mask (× the clipping base); alpha stays. The CPU reference for adjust.frag.
+ */
+function adjustSpan(
+  node: Extract<FlatLayer, { kind: 'adjustment' }>,
+  clip: Extract<FlatLayer, { kind: 'raster' }> | null,
+  key: TileKey,
+  acc: Float32Array,
+  first: number,
+  count: number,
+): void {
+  const k0 = node.opacity * node.fillOpacity;
+  if (k0 === 0) return;
+  const clipTile = clip?.tile(key);
+  if (clip && !clipTile) return;
+  const clipMask = clip?.mask;
+  const clipMaskTile = clipMask?.tile(key);
+  const clipK = clip ? clip.opacity * clip.fillOpacity : 1;
+  const mask = node.mask;
+  const mt = mask?.tile(key);
+  if (mask && !mt && mask.background === 0) return;
+  const mode = blendModeIndex(node.blendMode);
+  const prepared = node.prepared;
+  const unit = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  for (let p = 0; p < count; p++) {
+    const i = p * 4;
+    const a = acc[i + 3]!;
+    if (a <= 0) continue;
+    const s = (first + p) * 4;
+    let k = k0 * (mask ? (mt ? mt[s + 3]! : mask.background) / 255 : 1);
+    if (clipTile) {
+      const cm = clipMask ? (clipMaskTile ? clipMaskTile[s + 3]! : clipMask.background) / 255 : 1;
+      k *= (clipTile[s + 3]! / 255) * cm * clipK;
+    }
+    if (k === 0) continue;
+    const cr = unit(acc[i]! / a);
+    const cg = unit(acc[i + 1]! / a);
+    const cb = unit(acc[i + 2]! / a);
+    const [r, g, b] = adjustPixel(prepared, cr, cg, cb);
+    acc[i] = (cr + (blendChannel(mode, cr, r) - cr) * k) * a;
+    acc[i + 1] = (cg + (blendChannel(mode, cg, g) - cg) * k) * a;
+    acc[i + 2] = (cb + (blendChannel(mode, cb, b) - cb) * k) * a;
   }
 }
 
@@ -217,11 +272,20 @@ export function liveLayers(layers: readonly Layer[]): FlatLayer[] {
     if (l.type === 'group')
       return { ...props, kind: 'group', passThrough: l.passThrough, children: liveLayers(l.children) };
     const m = l.mask?.enabled ? l.mask : null;
+    const flatMask = m ? { tile: (key: TileKey) => m.grid.get(key)?.data, background: m.background } : null;
+    if (l.type === 'adjustment')
+      return {
+        ...props,
+        kind: 'adjustment',
+        prepared: preparedFor(l.adjustment),
+        mask: flatMask,
+        clipped: l.clipped,
+      };
     return {
       ...props,
       kind: 'raster',
       tile: (key) => l.tiles.get(key)?.data,
-      mask: m ? { tile: (key) => m.grid.get(key)?.data, background: m.background } : null,
+      mask: flatMask,
       clipped: l.clipped,
     };
   });

@@ -93,6 +93,119 @@ export const RasterLayerEntry = LayerBase.extend({
 });
 export type RasterLayerEntry = z.infer<typeof RasterLayerEntry>;
 
+const range = (min: number, max: number) => z.number().min(min).max(max);
+const rgb255 = z.tuple([range(0, 255), range(0, 255), range(0, 255)]);
+const shift = z.tuple([range(-100, 100), range(-100, 100), range(-100, 100)]);
+const levelsChannel = z.object({
+  inBlack: range(0, 253),
+  inWhite: range(2, 255),
+  gamma: range(0.01, 9.99),
+  outBlack: range(0, 255),
+  outWhite: range(0, 255),
+});
+const IDENTITY_LEVELS = { inBlack: 0, inWhite: 255, gamma: 1, outBlack: 0, outWhite: 255 };
+const curve = z
+  .array(z.tuple([range(0, 255), range(0, 255)]))
+  .min(2)
+  .max(16);
+const IDENTITY_CURVE: Array<[number, number]> = [
+  [0, 0],
+  [255, 255],
+];
+
+/** The adjustment kinds this version knows (an adjustment layer of another kind is left out, not an error). */
+export const ADJUSTMENT_KIND_NAMES = [
+  'brightness-contrast',
+  'levels',
+  'curves',
+  'exposure',
+  'vibrance',
+  'hue-saturation',
+  'color-balance',
+  'black-white',
+  'photo-filter',
+  'invert',
+  'posterize',
+  'threshold',
+] as const;
+
+/** An adjustment layer's settings (docs/05 §1, FR-ADJ-01), range-checked: files are untrusted. */
+export const AdjustmentSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('brightness-contrast'),
+    brightness: range(-150, 150),
+    contrast: range(-100, 100),
+    legacy: z.boolean().default(false),
+  }),
+  z.object({
+    kind: z.literal('levels'),
+    channels: z.object({
+      rgb: levelsChannel.default(IDENTITY_LEVELS),
+      r: levelsChannel.default(IDENTITY_LEVELS),
+      g: levelsChannel.default(IDENTITY_LEVELS),
+      b: levelsChannel.default(IDENTITY_LEVELS),
+    }),
+  }),
+  z.object({
+    kind: z.literal('curves'),
+    channels: z.object({
+      rgb: curve.default(IDENTITY_CURVE),
+      r: curve.default(IDENTITY_CURVE),
+      g: curve.default(IDENTITY_CURVE),
+      b: curve.default(IDENTITY_CURVE),
+    }),
+  }),
+  z.object({
+    kind: z.literal('exposure'),
+    exposure: range(-20, 20),
+    offset: range(-0.5, 0.5),
+    gamma: range(0.01, 9.99),
+  }),
+  z.object({ kind: z.literal('vibrance'), vibrance: range(-100, 100), saturation: range(-100, 100) }),
+  z.object({
+    kind: z.literal('hue-saturation'),
+    hue: range(-180, 360),
+    saturation: range(-100, 100),
+    lightness: range(-100, 100),
+    colorize: z.boolean().default(false),
+  }),
+  z.object({
+    kind: z.literal('color-balance'),
+    shadows: shift,
+    midtones: shift,
+    highlights: shift,
+    preserveLuminosity: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('black-white'),
+    weights: z.object({
+      r: range(-200, 300),
+      y: range(-200, 300),
+      g: range(-200, 300),
+      c: range(-200, 300),
+      b: range(-200, 300),
+      m: range(-200, 300),
+    }),
+    tint: rgb255.optional(),
+  }),
+  z.object({
+    kind: z.literal('photo-filter'),
+    color: rgb255,
+    density: range(0, 100),
+    preserveLuminosity: z.boolean().default(true),
+  }),
+  z.object({ kind: z.literal('invert') }),
+  z.object({ kind: z.literal('posterize'), levels: z.number().int().min(2).max(255) }),
+  z.object({ kind: z.literal('threshold'), level: z.number().int().min(1).max(255) }),
+]);
+
+export const AdjustmentLayerEntry = LayerBase.extend({
+  type: z.literal('adjustment'),
+  adjustment: AdjustmentSchema,
+  mask: LayerMaskEntry.optional(),
+});
+export type AdjustmentLayerEntry = z.infer<typeof AdjustmentLayerEntry>;
+
 /** Children are validated recursively by the reader (depth and total count are limited). */
 export const GroupLayerEntry = LayerBase.extend({
   type: z.literal('group'),

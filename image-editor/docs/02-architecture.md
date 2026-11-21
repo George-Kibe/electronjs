@@ -116,6 +116,15 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
    - Raster/Text/Shape: sample the layer texture → apply the mask → apply opacity → blend-mode shader against the backdrop.
    - Adjustment: a fullscreen pass applying the adjustment (a LUT texture for Levels/Curves/Hue-Sat, uniforms
      for the others) to the backdrop, then mixing by the adjustment layer's mask and opacity.
+     *As built (M2 slice 4a):* `adjust.frag` redraws each visible tile of the current target from a copy
+     of it, so an adjustment inside an isolated group changes only that group. Per-channel adjustments
+     (Brightness/Contrast, Levels, Curves, Exposure, Invert, Posterize) are baked into one 256×1 RGBA8
+     table, re-uploaded when the layer's adjustment object is replaced. The channel-mixing ones (Threshold,
+     Hue/Saturation, Vibrance, Color Balance, Black & White, Photo Filter) are functions on 16 packed
+     floats. The result is blended with the backdrop by the layer's blend mode and mixed in by opacity ×
+     mask (× the clipping base), keeping the backdrop's alpha. `engine/ops/adjust.ts` is the CPU reference,
+     used by flatten, merge and export. Its formulas follow GIMP's operations where Photoshop's are not
+     published.
    - Group: pass-through groups composite children directly. Non-pass-through groups render into their own
      buffer, then blend.
    - Clipping: a clipped layer uses the base layer's alpha as an extra mask.

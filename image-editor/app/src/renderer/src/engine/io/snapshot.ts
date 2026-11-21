@@ -1,5 +1,7 @@
 import { Mask, MASK_TILE_BYTES, maskTile, type MaskTile } from '../doc/selection';
+import { preparedFor, type Adjustment } from '../ops/adjust';
 import {
+  createAdjustmentLayer,
   createGroupLayer,
   createRasterLayer,
   Document,
@@ -35,7 +37,8 @@ export type MaskSnapshot = {
 
 export type LayerSnapshot =
   | (SnapshotBase & { type: 'raster'; tiles: Array<[TileKey, Uint8Array]>; mask?: MaskSnapshot | null })
-  | (SnapshotBase & { type: 'group'; passThrough: boolean; collapsed: boolean; children: LayerSnapshot[] });
+  | (SnapshotBase & { type: 'group'; passThrough: boolean; collapsed: boolean; children: LayerSnapshot[] })
+  | (SnapshotBase & { type: 'adjustment'; adjustment: Adjustment; mask?: MaskSnapshot | null });
 
 export type DocSnapshot = {
   width: number;
@@ -75,6 +78,17 @@ export function layerToSnapshot(l: Layer): LayerSnapshot {
       collapsed: l.collapsed,
       children: l.children.map(layerToSnapshot),
     };
+  const mask = l.mask
+    ? {
+        mask: {
+          background: l.mask.background,
+          enabled: l.mask.enabled,
+          linked: l.mask.linked,
+          tiles: gridEntries(l.mask.grid),
+        },
+      }
+    : {};
+  if (l.type === 'adjustment') return { ...base, type: 'adjustment', adjustment: l.adjustment, ...mask };
   return {
     ...base,
     type: 'raster',
@@ -134,20 +148,22 @@ function layerFromSnapshot(l: LayerSnapshot): Layer {
     const { children, type: _type, ...props } = l;
     return createGroupLayer(l.name, children.map(layerFromSnapshot), props);
   }
-  const { tiles, type: _type, mask, ...props } = l;
-  return createRasterLayer(l.name, gridFrom(tiles), {
-    ...props,
-    ...(mask
+  const maskOf = (mask: MaskSnapshot | null | undefined) => ({
+    mask: mask
       ? {
-          mask: {
-            grid: gridFrom(mask.tiles),
-            background: mask.background,
-            enabled: mask.enabled,
-            linked: mask.linked,
-          },
+          grid: gridFrom(mask.tiles),
+          background: mask.background,
+          enabled: mask.enabled,
+          linked: mask.linked,
         }
-      : {}),
+      : null,
   });
+  if (l.type === 'adjustment') {
+    const { adjustment, type: _type, mask, ...props } = l;
+    return createAdjustmentLayer(l.name, adjustment, { ...props, ...maskOf(mask) });
+  }
+  const { tiles, type: _type, mask, ...props } = l;
+  return createRasterLayer(l.name, gridFrom(tiles), { ...props, ...(mask ? maskOf(mask) : {}) });
 }
 
 export function fromSnapshot(s: DocSnapshot): Document {
@@ -178,15 +194,13 @@ export function fromSnapshot(s: DocSnapshot): Document {
 export function snapshotLayers(layers: readonly LayerSnapshot[]): import('../doc/flatten').FlatLayer[] {
   return layers.map((l) => {
     if (l.type === 'group') return { ...l, kind: 'group', children: snapshotLayers(l.children) };
-    const tiles = new Map(l.tiles);
     const m = l.mask?.enabled ? l.mask : null;
     const maskTiles = m ? new Map(m.tiles) : null;
-    return {
-      ...l,
-      kind: 'raster',
-      tile: (key: TileKey) => tiles.get(key),
-      mask: m && maskTiles ? { tile: (key: TileKey) => maskTiles.get(key), background: m.background } : null,
-      clipped: l.clipped,
-    };
+    const mask =
+      m && maskTiles ? { tile: (key: TileKey) => maskTiles.get(key), background: m.background } : null;
+    if (l.type === 'adjustment')
+      return { ...l, kind: 'adjustment', prepared: preparedFor(l.adjustment), mask, clipped: l.clipped };
+    const tiles = new Map(l.tiles);
+    return { ...l, kind: 'raster', tile: (key: TileKey) => tiles.get(key), mask, clipped: l.clipped };
   });
 }

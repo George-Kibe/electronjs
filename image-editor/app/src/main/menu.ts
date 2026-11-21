@@ -143,6 +143,25 @@ export function menuTemplate(
       submenu: [
         cmd('New Layer', 'layer.new', 'CmdOrCtrl+Shift+N'),
         cmd('New Group', 'layer.newGroup'),
+        {
+          label: 'New Adjustment Layer',
+          submenu: [
+            cmd('Brightness/Contrast', 'layer.adjustment.brightness-contrast'),
+            cmd('Levels', 'layer.adjustment.levels'),
+            cmd('Curves', 'layer.adjustment.curves'),
+            cmd('Exposure', 'layer.adjustment.exposure'),
+            { type: 'separator' },
+            cmd('Vibrance', 'layer.adjustment.vibrance'),
+            cmd('Hue/Saturation', 'layer.adjustment.hue-saturation'),
+            cmd('Color Balance', 'layer.adjustment.color-balance'),
+            cmd('Black & White', 'layer.adjustment.black-white'),
+            cmd('Photo Filter', 'layer.adjustment.photo-filter'),
+            { type: 'separator' },
+            cmd('Invert', 'layer.adjustment.invert'),
+            cmd('Posterize', 'layer.adjustment.posterize'),
+            cmd('Threshold', 'layer.adjustment.threshold'),
+          ],
+        },
         cmd('Duplicate Layer', 'layer.duplicate', 'CmdOrCtrl+J'),
         cmd('Delete Layer', 'layer.delete'),
         { type: 'separator' },
@@ -241,6 +260,7 @@ export function menuTemplate(
         cmd('Layers', 'window.layers'),
         cmd('Swatches', 'window.swatches'),
         cmd('History', 'window.history'),
+        cmd('Properties', 'window.properties'),
         { type: 'separator' },
         {
           label: 'Workspace',

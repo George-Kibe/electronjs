@@ -1,12 +1,14 @@
 import type { BrushSettings } from '../brush/brush';
 import { GRAIN_SIZE, tipGrain, type BrushTip } from '../brush/tips';
 import { blendModeIndex } from '../doc/blend';
+import { isNeutral, preparedFor, type Adjustment } from '../ops/adjust';
 import type { Document, Layer } from '../doc/document';
 import type { Mask, MaskTile } from '../doc/selection';
 import { PIXEL_GRID_ZOOM, type Viewport } from '../render/viewport';
 import { parseTileKey, TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
 import { createProgram, createUnitQuad, type Program } from './program';
 import blendGlsl from './shaders/blend.glsl?raw';
+import adjustFrag from './shaders/adjust.frag?raw';
 import checkerFrag from './shaders/checker.frag?raw';
 import gridFrag from './shaders/grid.frag?raw';
 import groupFrag from './shaders/group.frag?raw';
@@ -93,6 +95,9 @@ export class Compositor {
   private readonly presentProgram: Program;
   private readonly gridProgram: Program;
   private readonly quickMaskProgram: Program;
+  private readonly adjustProgram: Program;
+  /** Each adjustment layer's lookup table, re-uploaded when its adjustment object is replaced. */
+  private readonly luts = new Map<string, { adjustment: Adjustment; texture: WebGLTexture }>();
   private readonly grains = new Map<BrushTip, WebGLTexture>();
   /** Selection mask textures (R8) of the stroke preview, for the selection in `maskOwner`. */
   private readonly masks = new Map<MaskTile, WebGLTexture>();
@@ -116,6 +121,7 @@ export class Compositor {
     this.presentProgram = createProgram(gl, quadVert, withBlend(groupFrag));
     this.gridProgram = createProgram(gl, quadVert, gridFrag);
     this.quickMaskProgram = createProgram(gl, tileVert, quickMaskFrag);
+    this.adjustProgram = createProgram(gl, tileVert, withBlend(adjustFrag));
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -310,7 +316,7 @@ export class Compositor {
     /** The clipping base for the layers above it: the last unclipped layer (FR-LAY-05, as flatten.ts). */
     let base: Layer | null = null;
     for (const layer of layers) {
-      const clipped = layer.type === 'raster' && layer.clipped && base !== null;
+      const clipped = layer.type !== 'group' && layer.clipped && base !== null;
       if (!clipped) base = layer;
       if (!layer.visible) continue;
       if (clipped && !base!.visible) continue;
@@ -328,6 +334,12 @@ export class Compositor {
         this.drawBuffer(buffer, layer.opacity, mode, backdrop);
         if (backdrop) this.release(backdrop);
         this.release(buffer);
+        continue;
+      }
+      if (layer.type === 'adjustment') {
+        const clip = clipped && base!.type === 'raster' ? base! : null;
+        const preview = ctx.stroke?.layerId === layer.id && ctx.stroke.onMask ? ctx.stroke : undefined;
+        this.drawAdjustment(layer, target, ctx, clip as Extract<Layer, { type: 'raster' }> | null, preview);
         continue;
       }
       const opacity = layer.opacity * layer.fillOpacity;
@@ -470,6 +482,126 @@ export class Compositor {
     for (const unit of [5, 6, 7]) gl.bindSampler(unit, null);
   }
 
+  /**
+   * An adjustment layer (FR-ADJ-01): adjust.frag rewrites each visible tile of `target` from a copy of it,
+   * mixing the adjusted colour in by opacity × mask (× the clipping base). Alpha is unchanged.
+   */
+  private drawAdjustment(
+    layer: Extract<Layer, { type: 'adjustment' }>,
+    target: Target,
+    ctx: DrawContext,
+    clip: Extract<Layer, { type: 'raster' }> | null,
+    preview?: StrokePreview,
+  ): void {
+    const opacity = layer.opacity * layer.fillOpacity;
+    if (opacity === 0 || isNeutral(layer.adjustment)) return;
+    const gl = this.gl;
+    const prepared = preparedFor(layer.adjustment);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    const backdrop = this.backdropOf(target);
+    const p = this.adjustProgram;
+    gl.useProgram(p.program);
+    gl.disable(gl.BLEND);
+    gl.uniformMatrix3fv(p.uniform('u_docToClip'), false, ctx.docToClip);
+    gl.uniformMatrix3fv(p.uniform('u_transform'), false, IDENTITY3);
+    gl.uniform1f(p.uniform('u_tileSize'), TILE_SIZE);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, backdrop.texture);
+    gl.uniform1i(p.uniform('u_backdrop'), 2);
+    gl.uniform1i(p.uniform('u_hasLut'), prepared.lut ? 1 : 0);
+    gl.uniform1i(p.uniform('u_lut'), 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(
+      gl.TEXTURE_2D,
+      prepared.lut ? this.lutTexture(layer.id, layer.adjustment, prepared.lut) : null,
+    );
+    gl.uniform1i(p.uniform('u_stage'), prepared.stage);
+    gl.uniform4fv(p.uniform('u_p[0]'), prepared.params);
+    gl.uniform1i(p.uniform('u_blendMode'), blendModeIndex(layer.blendMode));
+    gl.uniform1f(p.uniform('u_opacity'), opacity);
+    const sampler = ctx.viewport.zoom * ctx.size.dpr >= 2 ? this.nearestSampler : this.linearSampler;
+    const mask = layer.mask?.enabled ? layer.mask : null;
+    gl.uniform1i(p.uniform('u_layerMaskTile'), 5);
+    gl.uniform1f(p.uniform('u_layerMaskBackground'), (mask?.background ?? 255) / 255);
+    const clipMask = clip?.mask?.enabled ? clip.mask : null;
+    gl.uniform1i(p.uniform('u_clip'), clip ? 1 : 0);
+    gl.uniform1i(p.uniform('u_clipTile'), 6);
+    gl.uniform1i(p.uniform('u_clipMaskTile'), 7);
+    gl.uniform1f(p.uniform('u_clipMaskBackground'), (clipMask?.background ?? 255) / 255);
+    gl.uniform1f(p.uniform('u_clipOpacity'), clip ? clip.opacity * clip.fillOpacity : 1);
+    for (const unit of [5, 6, 7]) gl.bindSampler(unit, sampler);
+    // A stroke on the mask (painting an adjustment layer), clipped by the selection as on raster layers.
+    const selection = preview?.selection ?? null;
+    gl.uniform1i(p.uniform('u_stroke'), 1);
+    gl.uniform1i(p.uniform('u_grain'), 3);
+    gl.uniform1i(p.uniform('u_mask'), 4);
+    gl.uniform1f(p.uniform('u_maskTarget'), preview?.onMask?.target ?? 1);
+    gl.uniform1f(p.uniform('u_brushOpacity'), preview?.settings.opacity ?? 1);
+    const grain = preview && !preview.settings.aliased ? this.grainTexture(preview.settings.tip) : null;
+    gl.uniform1i(p.uniform('u_hasGrain'), grain ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, grain);
+    gl.bindSampler(1, sampler);
+    for (const key of ctx.visible) {
+      const maskTile = mask?.grid.get(key);
+      const selected = selection?.tile(key);
+      const strokeTex = !preview || (selection && !selected) ? undefined : preview.buffer.texture(key);
+      if (mask && !maskTile && mask.background === 0 && !strokeTex) continue;
+      gl.uniform1i(p.uniform('u_hasStroke'), strokeTex ? 1 : 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, strokeTex ?? null);
+      const partial = strokeTex && selected && !selected.full ? selected : null;
+      gl.uniform1i(p.uniform('u_hasMask'), partial ? 1 : 0);
+      if (partial) {
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this.maskTexture(selection!, partial));
+      }
+      gl.uniform1i(p.uniform('u_layerMask'), !mask ? 0 : maskTile ? 1 : 2);
+      if (maskTile) {
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, this.textures.get(maskTile));
+      }
+      if (clip) {
+        const clipTile = clip.tiles.get(key);
+        if (!clipTile) continue;
+        gl.activeTexture(gl.TEXTURE6);
+        gl.bindTexture(gl.TEXTURE_2D, this.textures.get(clipTile));
+        const clipMaskTile = clipMask?.grid.get(key);
+        gl.uniform1i(p.uniform('u_clipMask'), !clipMask ? 0 : clipMaskTile ? 1 : 2);
+        if (clipMaskTile) {
+          gl.activeTexture(gl.TEXTURE7);
+          gl.bindTexture(gl.TEXTURE_2D, this.textures.get(clipMaskTile));
+        }
+      }
+      const [tx, ty] = parseTileKey(key);
+      gl.uniform2f(p.uniform('u_tileOrigin'), tx * TILE_SIZE, ty * TILE_SIZE);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    for (const unit of [1, 5, 6, 7]) gl.bindSampler(unit, null);
+    this.release(backdrop);
+  }
+
+  /** The 256×1 RGBA8 lookup table of an adjustment layer (red, green and blue tables). */
+  private lutTexture(id: string, adjustment: Adjustment, lut: Uint8Array): WebGLTexture {
+    const gl = this.gl;
+    let entry = this.luts.get(id);
+    if (!entry) {
+      const texture = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      entry = { adjustment: adjustment, texture };
+      this.luts.set(id, entry);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, lut);
+    } else if (entry.adjustment !== adjustment) {
+      gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, lut);
+      entry.adjustment = adjustment;
+    }
+    return entry.texture;
+  }
+
   /** Composites a screen-space buffer onto the bound framebuffer. */
   private drawBuffer(src: Target, opacity: number, mode: number, backdrop: Target | null = null): void {
     const gl = this.gl;
@@ -580,6 +712,8 @@ export class Compositor {
     this.grains.clear();
     for (const tex of this.masks.values()) this.gl.deleteTexture(tex);
     this.masks.clear();
+    for (const { texture } of this.luts.values()) this.gl.deleteTexture(texture);
+    this.luts.clear();
     this.disposePool();
     this.textures.dispose();
   }

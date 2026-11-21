@@ -2,6 +2,7 @@ import type { Tile, TileKey } from '../tiles/tile';
 import { TILE_BYTES } from '../tiles/tile';
 import { createRasterLayer, type Document, type Layer, type LayerMask, type LayerProps } from './document';
 import type { Mask } from './selection';
+import { ADJUSTMENT_LABELS, type Adjustment } from '../ops/adjust';
 
 export type DirtySet = { layerIds: string[]; tiles: TileKey[] | 'all' };
 
@@ -17,7 +18,8 @@ export interface Command {
 }
 
 /**
- * Swaps tile references on one raster layer, or on its mask: the core of brush/eraser/fill undo (ADR-0005).
+ * Swaps tile references on one raster layer, or on a raster or adjustment layer's mask: the core of
+ * brush/eraser/fill undo (ADR-0005).
  */
 export class PaintTilesCommand implements Command {
   constructor(
@@ -30,8 +32,8 @@ export class PaintTilesCommand implements Command {
   ) {}
 
   private apply(doc: Document, tiles: ReadonlyMap<TileKey, Tile | undefined>): DirtySet {
-    const layer = doc.raster(this.layerId);
-    const grid = this.target === 'mask' ? layer.mask!.grid : layer.tiles;
+    const grid =
+      this.target === 'mask' ? doc.masked(this.layerId).mask!.grid : doc.raster(this.layerId).tiles;
     for (const [key, tile] of tiles) grid.set(key, tile);
     return { layerIds: [this.layerId], tiles: [...tiles.keys()] };
   }
@@ -177,6 +179,51 @@ export class SetLayerPropsCommand implements Command {
   }
 }
 
+/**
+ * Changes an adjustment layer's settings (FR-ADJ-01, docs/04 SetAdjustmentParams). The adjustment object is
+ * replaced, never mutated; consecutive changes to one layer while a control is dragged become one step.
+ */
+export class SetAdjustmentCommand implements Command {
+  readonly label: string;
+  private before: Adjustment | null = null;
+
+  constructor(
+    private readonly layerId: string,
+    private readonly after: Adjustment,
+  ) {
+    this.label = ADJUSTMENT_LABELS[after.kind];
+  }
+
+  private layer(doc: Document) {
+    const l = doc.layer(this.layerId);
+    if (l.type !== 'adjustment') throw new Error(`${this.layerId} is not an adjustment layer`);
+    return l;
+  }
+
+  do(doc: Document): DirtySet {
+    const l = this.layer(doc);
+    this.before ??= l.adjustment;
+    l.adjustment = this.after;
+    return { layerIds: [this.layerId], tiles: 'all' };
+  }
+
+  undo(doc: Document): DirtySet {
+    this.layer(doc).adjustment = this.before!;
+    return { layerIds: [this.layerId], tiles: 'all' };
+  }
+
+  sizeBytes(): number {
+    return 1024;
+  }
+
+  mergeWith(next: Command): Command | null {
+    if (!(next instanceof SetAdjustmentCommand) || next.layerId !== this.layerId) return null;
+    const merged = new SetAdjustmentCommand(this.layerId, next.after);
+    merged.before = this.before;
+    return merged;
+  }
+}
+
 export class SetActiveLayerCommand implements Command {
   readonly label = 'Select Layer';
   private previous = '';
@@ -206,7 +253,10 @@ export function cloneTree(layers: readonly Layer[]): Layer[] {
 export function tileBytes(layers: readonly Layer[]): number {
   let n = 0;
   for (const l of layers)
-    n += l.type === 'group' ? tileBytes(l.children) : (l.tiles.size + (l.mask?.grid.size ?? 0)) * TILE_BYTES;
+    n +=
+      l.type === 'group'
+        ? tileBytes(l.children)
+        : ((l.type === 'raster' ? l.tiles.size : 0) + (l.mask?.grid.size ?? 0)) * TILE_BYTES;
   return n;
 }
 
@@ -345,14 +395,14 @@ export class SetLayerMaskCommand implements Command {
   ) {}
 
   do(doc: Document): DirtySet {
-    const layer = doc.raster(this.layerId);
+    const layer = doc.masked(this.layerId);
     this.before = layer.mask ?? null;
     layer.mask = this.after;
     return { layerIds: [this.layerId], tiles: 'all' };
   }
 
   undo(doc: Document): DirtySet {
-    doc.raster(this.layerId).mask = this.before;
+    doc.masked(this.layerId).mask = this.before;
     return { layerIds: [this.layerId], tiles: 'all' };
   }
 

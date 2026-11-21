@@ -55,6 +55,7 @@ function state(d: Document): unknown {
     const { id, name, visible, opacity, fillOpacity, blendMode, locks } = l;
     const props = { id, name, visible, opacity, fillOpacity, blendMode, locks: { ...locks } };
     if (l.type === 'group') return { ...props, pt: l.passThrough, children: l.children.map(layer) };
+    if (l.type === 'adjustment') return { ...props, adjustment: l.adjustment };
     return { ...props, tiles: [...l.tiles.entries()].map(([k, t]) => `${k}=${t.id}`).sort() };
   };
   return {

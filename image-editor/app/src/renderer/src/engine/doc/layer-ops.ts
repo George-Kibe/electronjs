@@ -29,7 +29,7 @@ const lockedAll = (l: Layer) => l.locks.all;
 function tileKeys(layers: readonly Layer[], out = new Set<TileKey>()): Set<TileKey> {
   for (const l of layers) {
     if (l.type === 'group') tileKeys(l.children, out);
-    else for (const k of l.tiles.keys()) out.add(k);
+    else if (l.type === 'raster') for (const k of l.tiles.keys()) out.add(k);
   }
   return out;
 }
@@ -61,6 +61,9 @@ function deepCopy(layer: Layer, suffix: string): Layer {
   };
   if (layer.type === 'group')
     return { ...common, type: 'group', children: layer.children.map((c) => deepCopy(c, '')) } as Layer;
+  // Adjustments are replaced, never mutated, so the copy can share it; the mask grid is its own.
+  if (layer.type === 'adjustment')
+    return { ...common, type: 'adjustment', mask: layer.mask ? copyMask(layer.mask) : null } as Layer;
   const grid = new TileGrid();
   for (const [k, t] of layer.tiles.entries()) grid.set(k, t); // tiles are immutable: share them
   // The copy gets its own mask grid: painting one mask must not change the other.
@@ -151,7 +154,8 @@ export function mergeDownBlocker(doc: Document, id: string): string | null {
   const loc = doc.locate(id);
   const below = loc.siblings[loc.index - 1];
   if (!below) return 'There is no layer below to merge into.';
-  if (below.type !== 'raster') return 'The layer below is a group.';
+  if (below.type !== 'raster')
+    return below.type === 'group' ? 'The layer below is a group.' : 'The layer below is an adjustment layer.';
   if (!loc.layer.visible || !below.visible) return 'Both layers must be visible.';
   if (below.locks.all || below.locks.pixels || loc.layer.locks.all) return 'A locked layer cannot be merged.';
   return null;
