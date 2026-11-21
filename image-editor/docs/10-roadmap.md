@@ -260,6 +260,16 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         its reference
 - [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
 - [ ] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
+  - [ ] 7a Rulers, guides and snapping:
+        - View › Rulers (Ctrl+R) shows rulers along the top and left, in px, in, cm or % (right-click a
+          ruler; saved as a preference).
+        - Drag out of a ruler to make a guide. The Move tool drags a guide, and dropping it off the canvas
+          deletes it. Each change is an undo step. View › New Guide…, Clear Guides, Guides (Ctrl+;) and
+          Lock Guides (Ctrl+Alt+;).
+        - View › Snap (Ctrl+Shift+;) makes Move-tool drags (the content's edges and centre), marquee
+          corners and guides snap to guides, the canvas edges and centre, and other layers' edges, within
+          8 screen px.
+  - [ ] 7b The grid overlay and the Navigator panel
 - [ ] Slice 8 — history beyond the RAM budget spills to OPFS (FR-HIS-03, T-HIS-02)
 
 ## M3 — Text, shapes, painting extras, PSD

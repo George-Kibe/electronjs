@@ -278,3 +278,42 @@ export function TrimDialog(props: {
     </FormDialog>
   );
 }
+
+/** View › New Guide… (FR-NAV-04): orientation and position in pixels. */
+export function NewGuideDialog(props: {
+  max: { width: number; height: number };
+  onApply: (orientation: 'horizontal' | 'vertical', position: number) => void;
+  onCancel: () => void;
+}) {
+  const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('vertical');
+  const [position, setPosition] = useState(0);
+  const limit = orientation === 'vertical' ? props.max.width : props.max.height;
+  return (
+    <FormDialog
+      title="New Guide"
+      valid={Number.isFinite(position) && position >= 0 && position <= limit}
+      onApply={() => props.onApply(orientation, position)}
+      onCancel={props.onCancel}
+    >
+      <div role="radiogroup" aria-label="Orientation" className="flex gap-4">
+        {(
+          [
+            ['horizontal', 'Horizontal'],
+            ['vertical', 'Vertical'],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value} className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              name="guide-orientation"
+              checked={orientation === value}
+              onChange={() => setOrientation(value)}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      <Field label="Position" value={position} unit="px" min={0} max={limit} onChange={setPosition} />
+    </FormDialog>
+  );
+}

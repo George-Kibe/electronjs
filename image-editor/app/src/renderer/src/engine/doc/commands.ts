@@ -224,6 +224,33 @@ export class SetAdjustmentCommand implements Command {
   }
 }
 
+export type Guides = { horizontal: number[]; vertical: number[] };
+
+/** Adds, moves, removes or clears guides (FR-NAV-04): document px, one undo step each, as in Photoshop. */
+export class SetGuidesCommand implements Command {
+  private before: Guides | null = null;
+
+  constructor(
+    readonly label: string,
+    private readonly after: Guides,
+  ) {}
+
+  do(doc: Document): DirtySet {
+    this.before ??= doc.meta.guides;
+    doc.meta.guides = this.after;
+    return { layerIds: [], tiles: [] };
+  }
+
+  undo(doc: Document): DirtySet {
+    doc.meta.guides = this.before!;
+    return { layerIds: [], tiles: [] };
+  }
+
+  sizeBytes(): number {
+    return 64 + 8 * (this.after.horizontal.length + this.after.vertical.length);
+  }
+}
+
 export class SetActiveLayerCommand implements Command {
   readonly label = 'Select Layer';
   private previous = '';
