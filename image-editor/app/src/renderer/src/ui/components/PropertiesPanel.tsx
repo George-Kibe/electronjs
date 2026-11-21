@@ -11,6 +11,7 @@ import {
   type RGB,
 } from '../../engine/ops/adjust';
 import { Button } from './Button';
+import { Modal } from './Modal';
 
 type Props = { editor: Editor; snap: EditorSnapshot };
 
@@ -58,7 +59,7 @@ export function PropertiesPanel({ editor, snap }: Props) {
   );
 }
 
-function Controls({ adjustment: a, change }: { adjustment: Adjustment; change: Change }) {
+export function Controls({ adjustment: a, change }: { adjustment: Adjustment; change: Change }) {
   switch (a.kind) {
     case 'brightness-contrast':
       return (
@@ -548,5 +549,54 @@ function ColorField(props: { label: string; value: RGB; onChange: (v: RGB) => vo
         }}
       />
     </label>
+  );
+}
+
+/**
+ * Image › Adjustments › … (FR-ADJ-01, docs/03 §5.2): the same controls as Properties, applied to the active
+ * layer's pixels (within the selection) on OK. The canvas previews them live; Preview off shows the original.
+ */
+export function AdjustmentDialog(props: {
+  adjusting: NonNullable<EditorSnapshot['adjusting']>;
+  onChange: (a: Adjustment) => void;
+  onPreview: (on: boolean) => void;
+  onApply: () => void;
+  onCancel: () => void;
+}) {
+  const id = useId();
+  const { adjustment, preview } = props.adjusting;
+  return (
+    <Modal
+      title={ADJUSTMENT_LABELS[adjustment.kind]}
+      onCancel={props.onCancel}
+      backdrop="clear"
+      align="end"
+      width="w-[340px]"
+      footer={
+        <>
+          <Check label="Preview" checked={preview} onChange={props.onPreview} />
+          <span className="flex-1" />
+          <Button onClick={props.onCancel}>Cancel</Button>
+          <Button type="submit" form={id} variant="primary">
+            OK
+          </Button>
+        </>
+      }
+    >
+      <form
+        id={id}
+        aria-label={`${ADJUSTMENT_LABELS[adjustment.kind]} settings`}
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          props.onApply();
+        }}
+      >
+        <Controls adjustment={adjustment} change={(next) => props.onChange(next)} />
+        <div className="flex justify-end">
+          <Button onClick={() => props.onChange(defaultAdjustment(adjustment.kind))}>Reset</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

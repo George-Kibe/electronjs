@@ -28,6 +28,11 @@ async function newDocument(win: Page, width: number, height: number) {
 
 const pixel = (win: Page, p: [number, number], rgb: [number, number, number]) =>
   expect.poll(() => canvasPixel(win, ...p)).toEqual(rgb);
+/** Within ±1 per channel: values that are not exact in the 16-bit float buffers may show one level off. */
+const near = (win: Page, p: [number, number], rgb: [number, number, number]) =>
+  expect
+    .poll(async () => Math.max(...(await canvasPixel(win, ...p)).map((v, i) => Math.abs(v - rgb[i]!))))
+    .toBeLessThanOrEqual(1);
 const history = (win: Page) => win.getByRole('list', { name: 'History' });
 const layers = (win: Page) => win.getByRole('listbox', { name: 'Layers' });
 
@@ -78,6 +83,49 @@ test(`[${target}] adjustment layers: add, change in Properties, hide, paint the 
 
   await win.keyboard.press('ControlOrMeta+z'); // the mask stroke
   await win.keyboard.press('ControlOrMeta+z'); // the Levels change
+  await pixel(win, at(200, 150), [255, 255, 255]);
+  await close();
+});
+
+test(`[${target}] Image › Adjustments: a dialog previews on the canvas and OK changes the pixels (FR-ADJ-01)`, async () => {
+  const { win, close } = await launch();
+  const at = await newDocument(win, 300, 200);
+  await win.getByRole('button', { name: 'New layer', exact: true }).click();
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('30');
+  await paintLine(win, at(40, 50), at(120, 50));
+  // The background layer is the one to adjust.
+  await layers(win)
+    .getByRole('option', { name: /Background/ })
+    .click();
+
+  // Ctrl+L: Levels; the canvas previews it; Preview off shows the original; OK applies it.
+  await win.keyboard.press('ControlOrMeta+l');
+  const dialog = win.getByRole('dialog', { name: 'Levels' });
+  await dialog.getByRole('spinbutton', { name: 'Output white' }).fill('100');
+  await pixel(win, at(200, 150), [100, 100, 100]);
+  await dialog.getByRole('checkbox', { name: 'Preview' }).uncheck();
+  await pixel(win, at(200, 150), [255, 255, 255]);
+  await dialog.getByRole('checkbox', { name: 'Preview' }).check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(history(win)).toContainText('Levels', { timeout: 30_000 });
+  await pixel(win, at(200, 150), [100, 100, 100]);
+  await pixel(win, at(80, 50), [0, 0, 0]); // the bar is on its own layer
+
+  // Esc cancels a dialog without changes; Ctrl+I inverts at once.
+  await win.keyboard.press('ControlOrMeta+u');
+  await win
+    .getByRole('dialog', { name: 'Hue/Saturation' })
+    .getByRole('spinbutton', { name: 'Lightness' })
+    .fill('80');
+  await win.keyboard.press('Escape');
+  await expect(win.getByRole('dialog')).toHaveCount(0);
+  await pixel(win, at(200, 150), [100, 100, 100]);
+  await win.keyboard.press('ControlOrMeta+i');
+  await expect(history(win)).toContainText('Invert', { timeout: 30_000 });
+  await near(win, at(200, 150), [155, 155, 155]);
+  await win.keyboard.press('ControlOrMeta+z');
+  await win.keyboard.press('ControlOrMeta+z');
   await pixel(win, at(200, 150), [255, 255, 255]);
   await close();
 });

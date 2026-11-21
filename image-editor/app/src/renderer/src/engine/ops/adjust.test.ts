@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ADJUSTMENT_KINDS,
   adjustPixel,
+  adjustTiles,
   curveFn,
   defaultAdjustment,
   isNeutral,
@@ -166,6 +167,33 @@ describe('adjustments: CPU reference (FR-ADJ-01)', () => {
     cb.preserveLuminosity = true;
     const kept = run(cb, [128, 128, 128]);
     expect(Math.round((Math.max(...kept) + Math.min(...kept)) / 2)).toBe(128);
+  });
+
+  it('adjustTiles: within the selection by its coverage, alpha kept, other tiles untouched', () => {
+    const tile = new Uint8Array(256 * 256 * 4);
+    for (let i = 0; i < tile.length; i += 4) tile.set([200, 40, 90, i < 8 ? 0 : 128], i);
+    const sel = new Uint8Array(256 * 256).fill(255);
+    sel[2] = 128;
+    sel[3] = 0;
+    const other = new Uint8Array(256 * 256 * 4).fill(7);
+    const out = new Map(
+      adjustTiles(
+        [
+          ['0,0', tile],
+          ['1,0', other],
+        ],
+        prepareAdjustment({ kind: 'invert' }),
+        new Map([['0,0', sel]]),
+      ),
+    );
+    const px = (i: number) => [...out.get('0,0')!.subarray(i * 4, i * 4 + 4)];
+    expect(px(0)).toEqual([200, 40, 90, 0]); // transparent: left alone
+    expect(px(2)).toEqual([127, 128, 128, 128]); // 128/255 selected: about halfway to the inverse
+    expect(px(3)).toEqual([200, 40, 90, 128]); // not selected
+    expect(px(4)).toEqual([55, 215, 165, 128]);
+    expect(out.get('1,0')).toBe(other); // outside the selection: the same bytes
+    const all = adjustTiles([['0,0', tile]], prepareAdjustment({ kind: 'invert' }), null);
+    expect([...all[0]![1].subarray(16, 20)]).toEqual([55, 215, 165, 128]);
   });
 
   it('photo filter: density 0 changes nothing; a warm filter warms, keeping luma', () => {

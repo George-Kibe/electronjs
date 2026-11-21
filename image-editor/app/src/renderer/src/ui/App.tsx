@@ -26,7 +26,7 @@ import { LayersPanel } from './components/LayersPanel';
 import { NewDocumentDialog } from './components/NewDocumentDialog';
 import { OptionsBar } from './components/OptionsBar';
 import { PanelDock } from './components/PanelDock';
-import { PropertiesPanel } from './components/PropertiesPanel';
+import { AdjustmentDialog, PropertiesPanel } from './components/PropertiesPanel';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { Scrollbars } from './components/Scrollbars';
 import { SelectionOverlay } from './components/SelectionOverlay';
@@ -223,6 +223,13 @@ export function App() {
           ...(Object.fromEntries(
             ADJUSTMENT_KINDS.map((k) => [`layer.adjustment.${k}`, () => editor?.addAdjustmentLayer(k)]),
           ) as Record<`layer.adjustment.${AdjustmentKind}`, () => void>),
+          ...(Object.fromEntries(
+            ADJUSTMENT_KINDS.map((k) => [
+              `image.adjust.${k}`,
+              () =>
+                k === 'invert' ? editor?.applyAdjustmentNow({ kind: 'invert' }) : editor?.beginAdjustment(k),
+            ]),
+          ) as Record<`image.adjust.${AdjustmentKind}`, () => void>),
           'window.essentials': () => setWorkspace(applyPreset(workspace, 'essentials')),
           'window.photography': () => setWorkspace(applyPreset(workspace, 'photography')),
           'window.resetWorkspace': () =>
@@ -608,6 +615,15 @@ export function App() {
             setImageDialog(null);
             void editor.rotateArbitrary(degrees);
           }}
+        />
+      )}
+      {snap?.adjusting && editor && (
+        <AdjustmentDialog
+          adjusting={snap.adjusting}
+          onChange={(a) => editor.setAdjusting(a)}
+          onPreview={(on) => editor.setAdjustingPreview(on)}
+          onApply={() => void editor.commitAdjustment()}
+          onCancel={() => editor.cancelAdjustment()}
         />
       )}
       {imageDialog === 'trim' && snap?.doc && editor && (

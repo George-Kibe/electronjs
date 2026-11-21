@@ -366,7 +366,16 @@ export function LayersPanel({ editor, snap }: Props) {
         >
           ◐
         </Button>
-        <AdjustmentMenu onPick={(kind) => editor.addAdjustmentLayer(kind)} />
+        <AdjustmentMenu
+          // Alt-choosing applies the adjustment to the layer itself instead (docs/03 §5.2).
+          onPick={(kind, alt) =>
+            alt
+              ? kind === 'invert'
+                ? editor.applyAdjustmentNow({ kind })
+                : editor.beginAdjustment(kind)
+              : editor.addAdjustmentLayer(kind)
+          }
+        />
         <Button aria-label="New layer" title="New layer (Ctrl+Shift+N)" onClick={() => editor.addLayer()}>
           ＋
         </Button>
@@ -414,7 +423,7 @@ const ADJUSTMENT_ICONS: Record<AdjustmentKind, string> = {
 };
 
 /** The bottom bar's "new adjustment layer" button and its menu (docs/03 §5.1). */
-function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind) => void }) {
+function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind, alt: boolean) => void }) {
   // Where the menu opens: above the button, right-aligned, in viewport px (it lives in a portal so the
   // panel's scrolling does not clip it).
   const [at, setAt] = useState<{
@@ -475,9 +484,10 @@ function AdjustmentMenu({ onPick }: { onPick: (kind: AdjustmentKind) => void }) 
                   role="menuitem"
                   autoFocus={i === 0}
                   className="hover:bg-ui-bg focus:bg-ui-bg flex w-full items-center gap-2 px-3 py-1 text-left outline-none"
-                  onClick={() => {
+                  title="Alt-click to apply it to the layer itself"
+                  onClick={(e) => {
                     setAt(null);
-                    onPick(kind);
+                    onPick(kind, e.altKey);
                   }}
                 >
                   <span aria-hidden className="w-4 text-center">

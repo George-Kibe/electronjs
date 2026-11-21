@@ -4,6 +4,7 @@ import { snapshotLayers, type LayerSnapshot } from '../io/snapshot';
 import { resampleGrid, rotateArbitraryGrid, type ResampleFilter } from './resample';
 import { affineGrid, invertAlpha, sourceOver, type Affine } from './affine';
 import { modifySelection, type ClipTiles, type ModifyOp } from './modify';
+import { adjustTiles, prepareAdjustment, type Adjustment } from './adjust';
 import { trimContent, type TrimBasis } from './trim';
 import { colorRange, magicWand, type WandOptions } from './wand';
 
@@ -39,6 +40,13 @@ export type OpsJob =
       matrix: Affine;
       inverted?: string[];
       beneath?: LayerTiles[];
+    }
+  /** Image › Adjustments (FR-ADJ-01): one layer adjusted, within the selection (one-byte tiles) if any. */
+  | {
+      op: 'adjust';
+      layer: LayerTiles;
+      adjustment: Adjustment;
+      selection: Array<[TileKey, Uint8Array]> | null;
     }
   /** Image › Trim (FR-TRF-06): the composite pixels to keep, as a mask. */
   | { op: 'trim'; layers: LayerSnapshot[]; size: Size; basis: TrimBasis }
@@ -83,6 +91,13 @@ export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerT
             : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
     onProgress?.(1);
     return [{ id: 'mask', tiles }];
+  }
+  if (job.op === 'adjust') {
+    const selection = job.selection ? new Map(job.selection) : null;
+    const tiles = adjustTiles(job.layer.tiles, prepareAdjustment(job.adjustment), selection, (done, total) =>
+      onProgress?.(done / total),
+    );
+    return [{ id: job.layer.id, tiles: tiles as Array<[TileKey, Uint8Array]> }];
   }
   if (job.op === 'affine') {
     const range = tileRange(job.size.width, job.size.height);
