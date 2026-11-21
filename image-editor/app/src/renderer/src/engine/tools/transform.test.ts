@@ -43,8 +43,8 @@ describe('Free Transform geometry (FR-TRF-04)', () => {
     expect([q.tx, q.ty]).toEqual([12, 0]);
   });
 
-  it('scales from a corner with the opposite corner fixed, proportionally with Shift', () => {
-    const p = dragTransform(box, NO_TRANSFORM, 'se', [300, 150], [400, 200], { shift: false, ctrl: false });
+  it('scales from a corner with the opposite corner fixed, proportionally unless Shift is held', () => {
+    const p = dragTransform(box, NO_TRANSFORM, 'se', [300, 150], [400, 200], { shift: true, ctrl: false });
     expect([p.sx, p.sy]).toEqual([1.5, 1.5]);
     const h = transformedHandles(box, p);
     close(h.nw, [100, 50]);
@@ -52,16 +52,30 @@ describe('Free Transform geometry (FR-TRF-04)', () => {
     const q = dragTransform(box, NO_TRANSFORM, 'e', [300, 100], [500, 140], { shift: false, ctrl: false });
     expect([q.sx, q.sy]).toEqual([2, 1]); // an edge scales one axis
     close(transformedHandles(box, q).w, [100, 100]);
-    const r = dragTransform(box, NO_TRANSFORM, 'se', [300, 150], [500, 160], { shift: true, ctrl: false });
+    const r = dragTransform(box, NO_TRANSFORM, 'se', [300, 150], [500, 160], { shift: false, ctrl: false });
     expect(r.sx).toBeCloseTo(2, 9);
     expect(r.sy).toBeCloseTo(2, 9);
+    const free = dragTransform(box, NO_TRANSFORM, 'se', [300, 150], [500, 160], { shift: true, ctrl: false });
+    expect([free.sx, free.sy]).toEqual([2, 1.1]);
+  });
+
+  it('scales about the centre with Alt', () => {
+    const p = dragTransform(box, NO_TRANSFORM, 'e', [300, 100], [400, 100], {
+      shift: false,
+      ctrl: false,
+      alt: true,
+    });
+    expect([p.sx, p.sy]).toEqual([2, 1]);
+    const h = transformedHandles(box, p);
+    close(h.w, [0, 100]); // the centre (200, 100) stays; both edges move
+    close(h.e, [400, 100]);
   });
 
   it('scales correctly when already rotated', () => {
     const rotated = { ...NO_TRANSFORM, angle: Math.PI / 6 };
     const start = transformedHandles(box, rotated);
     const target: [number, number] = [start.se[0] + 30, start.se[1] + 40];
-    const p = dragTransform(box, rotated, 'se', start.se, target, { shift: false, ctrl: false });
+    const p = dragTransform(box, rotated, 'se', start.se, target, { shift: true, ctrl: false });
     const after = transformedHandles(box, p);
     close(after.nw, start.nw); // anchor fixed
     close(after.se, target); // the handle follows the pointer
