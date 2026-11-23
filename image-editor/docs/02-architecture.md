@@ -203,6 +203,20 @@ a snapshot (a structured copy per click; caching the composite in the worker is 
 Destructive filters produce a `FilterCommand` (old/new tiles within the selection bounds). Previews run
 on a downscaled proxy while a slider is being dragged, then at full resolution on release.
 
+*As built (M2 slice 5a):* filters run on the CPU, in `engine/ops/filters.ts`, which is the reference for
+a later GPU path. They act on the canvas area of the active layer, with edges repeated, and mix with the
+original by the selection's coverage.
+- **Separable blurs** (Gaussian, Box, and the Unsharp Mask/Sharpen blur) stream the rows. Each row is
+  blurred along itself, then fed through running-sum stages down the columns, so every pixel is blurred
+  once per direction. Gaussian is three boxes (Kovesi) above radius 3, and an exact kernel below.
+- **Parallelism:** `lib/ops.ts` splits filter jobs into bands of tile rows across a pool of up to 4 ops
+  workers, started when the page is idle. Each band gets only the tiles it reads.
+- **Preview:** the full-resolution result for the tiles in view (no proxy yet), recomputed 120 ms after
+  the last change, one job at a time, with stale results dropped. The commit is `replaceLayers` (one
+  undo step); there is no separate `FilterCommand`.
+- **Timing:** Gaussian radius 50 on 24 MP takes 1.2 s on a 4-core i7-1185G7, above NFR-PERF-05's 1 s.
+  The GPU path is slice 5c.
+
 ### 5.6 Transforms & resampling
 
 - Free transform: a live preview as a textured quad with an affine (later projective) matrix. On commit,

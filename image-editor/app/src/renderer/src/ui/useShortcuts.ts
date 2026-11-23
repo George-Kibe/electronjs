@@ -78,6 +78,8 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
               ? editor.invertLayerMask()
               : editor.applyAdjustmentNow({ kind: 'invert' }),
           );
+        // Filter › Last Filter (Ctrl+Alt+F); e.code: Alt changes e.key on macOS.
+        if (mod && e.altKey && !e.shiftKey && e.code === 'KeyF') return run(() => editor.repeatLastFilter());
         // Image › Auto Tone / Auto Contrast / Auto Color (FR-ADJ-02); e.code: Alt changes e.key on macOS.
         if (mod && e.shiftKey && !e.altKey && key === 'l') return run(() => void editor.autoAdjust('tone'));
         if (mod && e.shiftKey && e.altKey && e.code === 'KeyL')

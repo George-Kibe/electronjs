@@ -50,6 +50,9 @@ All notable changes to ImageEditor are documented here. The format follows
 - Histogram panel (Window › Histogram, shown in the Photography workspace): the image's or the layer's
   RGB, luminosity or single-channel histogram, with mean, standard deviation, median and pixel count.
   Levels shows the histogram too, and its Auto button sets the levels for you.
+- Filter menu: Gaussian Blur, Box Blur, Sharpen and Unsharp Mask. The dialog shows the result on the
+  canvas as you change it, and OK applies it to the layer, or only to the selection (soft edges blend).
+  Filter › Last Filter (Ctrl+Alt+F) repeats the last one.
 - Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
   pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
   edge is visible again.

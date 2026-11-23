@@ -265,6 +265,21 @@ export function menuTemplate(
       ],
     },
     {
+      label: 'Filter',
+      submenu: [
+        cmd('Last Filter', 'filter.last', 'CmdOrCtrl+Alt+F'),
+        { type: 'separator' },
+        {
+          label: 'Blur',
+          submenu: [cmd('Gaussian Blur…', 'filter.gaussian-blur'), cmd('Box Blur…', 'filter.box-blur')],
+        },
+        {
+          label: 'Sharpen',
+          submenu: [cmd('Sharpen', 'filter.sharpen'), cmd('Unsharp Mask…', 'filter.unsharp-mask')],
+        },
+      ],
+    },
+    {
       label: 'View',
       submenu: [
         cmd('Zoom In', 'view.zoomIn', 'CmdOrCtrl+='),
