@@ -11,7 +11,7 @@ import {
   type Tile,
   type TileKey,
 } from '../tiles/tile';
-import type { Command, DirtySet } from './commands';
+import type { Command, DirtySet, TileHolder } from './commands';
 import { walkLayers, type Document, type Layer, type RasterLayer } from './document';
 
 /**
@@ -71,6 +71,24 @@ export function moveBlocker(doc: Document, id: string): string | null {
 
 type Pixels = ReadonlyMap<string, readonly [TileKey, Tile][]>;
 
+/** A layer's [key, tile] list as a TileHolder (history swaps its tiles in place, FR-HIS-03). */
+function entryHolder(list: readonly [TileKey, Tile][]): TileHolder {
+  const entries = list as [TileKey, Tile][];
+  let index: Map<TileKey, number> | null = null;
+  const at = (key: TileKey) => (index ??= new Map(entries.map(([k], i) => [k, i]))).get(key);
+  return {
+    entries: () => entries,
+    get: (key) => {
+      const i = at(key);
+      return i === undefined ? undefined : entries[i]![1];
+    },
+    set: (key, tile) => {
+      const i = at(key);
+      if (i !== undefined && tile) entries[i] = [key, tile];
+    },
+  };
+}
+
 /** Replaces the pixels of one or more raster layers (a move). Coalesces consecutive nudges (docs/02 §6). */
 export class TranslateCommand implements Command {
   constructor(
@@ -105,6 +123,10 @@ export class TranslateCommand implements Command {
       for (const [, t] of entries) if (!shared.has(t.id)) n += TILE_BYTES;
     }
     return n;
+  }
+
+  tileHolders(): Iterable<TileHolder> {
+    return [this.before, this.after].flatMap((pixels) => [...pixels.values()].map(entryHolder));
   }
 
   /** The editor coalesces arrow-key nudges of the same layers: one undo step, exact before and after. */

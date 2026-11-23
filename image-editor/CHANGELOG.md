@@ -61,6 +61,8 @@ All notable changes to ImageEditor are documented here. The format follows
 - View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
   the whole image with the part in view outlined; click or drag in it to move around, and use its slider
   to zoom.
+- Long history on big images: steps beyond the memory budget (Preferences › Performance) are kept on disk
+  instead of being dropped, and undo brings them back. The status bar shows how much history is on disk.
 - All 18 blend modes in the Layers panel: Dissolve, Color Burn, Color Dodge, Linear Dodge (Add),
   Exclusion, Hue, Saturation, Color and Luminosity join the nine from before. Dissolve's speckle stays in
   place while you pan, zoom or paint.

@@ -44,7 +44,7 @@ function ZoomField({ zoom, onZoom }: { zoom: number; onZoom: (z: number) => void
  */
 export function StatusBar({ snap, onZoom }: { snap: EditorSnapshot; onZoom: (z: number) => void }) {
   const doc = snap.doc!;
-  const { usedBytes, budgetBytes } = snap.memory;
+  const { usedBytes, budgetBytes, diskBytes } = snap.memory;
   const high = usedBytes >= budgetBytes * 0.8;
   return (
     <>
@@ -71,21 +71,26 @@ export function StatusBar({ snap, onZoom }: { snap: EditorSnapshot; onZoom: (z: 
         title={
           high
             ? 'Memory is nearly full. Fewer history steps (Preferences) or a Flatten frees memory.'
-            : 'Pixels held by the document, snapshots and history'
+            : 'Pixels held by the document, snapshots and history. Older history beyond the budget is kept on disk.'
         }
       >
         Mem {formatBytes(usedBytes)} / {formatBytes(budgetBytes)}
+        {diskBytes > 0 && ` · ${diskBytes < 1024 ** 2 ? '< 1 MB' : formatBytes(diskBytes)} history on disk`}
       </span>
       {snap.job && (
         <span
           role="progressbar"
           aria-label={snap.job.label}
-          aria-valuenow={Math.round(snap.job.progress * 100)}
+          aria-valuenow={snap.job.progress === null ? undefined : Math.round(snap.job.progress * 100)}
           className="flex items-center gap-1.5"
         >
           {snap.job.label}…
           <span className="bg-ui-raised h-1.5 w-24 overflow-hidden rounded">
-            <span className="bg-brand block h-full" style={{ width: `${snap.job.progress * 100}%` }} />
+            {snap.job.progress === null ? (
+              <span className="bg-brand block h-full w-full animate-pulse" />
+            ) : (
+              <span className="bg-brand block h-full" style={{ width: `${snap.job.progress * 100}%` }} />
+            )}
           </span>
         </span>
       )}

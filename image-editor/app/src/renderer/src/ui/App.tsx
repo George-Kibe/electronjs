@@ -12,6 +12,7 @@ import { Editor, isPaintTool, type EditorSnapshot, type EditorState, type Tool }
 import { api, errorMessage, events } from '../lib/api';
 import { readProject } from '../lib/files';
 import { runOps, warmUpOps } from '../lib/ops';
+import { OpfsSpillStore } from '../lib/scratch';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { transformCursor } from '../engine/tools/transform';
 import { ADJUSTMENT_KINDS, type AdjustmentKind } from '../engine/ops/adjust';
@@ -71,6 +72,9 @@ const CURSORS: Partial<Record<Tool, string>> = {
   eyedropper: 'cursor-crosshair',
 };
 
+/** One history scratch file per window, shared by its documents and by an Editor rebuilt after a GPU reset. */
+const scratchStore = new OpfsSpillStore();
+
 export function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
@@ -93,7 +97,14 @@ export function App() {
   }>({ version: '0.0.0', autosaveSecondsOverride: null, crashReportsAvailable: false });
   // Filter workers start while the page is idle, so the first filter does not wait for them (NFR-PERF-05).
   useEffect(() => {
-    const id = window.requestIdleCallback?.(() => warmUpOps(), { timeout: 5000 });
+    // The scratch worker also clears history files left by a crashed session (ADR-0005).
+    const id = window.requestIdleCallback?.(
+      () => {
+        warmUpOps();
+        scratchStore.open().catch((err: unknown) => console.warn('[scratch]', err));
+      },
+      { timeout: 5000 },
+    );
     return () => {
       if (id !== undefined) window.cancelIdleCallback?.(id);
     };
@@ -119,6 +130,7 @@ export function App() {
       const instance: Editor = new Editor(canvas, {
         onNotice: setEngineNotice,
         runOps,
+        spillStore: scratchStore,
         onUnrecoverableContextLoss: () => {
           carryOver.current = instance.exportState();
           setCanvasKey((k) => k + 1);

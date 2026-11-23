@@ -93,6 +93,29 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
   manager compresses (fflate level 1) the least-recently-used **history-only** tiles and writes them to an
   OPFS scratch file through the scratch worker (`createSyncAccessHandle`). Only a handle stays in memory.
   Undo reloads them transparently (async, with a spinner if it takes more than 100 ms).
+  *As built (M2 slice 8):* `engine/history/spill.ts`, `history.ts`, `scratch-file.ts`, the scratch worker
+  (`workers/scratch.worker.ts`) and its client (`lib/scratch.ts`). Each command lists its **tile holders**
+  (its own tile maps, and the grids of the layers it can put back). Over the budget, History spills the
+  oldest entries first, never the newest (it may still coalesce). For each one it writes the tiles of the
+  holders that are not grids of the live document to the store. Once a batch is written, it swaps them
+  synchronously for placeholders (`SpilledTile`, whose `data` throws), re-checking that the grid is still
+  not live and the entry unchanged. Tiles are never mutated, so anything else holding one keeps it. A
+  placeholder keeps a weak reference to its tile: if the tile is still alive, undo gets the same object
+  back without reading the disk. Undo, redo and goTo first scan the commands they will run; if they hold
+  placeholders, history reads those back (`loading`; the editor waits, and the status bar says so after
+  100 ms). The last scan and the apply happen in one synchronous step, and spills do not swap while a
+  restore runs. A tile is written once however many entries hold it, and its record is freed when no
+  placeholder for it is left (FinalizationRegistry).
+  The scratch file is one per window in OPFS (`history-scratch/<uuid>.bin`). It has fixed 256 KB slots,
+  reused when freed, with each tile deflated (fflate level 1) or stored raw if that is smaller, and a hash
+  checked on every read. The worker's sync access handle locks the file, so another window's start-up
+  clean-up, which removes files left by crashed sessions, leaves it alone. The record ids come from the
+  client and never repeat. Failures never touch the document. If a write fails (disk full, no OPFS),
+  history says so once and drops the oldest steps instead, as without a disk. If a read fails, the undo
+  does nothing and the steps it can no longer reach are removed, with a notice. Steps without tiles
+  (property changes, selections) cannot spill. If they alone exceed the budget, the oldest steps are
+  dropped, spilled ones only as far as needed to reach them. A finished spill refreshes the panels
+  without changing the document version, so a job running meanwhile keeps its result.
 - Masks and selection use 1-byte tiles.
 
 ## 5. GPU pipeline (WebGL2)

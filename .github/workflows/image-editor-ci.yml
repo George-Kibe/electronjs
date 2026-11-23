@@ -49,7 +49,7 @@ jobs:
         run: pnpm test:coverage
       - name: Install Chromium for GPU conformance tests
         run: pnpm exec playwright install chromium
-      - name: GPU conformance (shaders vs CPU reference, headless Chromium WebGL2)
+      - name: GPU conformance and browser APIs (shaders vs CPU reference, OPFS scratch file; headless Chromium)
         run: pnpm test:gpu
       - name: Golden images (blend modes, adjustments, filters vs the baselines in test/golden)
         run: pnpm test:golden

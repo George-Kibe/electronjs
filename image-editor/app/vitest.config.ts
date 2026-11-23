@@ -19,7 +19,7 @@ export default defineConfig({
           // Coverage instrumentation (the CI check runs it) slows the large-image tests several times over.
           testTimeout: 30_000,
           include: ['src/**/*.test.ts'],
-          exclude: ['src/**/*.gpu.test.ts'],
+          exclude: ['src/**/*.gpu.test.ts', 'src/**/*.browser.test.ts'],
         },
       },
       {
@@ -35,9 +35,12 @@ export default defineConfig({
       },
       {
         resolve: { alias },
+        // Pre-bundled, so a cold cache does not reload the page mid-run (the scratch worker imports it).
+        optimizeDeps: { include: ['fflate'] },
         test: {
+          // Headless Chromium: WebGL2 conformance, and browser APIs such as OPFS (`*.browser.test.ts`).
           name: 'gpu',
-          include: ['src/**/*.gpu.test.ts'],
+          include: ['src/**/*.gpu.test.ts', 'src/**/*.browser.test.ts'],
           browser: {
             enabled: true,
             headless: true,

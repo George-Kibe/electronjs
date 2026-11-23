@@ -1,5 +1,5 @@
 import type { Tile, TileKey } from '../tiles/tile';
-import { TILE_BYTES } from '../tiles/tile';
+import { TILE_BYTES, TileGrid } from '../tiles/tile';
 import { createRasterLayer, type Document, type Layer, type LayerMask, type LayerProps } from './document';
 import type { Mask } from './selection';
 import { ADJUSTMENT_LABELS, type Adjustment } from '../ops/adjust';
@@ -15,6 +15,30 @@ export interface Command {
   sizeBytes(): number;
   /** Coalescing (e.g. opacity slider drags) — return the merged command or null. */
   mergeWith?(next: Command): Command | null;
+  /**
+   * Everything holding tile references that this entry may be the only one keeping (FR-HIS-03): its own
+   * tile maps, and the grids of layers it can put back. History spills their tiles to disk and restores
+   * them before do/undo; holders that belong to the live document are never touched.
+   */
+  tileHolders?(): Iterable<TileHolder>;
+}
+
+/** A keyed set of tile references that history may swap for spilled placeholders and back. */
+export interface TileHolder {
+  entries(): Iterable<[TileKey, Tile | undefined]>;
+  get(key: TileKey): Tile | undefined;
+  set(key: TileKey, tile: Tile | undefined): void;
+}
+
+/** The pixel and mask grids of a layer tree (groups walked). */
+export function* layerGrids(layers: readonly Layer[]): Generator<TileGrid> {
+  for (const l of layers) {
+    if (l.type === 'group') yield* layerGrids(l.children);
+    else {
+      if (l.type === 'raster') yield l.tiles;
+      if (l.mask) yield l.mask.grid;
+    }
+  }
 }
 
 /**
@@ -22,14 +46,25 @@ export interface Command {
  * brush/eraser/fill undo (ADR-0005).
  */
 export class PaintTilesCommand implements Command {
+  /** Own copies: history may swap their tiles for spilled placeholders (FR-HIS-03). */
+  private readonly before: Map<TileKey, Tile | undefined>;
+  private readonly after: Map<TileKey, Tile | undefined>;
+
   constructor(
     readonly label: string,
     private readonly layerId: string,
-    private readonly before: ReadonlyMap<TileKey, Tile | undefined>,
-    private readonly after: ReadonlyMap<TileKey, Tile | undefined>,
+    before: ReadonlyMap<TileKey, Tile | undefined>,
+    after: ReadonlyMap<TileKey, Tile | undefined>,
     /** 'mask': the layer mask's tiles (FR-LAY-04). */
     private readonly target: 'pixels' | 'mask' = 'pixels',
-  ) {}
+  ) {
+    this.before = new Map(before);
+    this.after = new Map(after);
+  }
+
+  tileHolders(): Iterable<TileHolder> {
+    return [this.before, this.after];
+  }
 
   private apply(doc: Document, tiles: ReadonlyMap<TileKey, Tile | undefined>): DirtySet {
     const grid =
@@ -91,6 +126,10 @@ export class AddLayerCommand implements Command {
   sizeBytes(): number {
     return 256 + tileBytes([this.layer]);
   }
+
+  tileHolders(): Iterable<TileHolder> {
+    return layerGrids([this.layer]);
+  }
 }
 
 export class DeleteLayerCommand implements Command {
@@ -122,6 +161,10 @@ export class DeleteLayerCommand implements Command {
 
   sizeBytes(): number {
     return this.layer ? tileBytes([this.layer]) : 0;
+  }
+
+  tileHolders(): Iterable<TileHolder> {
+    return this.layer ? layerGrids([this.layer]) : [];
   }
 }
 
@@ -378,6 +421,11 @@ export class TreeCommand implements Command {
   sizeBytes(): number {
     return 512 + (this.after?.newTileBytes ?? 0);
   }
+
+  *tileHolders(): Iterable<TileHolder> {
+    if (this.before) yield* layerGrids(this.before.root);
+    if (this.after) yield* layerGrids(this.after.root);
+  }
 }
 
 /**
@@ -436,18 +484,32 @@ export class SetLayerMaskCommand implements Command {
   sizeBytes(): number {
     return 128 + (this.after ? this.after.grid.size * TILE_BYTES : 0);
   }
+
+  tileHolders(): Iterable<TileHolder> {
+    return [this.before, this.after].flatMap((m) => (m ? [m.grid] : []));
+  }
 }
 
 /** Layer › Layer Mask › Apply: the pixels with the mask baked into their alpha, and no mask (one step). */
 export class ApplyLayerMaskCommand implements Command {
   readonly label = 'Apply Layer Mask';
 
+  private readonly before: Map<TileKey, Tile | undefined>;
+  private readonly after: Map<TileKey, Tile | undefined>;
+
   constructor(
     private readonly layerId: string,
     private readonly mask: LayerMask,
-    private readonly before: ReadonlyMap<TileKey, Tile | undefined>,
-    private readonly after: ReadonlyMap<TileKey, Tile | undefined>,
-  ) {}
+    before: ReadonlyMap<TileKey, Tile | undefined>,
+    after: ReadonlyMap<TileKey, Tile | undefined>,
+  ) {
+    this.before = new Map(before);
+    this.after = new Map(after);
+  }
+
+  tileHolders(): Iterable<TileHolder> {
+    return [this.before, this.after, this.mask.grid];
+  }
 
   private apply(
     doc: Document,
