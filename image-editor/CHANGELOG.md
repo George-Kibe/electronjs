@@ -58,6 +58,9 @@ All notable changes to ImageEditor are documented here. The format follows
   the Move tool, or drag it off the canvas to remove it. Right-click a ruler to switch between pixels,
   inches, centimetres and percent. With View › Snap (Ctrl+Shift+;), layers, selections and guides line
   up with guides, the canvas edges and centre, and other layers' edges.
+- View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
+  the whole image with the part in view outlined; click or drag in it to move around, and use its slider
+  to zoom.
 - Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
   pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
   edge is visible again.

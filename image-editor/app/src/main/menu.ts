@@ -304,6 +304,7 @@ export function menuTemplate(
         cmd('Pixel Grid', 'view.pixelGrid'),
         { type: 'separator' },
         cmd('Rulers', 'view.rulers', 'CmdOrCtrl+R'),
+        cmd('Grid', 'view.grid', "CmdOrCtrl+'"),
         cmd('Guides', 'view.guides', 'CmdOrCtrl+;'),
         cmd('Snap', 'view.snap', 'CmdOrCtrl+Shift+;'),
         cmd('Lock Guides', 'view.lockGuides', 'CmdOrCtrl+Alt+;'),
@@ -322,6 +323,7 @@ export function menuTemplate(
         cmd('History', 'window.history'),
         cmd('Properties', 'window.properties'),
         cmd('Histogram', 'window.histogram'),
+        cmd('Navigator', 'window.navigator'),
         { type: 'separator' },
         {
           label: 'Workspace',

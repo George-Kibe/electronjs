@@ -329,7 +329,7 @@ export type EditorSnapshot = {
   /** Filter › Last Filter (Ctrl+Alt+F) has something to repeat. */
   canRepeatFilter: boolean;
   /** View › Rulers / Guides / Lock Guides / Snap (FR-NAV-04). */
-  view: { rulers: boolean; guides: boolean; guidesLocked: boolean; snap: boolean };
+  view: { rulers: boolean; guides: boolean; guidesLocked: boolean; snap: boolean; grid: boolean };
   /** Guides, document px (FR-NAV-04). */
   guides: { horizontal: number[]; vertical: number[] };
   /** A guide being dragged (a new one, or a moved one), document px. */
@@ -557,7 +557,9 @@ export class Editor {
   /** Filter › Last Filter (Ctrl+Alt+F) repeats this. */
   private lastFilter: Filter | null = null;
   /** View › Rulers, Guides, Lock Guides, Snap (FR-NAV-04); view state, not undo steps. */
-  private viewFlags = { rulers: false, guides: true, guidesLocked: false, snap: true };
+  private viewFlags = { rulers: false, guides: true, guidesLocked: false, snap: true, grid: false };
+  /** The grid's spacing and subdivisions (px), from the preferences; snapping uses its lines when shown. */
+  private grid = { spacing: 100, subdivisions: 4 };
   /**
    * A guide being dragged: a new one from a ruler (index null) or an existing one with the Move tool. The
    * position is in document px, snapped; NaN while the pointer is still over the ruler.
@@ -1964,9 +1966,40 @@ export class Editor {
   // ---- rulers, guides and snapping (FR-NAV-04) -----------------------------------------------------
 
   /** View › Rulers (Ctrl+R), Guides (Ctrl+;), Lock Guides (Ctrl+Alt+;), Snap (Ctrl+Shift+;). */
-  toggleView(flag: 'rulers' | 'guides' | 'guidesLocked' | 'snap'): void {
+  toggleView(flag: 'rulers' | 'guides' | 'guidesLocked' | 'snap' | 'grid'): void {
     this.viewFlags = { ...this.viewFlags, [flag]: !this.viewFlags[flag] };
     this.changed();
+  }
+
+  /** Preferences › grid spacing and subdivisions. */
+  setGrid(spacing: number, subdivisions: number): void {
+    this.grid = { spacing: Math.max(2, spacing), subdivisions: Math.max(1, subdivisions) };
+  }
+
+  /** What drags snap to: guides, canvas, layer edges, and the grid's lines when it is shown. */
+  private snapTargetsFor(exclude?: ReadonlySet<string>): SnapTargets {
+    const doc = this.doc!;
+    const t = snapTargets(doc, exclude);
+    if (!this.viewFlags.grid) return t;
+    const step = this.grid.spacing / this.grid.subdivisions;
+    for (let x = step; x < doc.width; x += step) t.x.push(Math.round(x));
+    for (let y = step; y < doc.height; y += step) t.y.push(Math.round(y));
+    return t;
+  }
+
+  /**
+   * The composite as a small image (the Navigator, FR-NAV-05), cached until the document changes.
+   */
+  documentThumbnail(maxSide: number): { width: number; height: number; rgba: Uint8ClampedArray } | null {
+    const doc = this.doc;
+    if (!doc) return null;
+    const key = `doc|${this.docId}|${this.version}|${maxSide}`;
+    const cached = this.thumbs.get(key);
+    if (cached) return cached;
+    const thumb = flattenPreview(liveLayers(doc.layers), doc.width, doc.height, maxSide);
+    if (this.thumbs.size > 500) this.thumbs.clear();
+    this.thumbs.set(key, thumb);
+    return thumb;
   }
 
   private setGuides(label: string, guides: { horizontal: number[]; vertical: number[] }): void {
@@ -2003,7 +2036,7 @@ export class Editor {
   private guideSnapTargets(): SnapTargets | null {
     const doc = this.doc;
     if (!doc || !this.viewFlags.snap) return null;
-    const t = snapTargets(doc);
+    const t = this.snapTargetsFor();
     const g = doc.meta.guides;
     return {
       x: t.x.filter((x) => !g.vertical.includes(x)),
@@ -2752,7 +2785,7 @@ export class Editor {
     const altFree = d.altFree || !e.altKey;
     // The dragged corner snaps to guides, the canvas and layer edges (FR-NAV-04).
     if (this.viewFlags.snap && this.doc) {
-      const targets = snapTargets(this.doc);
+      const targets = this.snapTargetsFor();
       const t = SNAP_PX / this.viewport.zoom;
       p.x += snapOffset([p.x], targets.x, t).offset;
       p.y += snapOffset([p.y], targets.y, t).offset;
@@ -3318,7 +3351,7 @@ export class Editor {
     const rasterIds = new Set(ids.flatMap((x) => movedRasters(doc, x).map((l) => l.id)));
     const moved = contentBounds(ids.flatMap((x) => movedRasters(doc, x).map((l) => l.tiles)));
     this.moveSnap =
-      this.viewFlags.snap && moved ? { bounds: moved, targets: snapTargets(doc, rasterIds) } : null;
+      this.viewFlags.snap && moved ? { bounds: moved, targets: this.snapTargetsFor(rasterIds) } : null;
     this.moving = {
       layerId: id,
       layerIds: ids,

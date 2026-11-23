@@ -13,13 +13,14 @@ export const PANEL_TITLES: Record<PanelId, string> = {
   properties: 'Properties',
   swatches: 'Swatches',
   histogram: 'Histogram',
+  navigator: 'Navigator',
   history: 'History',
 };
 
 /**
- * Presets. Essentials keeps everything at hand (Histogram is in Window); Photography puts the Histogram on
- * top, gives Properties, Layers and History the room and starts with Swatches collapsed. (Its Navigator
- * panel arrives with that feature, M2.)
+ * Presets. Essentials keeps everything at hand (Histogram and Navigator are in Window); Photography puts
+ * the Navigator and Histogram on top, gives Properties, Layers and History the room and starts with
+ * Swatches collapsed.
  */
 export const PRESETS: Record<Preset, PanelState[]> = {
   essentials: [
@@ -28,9 +29,11 @@ export const PRESETS: Record<Preset, PanelState[]> = {
     { id: 'swatches', visible: true, open: true, size: 0.6 },
     { id: 'history', visible: true, open: true, size: 1 },
     { id: 'histogram', visible: false, open: true, size: 1 },
+    { id: 'navigator', visible: false, open: true, size: 1 },
   ],
   photography: [
-    { id: 'histogram', visible: true, open: true, size: 1 },
+    { id: 'navigator', visible: true, open: true, size: 1.8 },
+    { id: 'histogram', visible: true, open: true, size: 1.2 },
     { id: 'layers', visible: true, open: true, size: 3 },
     { id: 'properties', visible: true, open: true, size: 1.5 },
     { id: 'history', visible: true, open: true, size: 1.5 },

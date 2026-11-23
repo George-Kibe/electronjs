@@ -27,6 +27,8 @@ import {
   TrimDialog,
 } from './components/ImageDialogs';
 import { GuidesOverlay } from './components/GuidesOverlay';
+import { GridOverlay } from './components/GridOverlay';
+import { NavigatorPanel } from './components/NavigatorPanel';
 import { Rulers } from './components/Rulers';
 import { ExportDialog } from './components/ExportDialog';
 import { HistoryPanel } from './components/HistoryPanel';
@@ -148,6 +150,9 @@ export function App() {
   }, [engineNotice]);
 
   const prefs = useSettings(editor, totalMemoryBytes);
+  // The grid's spacing comes from the preferences; snapping uses it too.
+  const { gridSpacing, gridSubdivisions } = prefs.settings.general;
+  useEffect(() => editor?.setGrid(gridSpacing, gridSubdivisions), [editor, gridSpacing, gridSubdivisions]);
   const updates = useUpdates();
   const autosaveMs =
     appInfo.autosaveSecondsOverride !== null
@@ -241,6 +246,8 @@ export function App() {
           'window.properties': () => setWorkspace(toggleVisible(workspace, 'properties')),
           'window.histogram': () => setWorkspace(toggleVisible(workspace, 'histogram')),
           'view.rulers': () => editor?.toggleView('rulers'),
+          'view.grid': () => editor?.toggleView('grid'),
+          'window.navigator': () => setWorkspace(toggleVisible(workspace, 'navigator')),
           'view.guides': () => editor?.toggleView('guides'),
           'view.snap': () => editor?.toggleView('snap'),
           'view.lockGuides': () => editor?.toggleView('guidesLocked'),
@@ -494,6 +501,14 @@ export function App() {
             {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
             {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
             {snap?.transform && editor && <TransformOverlay transform={snap.transform} editor={editor} />}
+            {snap?.doc && editor && snap.view.grid && (
+              <GridOverlay
+                editor={editor}
+                doc={snap.doc}
+                spacing={prefs.settings.general.gridSpacing}
+                subdivisions={prefs.settings.general.gridSubdivisions}
+              />
+            )}
             {snap?.doc && editor && (
               <GuidesOverlay
                 editor={editor}
@@ -546,6 +561,7 @@ export function App() {
               layers: { content: editor && <LayersPanel editor={editor} snap={snap} /> },
               properties: { content: editor && <PropertiesPanel editor={editor} snap={snap} /> },
               histogram: { content: editor && <HistogramPanel editor={editor} snap={snap} /> },
+              navigator: { content: editor && <NavigatorPanel editor={editor} snap={snap} /> },
               swatches: {
                 content: (
                   <SwatchesPanel

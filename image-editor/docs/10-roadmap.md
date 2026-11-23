@@ -260,7 +260,7 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
   - [ ] 5c NFR-PERF-05 under 1 s: a GPU path for the separable blurs (docs/02 §5.5), with the CPU code as
         its reference
 - [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
-- [ ] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
+- [x] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
   - [x] 7a Rulers, guides and snapping:
         - View › Rulers (Ctrl+R) shows rulers along the top and left, in px, in, cm or % (right-click a
           ruler; saved as a preference).
@@ -270,7 +270,10 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         - View › Snap (Ctrl+Shift+;) makes Move-tool drags (the content's edges and centre), marquee
           corners and guides snap to guides, the canvas edges and centre, and other layers' edges, within
           8 screen px. E2E green on 3 OSes (run 44945203411).
-  - [ ] 7b The grid overlay and the Navigator panel
+  - [x] 7b View › Grid (Ctrl+'): gridlines every 100 px with 4 subdivisions (preferences), and snapping uses
+        them when shown. The Navigator panel (Window › Navigator; on top in Photography, FR-NAV-05) shows
+        the image with the part in view outlined; click or drag in it to move the view, and its slider
+        zooms. The thumbnail fits the panel's size. E2E green on 3 OSes (run 45138641802).
 - [ ] Slice 8 — history beyond the RAM budget spills to OPFS (FR-HIS-03, T-HIS-02)
 
 ## M3 — Text, shapes, painting extras, PSD

@@ -79,6 +79,6 @@ test(`[${target}] workspace: collapse, reorder, resize and hide panels; presets;
   expect(await order(win)).toEqual(['layers', 'properties', 'swatches', 'history']);
   await expect(header(win, 'Swatches')).toHaveAttribute('aria-expanded', 'true');
   await menu(second.app, ['Window', 'Workspace', 'Photography']);
-  expect(await order(win)).toEqual(['histogram', 'layers', 'properties', 'history', 'swatches']);
+  expect(await order(win)).toEqual(['navigator', 'histogram', 'layers', 'properties', 'history', 'swatches']);
   await second.close();
 });
