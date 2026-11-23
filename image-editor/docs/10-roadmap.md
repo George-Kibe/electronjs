@@ -244,23 +244,24 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         measure (change → frame) is recorded by E2E on a 24 MP document. Locally the p95 is 14–22 ms on
         Intel Iris Xe (≥ 45 fps). E2E green on 3 OSes (run 44940099057).
 - [ ] Slice 5 — filters with live preview, respecting the selection (FR-FLT-01), NFR-PERF-05, journey 4
-  - [ ] 5a The filter framework and the blur and sharpen family: Filter › Blur › Gaussian Blur… and Box
+  - [x] 5a The filter framework and the blur and sharpen family: Filter › Blur › Gaussian Blur… and Box
         Blur…, Filter › Sharpen › Sharpen and Unsharp Mask…, and Filter › Last Filter (Ctrl+Alt+F). A dialog
         previews on the tiles in view (Preview toggles it), and OK applies to the active layer, within the
         selection by its coverage, as one undo step. Canvas edges repeat, blurs work in premultiplied alpha,
         and transparency lock keeps alpha. Journey 4 (marquee → feather → Gaussian blur inside the
         selection) is E2E-tested. NFR-PERF-05 is measured by E2E: Gaussian r = 50 on 24 MP takes 1.2 s on a
         4-core laptop, on the CPU (worker pool). That is not yet under 1 s; see 5c.
-  - [ ] 5b The rest of FR-FLT-01: Filter › Blur › Motion Blur…, Noise › Add Noise… (uniform or Gaussian,
+        E2E green on 3 OSes (run 44944116530).
+  - [x] 5b The rest of FR-FLT-01: Filter › Blur › Motion Blur…, Noise › Add Noise… (uniform or Gaussian,
         monochromatic; deterministic, so the preview is the result) and Reduce Noise… (a median, by Huang's
         sliding histogram), Pixelate › Mosaic… (canvas-aligned cells), Stylize › Emboss… and Find Edges
         (Sobel), and Render › Vignette…. They share 5a's dialog, preview, selection and worker pool, through a
-        window-per-tile driver (`ops/window-filters.ts`).
+        window-per-tile driver (`ops/window-filters.ts`). E2E green on 3 OSes (run 44944120863).
   - [ ] 5c NFR-PERF-05 under 1 s: a GPU path for the separable blurs (docs/02 §5.5), with the CPU code as
         its reference
 - [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
 - [ ] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
-  - [ ] 7a Rulers, guides and snapping:
+  - [x] 7a Rulers, guides and snapping:
         - View › Rulers (Ctrl+R) shows rulers along the top and left, in px, in, cm or % (right-click a
           ruler; saved as a preference).
         - Drag out of a ruler to make a guide. The Move tool drags a guide, and dropping it off the canvas
@@ -268,7 +269,7 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
           Lock Guides (Ctrl+Alt+;).
         - View › Snap (Ctrl+Shift+;) makes Move-tool drags (the content's edges and centre), marquee
           corners and guides snap to guides, the canvas edges and centre, and other layers' edges, within
-          8 screen px.
+          8 screen px. E2E green on 3 OSes (run 44945203411).
   - [ ] 7b View › Grid (Ctrl+'): gridlines every 100 px with 4 subdivisions (preferences), and snapping uses
         them when shown. The Navigator panel (Window › Navigator; on top in Photography, FR-NAV-05) shows
         the image with the part in view outlined; click or drag in it to move the view, and its slider
