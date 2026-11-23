@@ -257,11 +257,13 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         sliding histogram), Pixelate › Mosaic… (canvas-aligned cells), Stylize › Emboss… and Find Edges
         (Sobel), and Render › Vignette…. They share 5a's dialog, preview, selection and worker pool, through a
         window-per-tile driver (`ops/window-filters.ts`). E2E green on 3 OSes (run 44944120863).
-  - [ ] 5c NFR-PERF-05: the CPU path made faster instead of a GPU path. The vertical box stages slide in one
+  - [x] 5c NFR-PERF-05: the CPU path made faster instead of a GPU path. The vertical box stages slide in one
         pass, rows are no longer copied back after blurring, and the pool's bands travel as one transferred
         buffer each instead of cloned tiles. Gaussian r = 50 on 24 MP now takes 1.0 s (0.99–1.05 s) on the
-        4-core laptop, the slowest machine of the matrix, down from 1.2 s. A GPU path (docs/02 §5.5) stays
-        open if the matrix needs it.
+        4-core development laptop (Intel Iris Xe class, like the slowest machine of the matrix), down from
+        1.2 s. CI's shared runners take 1.2–1.3 s (macOS, 3 threads), 1.5–1.6 s (Ubuntu) and 2.3 s (Windows);
+        they are not the budget's hardware (docs/07 §6). E2E green on 3 OSes (run 45140037930). Slice 5
+        stays open until the release matrix confirms NFR-PERF-05; a GPU path (docs/02 §5.5) is the fallback.
 - [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
 - [x] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
   - [x] 7a Rulers, guides and snapping:
