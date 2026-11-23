@@ -25,6 +25,17 @@ export default defineConfig({
       {
         resolve: { alias },
         test: {
+          // Golden images (docs/07 §2): `pnpm test:golden --update` rewrites the baselines after a reviewed change.
+          name: 'golden',
+          environment: 'node',
+          testTimeout: 60_000,
+          include: ['test/golden/**/*.test.ts'],
+          env: { GOLDEN_UPDATE: process.argv.includes('--update') || process.argv.includes('-u') ? '1' : '' },
+        },
+      },
+      {
+        resolve: { alias },
+        test: {
           name: 'gpu',
           include: ['src/**/*.gpu.test.ts'],
           browser: {

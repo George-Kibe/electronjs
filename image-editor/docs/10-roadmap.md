@@ -264,7 +264,17 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         1.2 s. CI's shared runners take 1.2–1.3 s (macOS, 3 threads), 1.5–1.6 s (Ubuntu) and 2.3 s (Windows);
         they are not the budget's hardware (docs/07 §6). E2E green on 3 OSes (run 45140037930). Slice 5
         stays open until the release matrix confirms NFR-PERF-05; a GPU path (docs/02 §5.5) is the fallback.
-- [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
+- [x] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
+  - As built: Dissolve, Color Burn, Color Dodge, Linear Dodge (Add), Exclusion, Hue, Saturation, Color and
+        Luminosity in `blend.glsl` and `blend.ts` (W3C Compositing §10.2/§10.3), for raster layers, groups
+        and adjustment layers, through masks and clipping. Dissolve's threshold is a hash of the document
+        pixel, so the speckle stays put and the CPU and GPU agree exactly. T-BLD-01 covers all 18 modes ×
+        opacity {0.3, 1} and a mask; five modes that amplify 8-bit rounding (Dissolve, Color Burn and Dodge,
+        Hue, Saturation) are held to p99 instead of the maximum (docs/07 §3). The golden set
+        (`pnpm test:golden`): three contact sheets rendered by the CPU reference (blend modes × opacity ×
+        mask, 12 adjustments and 11 filters at up to 3 settings each), compared within ±2/255 on every OS in
+        CI. Fill acts like Opacity for every mode; Photoshop's different Fill for Color Burn, Color Dodge,
+        Linear Dodge and Difference is a follow-up. E2E and the golden set green on 3 OSes (run 45143486729).
 - [x] Slice 7 — rulers, guides, snapping, grid and the Navigator panel (FR-NAV-04/05)
   - [x] 7a Rulers, guides and snapping:
         - View › Rulers (Ctrl+R) shows rulers along the top and left, in px, in, cm or % (right-click a

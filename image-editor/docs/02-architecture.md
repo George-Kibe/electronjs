@@ -127,6 +127,14 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
      published.
    - Group: pass-through groups composite children directly. Non-pass-through groups render into their own
      buffer, then blend.
+   - *Blend modes (as built, M2 slice 6):* all 18 of FR-LAY-03. The separable ones follow W3C Compositing
+     and Blending §10.2, Linear Dodge is min(1, Cb + Cs), and Hue, Saturation, Color and Luminosity follow
+     §10.3 (SetLum, SetSat, ClipColor). `blend.glsl` and `engine/doc/blend.ts` share one index per mode.
+     Normal and Dissolve need no backdrop copy and use fixed-function GL blending. Dissolve draws a pixel
+     fully (as Normal) when a hash of its document coordinates is below its alpha × opacity × mask, and
+     not at all otherwise, so the pattern is fixed to the canvas and the CPU and GPU agree exactly. Fill
+     multiplies with opacity for every mode; Photoshop treats Fill differently for its "special eight"
+     (of ours: Color Burn, Color Dodge, Linear Dodge, Difference), which is a follow-up.
    - Clipping: a clipped layer uses the base layer's alpha as an extra mask.
 3. The result is drawn to the canvas with the view transform, plus a checkerboard for transparency and overlays.
 4. **Dirty-rect rendering:** commands and tool previews report dirty rectangles, and only those are re-composited.

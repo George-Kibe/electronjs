@@ -11,6 +11,8 @@ uniform sampler2D u_lut;      // 256×1 RGBA8: the red, green and blue tables
 uniform int u_stage;          // adjust.ts STAGE
 uniform vec4 u_p[4];          // adjust.ts PreparedAdjustment.params
 uniform int u_blendMode;
+uniform vec2 u_tileOrigin; // this tile's document position (Dissolve's noise)
+uniform float u_tileSize;
 uniform float u_opacity;      // opacity × fill
 uniform int u_layerMask;      // 0 = none, 1 = a tile in u_layerMaskTile, 2 = the background value
 uniform sampler2D u_layerMaskTile;
@@ -152,6 +154,7 @@ void main() {
   vec3 cb = clamp(b.rgb / b.a, 0.0, 1.0);
   vec3 c = u_hasLut ? vec3(lutAt(cb.r, 0), lutAt(cb.g, 1), lutAt(cb.b, 2)) : cb;
   c = colorStage(c);
-  vec3 blended = vec3(blendChannel(u_blendMode, cb.r, c.r), blendChannel(u_blendMode, cb.g, c.g), blendChannel(u_blendMode, cb.b, c.b));
+  if (u_blendMode == 9) k = dissolveNoise(u_tileOrigin + floor(v_uv * u_tileSize)) < k ? 1.0 : 0.0; // dissolve
+  vec3 blended = blendColor(u_blendMode, cb, c);
   o_color = vec4(mix(cb, blended, k) * b.a, b.a);
 }

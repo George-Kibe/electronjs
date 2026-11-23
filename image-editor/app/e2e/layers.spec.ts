@@ -27,6 +27,15 @@ test(`[${target}] layers: blend modes, groups, duplicate, rename, locks and merg
   await expect.poll(() => canvasPixel(win, cx, cy)).toEqual([255, 255, 255]);
   await blend.selectOption('multiply');
   await expect.poll(() => canvasPixel(win, cx, cy)).toEqual([0, 0, 0]);
+  // Two of the M2 modes: Luminosity takes black's luminosity; Linear Dodge adds black, which changes nothing.
+  await blend.selectOption('luminosity');
+  await expect.poll(() => canvasPixel(win, cx, cy)).toEqual([0, 0, 0]);
+  await blend.selectOption('linear-dodge');
+  await expect.poll(() => canvasPixel(win, cx, cy)).toEqual([255, 255, 255]);
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect(blend).toHaveValue('luminosity');
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect(blend).toHaveValue('multiply');
   await win.keyboard.press('ControlOrMeta+z');
   await expect(blend).toHaveValue('screen');
   await win.keyboard.press('ControlOrMeta+z');

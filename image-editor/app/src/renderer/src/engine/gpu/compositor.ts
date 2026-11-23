@@ -1,6 +1,6 @@
 import type { BrushSettings } from '../brush/brush';
 import { GRAIN_SIZE, tipGrain, type BrushTip } from '../brush/tips';
-import { blendModeIndex } from '../doc/blend';
+import { blendModeIndex, DISSOLVE } from '../doc/blend';
 import { isNeutral, preparedFor, type Adjustment } from '../ops/adjust';
 import type { Document, Layer } from '../doc/document';
 import type { Mask, MaskTile } from '../doc/selection';
@@ -96,6 +96,8 @@ export class Compositor {
   private readonly gridProgram: Program;
   private readonly quickMaskProgram: Program;
   private readonly adjustProgram: Program;
+  /** Screen px → document px for this frame (Dissolve in group buffers). */
+  private screenToDoc: [number, number, number, number] = [1, 0, -1, 0];
   /** Each adjustment layer's lookup table, re-uploaded when its adjustment object is replaced. */
   private readonly luts = new Map<string, { adjustment: Adjustment; texture: WebGLTexture }>();
   private readonly grains = new Map<BrushTip, WebGLTexture>();
@@ -223,6 +225,14 @@ export class Compositor {
       y1: Math.min(doc.height, r.y1),
     };
     const transform = overlays.transform ?? undefined;
+    // Dissolve in a group buffer needs the document pixel under each screen pixel (GL y points up).
+    const k = 1 / (size.dpr * viewport.zoom);
+    this.screenToDoc = [
+      k,
+      -viewport.panX / viewport.zoom,
+      -k,
+      (size.cssHeight - viewport.panY) / viewport.zoom,
+    ];
     this.drawLayers(doc.layers, main, { docToClip, visible, rect, viewport, size, stroke, move, transform });
 
     // Present: surround, checkerboard under the document, then the composite (premultiplied source-over).
@@ -330,7 +340,7 @@ export class Compositor {
         this.drawLayers(layer.children, buffer, ctx);
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, target.framebuffer);
         const mode = layer.passThrough ? 0 : blendModeIndex(layer.blendMode);
-        const backdrop = mode === 0 ? null : this.backdropOf(target);
+        const backdrop = mode === 0 || mode === DISSOLVE ? null : this.backdropOf(target);
         this.drawBuffer(buffer, layer.opacity, mode, backdrop);
         if (backdrop) this.release(backdrop);
         this.release(buffer);
@@ -347,7 +357,7 @@ export class Compositor {
       if (opacity === 0) continue;
       const mode = blendModeIndex(layer.blendMode);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, target.framebuffer);
-      const backdrop = mode === 0 ? null : this.backdropOf(target);
+      const backdrop = mode === 0 || mode === DISSOLVE ? null : this.backdropOf(target);
       const clip = clipped && base!.type === 'raster' ? base! : null;
       this.drawRaster(
         layer,
@@ -374,7 +384,8 @@ export class Compositor {
     const gl = this.gl;
     const p = this.layerProgram;
     gl.useProgram(p.program);
-    if (mode === 0) {
+    // Dissolve is drawn with Normal's blending; the shader keeps or drops each pixel.
+    if (mode === 0 || mode === DISSOLVE) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     } else {
@@ -607,7 +618,8 @@ export class Compositor {
     const gl = this.gl;
     const p = this.groupProgram;
     gl.useProgram(p.program);
-    if (mode === 0) {
+    // Dissolve is drawn with Normal's blending; the shader keeps or drops each pixel.
+    if (mode === 0 || mode === DISSOLVE) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     } else {
@@ -621,6 +633,7 @@ export class Compositor {
     gl.uniform1i(p.uniform('u_backdrop'), 2);
     gl.uniform1f(p.uniform('u_opacity'), opacity);
     gl.uniform1i(p.uniform('u_blendMode'), mode);
+    gl.uniform4f(p.uniform('u_screenToDoc'), ...this.screenToDoc);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 

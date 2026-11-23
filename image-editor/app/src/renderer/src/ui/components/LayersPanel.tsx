@@ -103,11 +103,6 @@ export function LayersPanel({ editor, snap }: Props) {
                 {BLEND_MODE_LABELS[m]}
               </option>
             ))}
-            {!(IMPLEMENTED_BLEND_MODES as readonly string[]).includes(active.blendMode) && (
-              <option value={active.blendMode}>
-                {BLEND_MODE_LABELS[active.blendMode]} (shown as Normal)
-              </option>
-            )}
           </select>
           {(['opacity', 'fillOpacity'] as const)
             // Fill is kept (disabled) for groups so the panel never shifts under the pointer.

@@ -7,3 +7,4 @@ playwright-report/
 .vitest-attachments/
 *.log
 .vitest/
+test/golden/__diff__/
