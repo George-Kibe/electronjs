@@ -51,6 +51,15 @@ jobs:
         run: pnpm exec playwright install chromium
       - name: GPU conformance (shaders vs CPU reference, headless Chromium WebGL2)
         run: pnpm test:gpu
+      - name: Golden images (blend modes, adjustments, filters vs the baselines in test/golden)
+        run: pnpm test:golden
+      - name: Upload golden-image diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-editor-golden-diff-${{ matrix.os }}
+          path: image-editor/app/test/golden/__diff__/
+          if-no-files-found: ignore
       - run: pnpm build
 
   e2e:

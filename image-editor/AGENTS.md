@@ -27,7 +27,7 @@ image-editor/app/src/
 ## Commands (inside `image-editor/app`)
 
 `pnpm dev` · `pnpm lint` · `pnpm typecheck` · `pnpm format:check` · `pnpm test` · `pnpm test:gpu` · `pnpm test:e2e` · `pnpm pack:dir` · `pnpm dist`
-(golden-image tests and `pnpm bench` arrive in M1/M2.)
+`pnpm test:golden` compares the golden images in `test/golden/` (see docs/07). `pnpm bench` arrives later.
 
 - GPU tests (`*.gpu.test.ts`) run in headless Chromium via Vitest browser mode. The config uses
   `/opt/pw-browsers` Chromium when present, and CI runs `playwright install chromium`.

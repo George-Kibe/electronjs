@@ -23,7 +23,7 @@
 | Unit: engine core | Vitest (node) | TileGrid, TilePool refcounts, commands do/undo, history budget/coalescing, selection math, dab generator, colour math, `.iep` schema | PR |
 | Unit: CPU references | Vitest + fast-check | Blend modes vs the W3C formulas, adjustments, resampling kernels | PR |
 | GPU conformance | Vitest browser mode (Playwright Chromium, SwiftShader) | Each shader vs its CPU reference on random tiles (±1/255 target, ±2 max) | PR |
-| Golden images | Playwright + Electron | Render fixture documents (every blend mode × opacity × mask, every filter/adjustment at 3 parameter sets, text samples) → compare with baselines | PR (core set) · nightly (full) |
+| Golden images | Vitest (node), `pnpm test:golden` | Render fixture documents (every blend mode × opacity × mask, every filter/adjustment at 3 parameter sets, text samples) → compare with baselines. *As built (M2):* rendered by the CPU reference, which the GPU conformance tests tie the shaders to; see §5 | PR (full set, 3 OS) |
 | Import/export | Vitest (node) + codec-host in-process | Decode fixtures (ICC profiles, EXIF orientations 1–8, 16-bit PNG → 8-bit, CMYK JPEG → sRGB), encode round trips, metadata policy | PR |
 | PSD | Vitest | Fixture PSDs (made in Photoshop, GIMP and Photopea) → model assertions + composite ΔE. Export → re-import → equality. | PR |
 | E2E | Playwright `_electron` | User journeys (below) | PR smoke (Linux) · nightly (3 OS) |
@@ -39,7 +39,7 @@
 | T-HIS-02 | Memory budget exceeded → tiles spill to OPFS. Undo past the spill restores pixels exactly. |
 | T-HIS-03 | Slider drag with 60 updates → 1 history entry |
 | T-GPU-01 | Simulated `WEBGL_lose_context` mid-stroke → context restored. Document pixels identical to CPU truth. The stroke is either committed or cleanly cancelled. |
-| T-BLD-01 | All 18 blend modes (Dissolve with a fixed noise seed) × opacity {0.3, 1} × mask on/off match the CPU reference within ±2/255 |
+| T-BLD-01 | All 18 blend modes (Dissolve with a fixed noise seed) × opacity {0.3, 1} × mask on/off match the CPU reference within ±2/255. As built: `gpu.gpu.test.ts` ("T-BLD-01, all 18 modes"). Dissolve's noise is a hash of the document pixel, not a seed. Five modes amplify the GPU's 8-bit premultiplied tiles (a colour at alpha α is known to about ±0.5/α levels) and RGBA16F backdrop: Dissolve (translucent pixels shown at full strength), Color Burn and Color Dodge (divide by Cs or 1 − Cs), Hue and Saturation (stretch near-greys). For them 99 % of samples are within ±2/255 with opaque sources and ±4/255 with translucent ones, and none is more than 16/255 off. The other 13 meet ±2/255 everywhere |
 | T-BRU-01 | Brush stroke with pressure 0→1 produces a size taper. Spacing is consistent at zoom levels 25 %–800 %. |
 | T-SEL-01 | Magic wand tolerance 32 contiguous vs non-contiguous against a fixture with known regions. As built: `engine/ops/wand.test.ts` (exact areas for contiguous, non-contiguous, tolerance 0/32/80, transparent pixels, anti-aliasing) and the wand journey in `e2e/selections.spec.ts` |
 | T-TRF-01 | Rotate 90° × 4 = identity (bit-exact). Free transform scale 50 % then 200 % stays within the bicubic tolerance. |
@@ -92,6 +92,13 @@ that client before quitting. Don't replace it with `firstWindow()` or with retri
 - `test/fixtures/iep/v1/`: golden project files (backward compatibility).
 - `test/golden/`: baseline PNGs, generated **only in CI** (`update-goldens` workflow that opens a PR with
   the diffs attached for visual review).
+  *As built (M2):* the baselines are rendered by the CPU reference (plain TypeScript, the same bits on every
+  OS), not the GPU, so they need no CI runner to generate. `test/golden/golden.test.ts` renders three
+  contact sheets (`blend-modes.png`, `adjustments.png`, `filters.png`) and compares them cell by cell within
+  ±2/255. A failure names the cells and writes `__diff__/<name>.actual.png` and `<name>.diff.png` (red: out
+  of tolerance, amber: changed within it), uploaded as a CI artifact. A missing baseline is written locally
+  and fails in CI. `pnpm test:golden --update` rewrites them, only after the visual change has been
+  reviewed. The `update-goldens` workflow is not needed while the baselines come from the CPU reference.
 
 ## 6. Performance budgets (nightly bench, Linux CI + manual matrix on real GPUs before release)
 

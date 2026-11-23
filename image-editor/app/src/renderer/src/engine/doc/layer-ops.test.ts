@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { History } from '../history/history';
 import { TileGrid } from '../tiles/tile';
-import { blendChannel, blendModeIndex, IMPLEMENTED_BLEND_MODES } from './blend';
+import { blendChannel, blendModeIndex, blendRGB, dissolveNoise, IMPLEMENTED_BLEND_MODES } from './blend';
 import { AddLayerCommand, type Command } from './commands';
 import { createGroupLayer, createRasterLayer, Document, type Layer } from './document';
 import { compositePixel, liveLayers } from './flatten';
@@ -98,7 +98,59 @@ describe('blend modes (W3C Compositing §10.2, CPU reference)', () => {
         },
       ),
     );
-    expect(blendModeIndex('hue')).toBe(0);
+    expect(blendModeIndex('normal')).toBe(0);
+    expect(blendModeIndex('hue')).toBe(14);
+    expect(new Set(IMPLEMENTED_BLEND_MODES.map(blendModeIndex)).size).toBe(18); // every mode has its own
+  });
+
+  it('the M2 modes match the spec (W3C §10.2–10.3, Photoshop for Linear Dodge and Dissolve)', () => {
+    const m = (mode: (typeof IMPLEMENTED_BLEND_MODES)[number], cb: number, cs: number) =>
+      blendChannel(blendModeIndex(mode), cb, cs);
+    expect(m('color-burn', 0.5, 0.5)).toBeCloseTo(0); // 1 − (1 − .5) / .5
+    expect(m('color-burn', 0.8, 0.5)).toBeCloseTo(0.6);
+    expect(m('color-burn', 1, 0)).toBe(1);
+    expect(m('color-dodge', 0.25, 0.5)).toBeCloseTo(0.5);
+    expect(m('color-dodge', 0, 1)).toBe(0);
+    expect(m('linear-dodge', 0.7, 0.6)).toBe(1);
+    expect(m('linear-dodge', 0.2, 0.3)).toBeCloseTo(0.5);
+    expect(m('exclusion', 0.5, 0.5)).toBeCloseTo(0.5);
+    expect(m('exclusion', 1, 0.3)).toBeCloseTo(0.7);
+    const out = new Float64Array(3);
+    const rgb = (mode: (typeof IMPLEMENTED_BLEND_MODES)[number], b: number[], s: number[]) => {
+      blendRGB(blendModeIndex(mode), b[0]!, b[1]!, b[2]!, s[0]!, s[1]!, s[2]!, out);
+      return [...out].map((v) => Math.round(v * 1000) / 1000);
+    };
+    const lum = (c: number[]) => 0.3 * c[0]! + 0.59 * c[1]! + 0.11 * c[2]!;
+    // Luminosity: the backdrop's colour at the source's luminosity; Color: the reverse.
+    const lumi = rgb('luminosity', [0.8, 0.2, 0.2], [0.5, 0.5, 0.5]);
+    expect(lum(lumi)).toBeCloseTo(0.5, 2);
+    expect(lumi[0]).toBeGreaterThan(lumi[1]!);
+    const color = rgb('color', [0.5, 0.5, 0.5], [0.9, 0.1, 0.1]);
+    expect(lum(color)).toBeCloseTo(0.5, 2);
+    expect(color[0]).toBeGreaterThan(color[2]!);
+    // Hue of a grey source has no hue to give: grey stays grey. Saturation of a grey source desaturates.
+    expect(rgb('hue', [0.2, 0.6, 0.9], [0.5, 0.5, 0.5]).every((v, _, a) => Math.abs(v - a[0]!) < 1e-3)).toBe(
+      true,
+    );
+    const desat = rgb('saturation', [0.2, 0.6, 0.9], [0.4, 0.4, 0.4]);
+    expect(new Set(desat).size).toBe(1);
+    expect(desat[0]).toBeCloseTo(lum([0.2, 0.6, 0.9]), 2);
+  });
+
+  it('Dissolve: fixed noise, spread evenly, and a pixel shows fully or not at all', () => {
+    expect(dissolveNoise(10, 20)).toBe(dissolveNoise(10, 20));
+    expect(dissolveNoise(10, 20)).not.toBe(dissolveNoise(11, 20));
+    let below = 0;
+    for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) if (dissolveNoise(x, y) < 0.3) below++;
+    expect(below / 10000).toBeGreaterThan(0.27);
+    expect(below / 10000).toBeLessThan(0.33);
+    const d = doc(
+      solid('bg', [0, 0, 255, 255]),
+      solid('top', [255, 0, 0, 255], { blendMode: 'dissolve', opacity: 0.5 }),
+    );
+    const values = new Set<string>();
+    for (let x = 0; x < 40; x++) values.add(String(pixel(d, x, 3)));
+    expect([...values].sort()).toEqual(['0,0,255,255', '255,0,0,255']);
   });
 
   it('composites a multiply layer onto its backdrop, and onto transparency as Normal', () => {

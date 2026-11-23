@@ -29,7 +29,9 @@ uniform float u_clipOpacity;   // the base's opacity × fill
 uniform bool u_strokeOnMask;  // the stroke paints the layer mask (toward u_maskTarget), not the pixels
 uniform float u_maskTarget;
 uniform float u_layerOpacity;
-uniform int u_blendMode;    // 0 = Normal (GL blending), else index into blend.glsl
+uniform int u_blendMode;    // 0 = Normal and 9 = Dissolve (GL blending), else index into blend.glsl
+uniform vec2 u_tileOrigin;  // this tile's document position (Dissolve's noise; tile.vert sets it too)
+uniform float u_tileSize;
 uniform sampler2D u_backdrop; // premultiplied copy of the target (only when u_blendMode != 0)
 out vec4 o_color;
 
@@ -63,7 +65,10 @@ void main() {
     d *= texture(u_clipTile, v_uv).a * cm * u_clipOpacity; // as doc/flatten.ts compositeSpan
   }
   d *= u_layerOpacity;
-  if (u_blendMode == 0) {
+  if (u_blendMode == 9) {
+    // Dissolve, per document pixel; drawn with Normal's GL blending.
+    o_color = dissolve(d, u_tileOrigin + floor(v_uv * u_tileSize));
+  } else if (u_blendMode == 0) {
     o_color = d;
   } else {
     o_color = compositeOver(u_blendMode, texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0), d);

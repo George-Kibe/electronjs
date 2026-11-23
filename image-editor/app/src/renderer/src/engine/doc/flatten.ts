@@ -1,6 +1,8 @@
-import { TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
+import { parseTileKey, TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
 import { adjustPixel, preparedFor, type PreparedAdjustment } from '../ops/adjust';
-import { blendChannel, blendInto, blendModeIndex } from './blend';
+import { blendInto, blendModeIndex, blendRGB, DISSOLVE, dissolveNoise } from './blend';
+
+const blended = new Float64Array(3);
 import type { BlendMode, Layer } from './document';
 
 type NodeProps = { visible: boolean; opacity: number; fillOpacity: number; blendMode: BlendMode };
@@ -52,6 +54,10 @@ function compositeSpan(
 ): void {
   /** The clipping base for the nodes above it: the last unclipped node seen (FR-LAY-05). */
   let base: FlatLayer | null = null;
+  // The tile's origin in document px (Dissolve's noise is per document pixel).
+  const [tx, ty] = parseTileKey(key);
+  const ox = tx * TILE_SIZE;
+  const oy = ty * TILE_SIZE;
   for (const node of nodes) {
     const clipped = node.kind !== 'group' && node.clipped === true && base !== null;
     if (!clipped) base = node;
@@ -85,7 +91,18 @@ function compositeSpan(
           m *= (clipTile[s + 3]! / 255) * cm * clipK;
         }
         if (m === 0) continue;
-        blendInto(acc, p * 4, mode, t[s]! / 255, t[s + 1]! / 255, t[s + 2]! / 255, (a / 255) * k * m);
+        const q = first + p;
+        blendInto(
+          acc,
+          p * 4,
+          mode,
+          t[s]! / 255,
+          t[s + 1]! / 255,
+          t[s + 2]! / 255,
+          (a / 255) * k * m,
+          ox + (q % TILE_SIZE),
+          oy + Math.floor(q / TILE_SIZE),
+        );
       }
     } else if (node.kind === 'adjustment') {
       adjustSpan(node, clipped && base!.kind === 'raster' ? base : null, key, acc, first, count);
@@ -101,7 +118,18 @@ function compositeSpan(
         const i = p * 4;
         const a = group[i + 3]!;
         if (a === 0) continue;
-        blendInto(acc, i, mode, group[i]! / a, group[i + 1]! / a, group[i + 2]! / a, a * node.opacity);
+        const q = first + p;
+        blendInto(
+          acc,
+          i,
+          mode,
+          group[i]! / a,
+          group[i + 1]! / a,
+          group[i + 2]! / a,
+          a * node.opacity,
+          ox + (q % TILE_SIZE),
+          oy + Math.floor(q / TILE_SIZE),
+        );
       }
     }
   }
@@ -131,6 +159,9 @@ function adjustSpan(
   if (mask && !mt && mask.background === 0) return;
   const mode = blendModeIndex(node.blendMode);
   const prepared = node.prepared;
+  const [tx, ty] = parseTileKey(key);
+  const ox = tx * TILE_SIZE;
+  const oy = ty * TILE_SIZE;
   const unit = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
   for (let p = 0; p < count; p++) {
     const i = p * 4;
@@ -146,10 +177,17 @@ function adjustSpan(
     const cr = unit(acc[i]! / a);
     const cg = unit(acc[i + 1]! / a);
     const cb = unit(acc[i + 2]! / a);
+    if (mode === DISSOLVE) {
+      // Dissolve: each pixel is either fully adjusted (with probability k) or untouched.
+      const q = first + p;
+      k = dissolveNoise(ox + (q % TILE_SIZE), oy + Math.floor(q / TILE_SIZE)) < k ? 1 : 0;
+      if (k === 0) continue;
+    }
     const [r, g, b] = adjustPixel(prepared, cr, cg, cb);
-    acc[i] = (cr + (blendChannel(mode, cr, r) - cr) * k) * a;
-    acc[i + 1] = (cg + (blendChannel(mode, cg, g) - cg) * k) * a;
-    acc[i + 2] = (cb + (blendChannel(mode, cb, b) - cb) * k) * a;
+    blendRGB(mode, cr, cg, cb, r, g, b, blended);
+    acc[i] = (cr + (blended[0]! - cr) * k) * a;
+    acc[i + 1] = (cg + (blended[1]! - cg) * k) * a;
+    acc[i + 2] = (cb + (blended[2]! - cb) * k) * a;
   }
 }
 
