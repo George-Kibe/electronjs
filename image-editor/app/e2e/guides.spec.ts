@@ -65,3 +65,45 @@ test(`[${target}] rulers, guides and snapping (FR-NAV-04)`, async () => {
   await expect(win.getByTestId('guides').locator('line')).toHaveCount(1);
   await close();
 });
+
+/** Clicks a native menu item by its label path (Playwright cannot open native menus). */
+async function menu(app: import('@playwright/test').ElectronApplication, path: string[]): Promise<void> {
+  await app.evaluate(({ Menu, BrowserWindow }, labels) => {
+    let items = Menu.getApplicationMenu()!.items;
+    let item;
+    for (const label of labels) {
+      item = items.find((i) => i.label === label)!;
+      items = item.submenu?.items ?? [];
+    }
+    item!.click(undefined, BrowserWindow.getAllWindows()[0], undefined as never);
+  }, path);
+}
+
+test(`[${target}] Navigator panel and grid (FR-NAV-04/05)`, async () => {
+  const { app, win, close } = await launch();
+  await win.getByRole('spinbutton').nth(0).fill('2000');
+  await win.getByRole('spinbutton').nth(1).fill('1500');
+  await win.getByRole('button', { name: 'Create' }).click();
+  await expect(win.locator('footer')).toContainText('2000 × 1500 px', { timeout: 15_000 });
+
+  // Window › Workspace › Photography puts the Navigator on top: fitted, the whole image is in view.
+  await menu(app, ['Window', 'Workspace', 'Photography']);
+  const nav = win.getByRole('img', { name: /^Navigator: showing/ });
+  await expect(nav).toHaveAccessibleName('Navigator: showing 0, 0 to 2000, 1500');
+  // At 100 % only part is in view; clicking the thumbnail's top-left moves the view there.
+  await win.keyboard.press('ControlOrMeta+1');
+  await expect(nav).not.toHaveAccessibleName('Navigator: showing 0, 0 to 2000, 1500');
+  const box = (await nav.boundingBox())!;
+  await nav.click({ position: { x: 2, y: 2 } });
+  await expect(nav).toHaveAccessibleName(/^Navigator: showing 0, 0 to /);
+  await nav.click({ position: { x: box.width - 2, y: 2 } }); // the top-right corner
+  await expect(nav).toHaveAccessibleName(/to 2000, \d+$/);
+
+  // View › Grid (Ctrl+'): gridlines over the canvas.
+  await expect(win.getByTestId('grid')).toHaveCount(0);
+  await win.keyboard.press("ControlOrMeta+'");
+  await expect(win.getByTestId('grid').locator('path').first()).toBeAttached();
+  await win.keyboard.press("ControlOrMeta+'");
+  await expect(win.getByTestId('grid')).toHaveCount(0);
+  await close();
+});

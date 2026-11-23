@@ -16,7 +16,7 @@ const ids = (w: typeof ws) => panelsOf(w).map((p) => p.id);
 describe('workspace (FR-GEN-01)', () => {
   it('starts with the Essentials preset', () => {
     expect(ws.preset).toBe('essentials');
-    expect(ids(ws)).toEqual(['layers', 'properties', 'swatches', 'history', 'histogram']);
+    expect(ids(ws)).toEqual(['layers', 'properties', 'swatches', 'history', 'histogram', 'navigator']);
     expect(panelsOf(ws).find((p) => p.id === 'histogram')!.visible).toBe(false); // in Window › Histogram
   });
 
@@ -30,9 +30,9 @@ describe('workspace (FR-GEN-01)', () => {
     w = toggleVisible(w, 'swatches'); // …and showing again expands it
     expect(panelsOf(w).find((p) => p.id === 'swatches')).toMatchObject({ visible: true, open: true });
     w = movePanel(w, 'history', 0);
-    expect(ids(w)).toEqual(['history', 'layers', 'properties', 'swatches', 'histogram']);
+    expect(ids(w)).toEqual(['history', 'layers', 'properties', 'swatches', 'histogram', 'navigator']);
     w = movePanel(w, 'history', 99);
-    expect(ids(w)).toEqual(['layers', 'properties', 'swatches', 'histogram', 'history']);
+    expect(ids(w)).toEqual(['layers', 'properties', 'swatches', 'histogram', 'navigator', 'history']);
   });
 
   it('resizing moves height between neighbours and respects a minimum', () => {
@@ -48,10 +48,10 @@ describe('workspace (FR-GEN-01)', () => {
   it('presets and reset replace the layout; damaged layouts are repaired', () => {
     const w = applyPreset(toggleOpen(ws, 'layers'), 'photography');
     expect(w.preset).toBe('photography');
-    expect(ids(w)).toEqual(['histogram', 'layers', 'properties', 'history', 'swatches']);
+    expect(ids(w)).toEqual(['navigator', 'histogram', 'layers', 'properties', 'history', 'swatches']);
     expect(panelsOf(applyPreset(w, 'essentials'))).toEqual(panelsOf(ws));
     const broken = { ...ws, panels: [{ id: 'history' as const, visible: true, open: true, size: 1 }] };
-    expect(ids(broken)).toEqual(['history', 'layers', 'properties', 'swatches', 'histogram']);
+    expect(ids(broken)).toEqual(['history', 'layers', 'properties', 'swatches', 'histogram', 'navigator']);
     expect(setWidth(ws, 999).width).toBe(480);
   });
 });

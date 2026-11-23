@@ -20,6 +20,9 @@ export const GeneralSettings = z.looseObject({
   brushCursor: z.enum(['outline', 'precise']).default('outline'),
   /** Units of the rulers (FR-NAV-04); right-click a ruler to change them. */
   rulerUnits: z.enum(['px', 'in', 'cm', '%']).default('px'),
+  /** View › Grid (FR-NAV-04): a gridline every `gridSpacing` px, divided into `gridSubdivisions`. */
+  gridSpacing: z.number().int().min(2).max(10_000).default(100),
+  gridSubdivisions: z.number().int().min(1).max(100).default(4),
 });
 
 export const PerformanceSettings = z.looseObject({
@@ -47,7 +50,7 @@ export const FilesSettings = z.looseObject({
     .default([]),
 });
 
-export const PANEL_IDS = ['layers', 'properties', 'swatches', 'history', 'histogram'] as const;
+export const PANEL_IDS = ['layers', 'properties', 'swatches', 'history', 'histogram', 'navigator'] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
 
 export const PanelState = z.object({

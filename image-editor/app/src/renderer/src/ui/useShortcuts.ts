@@ -80,6 +80,8 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
           );
         // View › Rulers (Ctrl+R), Guides (Ctrl+;), Snap (Ctrl+Shift+;), Lock Guides (Ctrl+Alt+;).
         if (mod && !e.shiftKey && !e.altKey && key === 'r') return run(() => editor.toggleView('rulers'));
+        if (mod && !e.shiftKey && !e.altKey && e.code === 'Quote')
+          return run(() => editor.toggleView('grid'));
         if (mod && e.code === 'Semicolon')
           return run(() => editor.toggleView(e.altKey ? 'guidesLocked' : e.shiftKey ? 'snap' : 'guides'));
         // Filter › Last Filter (Ctrl+Alt+F); e.code: Alt changes e.key on macOS.
