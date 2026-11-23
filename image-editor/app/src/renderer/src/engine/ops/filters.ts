@@ -156,7 +156,8 @@ function gaussianWeights(sigma: number): Float32Array {
  */
 type LineBlur = {
   reach: number;
-  run(line: Float32Array, tmp: Float32Array, n: number): void;
+  /** Blurs `n` pixels of `line` (using `tmp`) and returns the buffer that holds the result. */
+  run(line: Float32Array, tmp: Float32Array, n: number): Float32Array;
   /** Stages for `rows` rows of `width` floats; the last emits finished rows to `sink`. */
   vertical(width: number, rows: number, sink: Emit): RowStage;
 };
@@ -193,12 +194,17 @@ function verticalBox(width: number, rows: number, r: number, emit: Emit): RowSta
             const o = slot(k);
             for (let x = 0; x < width; x++) sums[x]! += ring[o + x]!;
           }
+          for (let x = 0; x < width; x++) out[x] = sums[x]! * inv;
         } else {
+          // One pass: slide the window and write the row.
           const add = slot(j + r);
           const rem = slot(j - 1 - r);
-          for (let x = 0; x < width; x++) sums[x]! += ring[add + x]! - ring[rem + x]!;
+          for (let x = 0; x < width; x++) {
+            const v = sums[x]! + ring[add + x]! - ring[rem + x]!;
+            sums[x] = v;
+            out[x] = v * inv;
+          }
         }
-        for (let x = 0; x < width; x++) out[x] = sums[x]! * inv;
         emit(out, j);
       }
     },
@@ -250,14 +256,14 @@ function chain(width: number, rows: number, radii: number[], sink: Emit): RowSta
 /** Photoshop's Gaussian Blur radius is the standard deviation, in pixels. */
 export function gaussianLine(radius: number): LineBlur {
   if (radius <= 0)
-    return { reach: 0, run: () => undefined, vertical: (w, rows, sink) => chain(w, rows, [0], sink) };
+    return { reach: 0, run: (line) => line, vertical: (w, rows, sink) => chain(w, rows, [0], sink) };
   if (radius < EXACT_BELOW) {
     const w = gaussianWeights(radius);
     return {
       reach: w.length - 1,
       run(line, tmp, n) {
         convolveLine(line, tmp, n, w);
-        line.set(tmp.subarray(0, n * 4));
+        return tmp;
       },
       vertical: (width, rows, sink) => verticalKernel(width, rows, w, sink),
     };
@@ -269,7 +275,7 @@ export function gaussianLine(radius: number): LineBlur {
       boxLine(line, tmp, n, a);
       boxLine(tmp, line, n, b);
       boxLine(line, tmp, n, c);
-      line.set(tmp.subarray(0, n * 4));
+      return tmp;
     },
     vertical: (width, rows, sink) => chain(width, rows, [a, b, c], sink),
   };
@@ -281,7 +287,7 @@ function boxBlurLine(radius: number): LineBlur {
     reach: r,
     run(line, tmp, n) {
       boxLine(line, tmp, n, r);
-      line.set(tmp.subarray(0, n * 4));
+      return tmp;
     },
     vertical: (width, rows, sink) => chain(width, rows, [r], sink),
   };
@@ -536,8 +542,7 @@ function separable(
         line[d + 3] = a;
       }
     }
-    blur.run(line, tmp, span);
-    down.push(line);
+    down.push(blur.run(line, tmp, span));
   }
   const out: Array<[TileKey, Uint8Array]> = [];
   for (const [key, data] of outTiles) {

@@ -214,8 +214,9 @@ original by the selection's coverage.
 - **Preview:** the full-resolution result for the tiles in view (no proxy yet), recomputed 120 ms after
   the last change, one job at a time, with stale results dropped. The commit is `replaceLayers` (one
   undo step); there is no separate `FilterCommand`.
-- **Timing:** Gaussian radius 50 on 24 MP takes 1.2 s on a 4-core i7-1185G7, above NFR-PERF-05's 1 s.
-  The GPU path is slice 5c.
+- **Timing:** Gaussian radius 50 on 24 MP took 1.2 s on a 4-core i7-1185G7 in slice 5a. Slice 5c brought
+  it to 1.0 s on the CPU: single-pass vertical stages, no row copies, and each band transferred as one
+  buffer. A GPU path stays open if the release matrix needs it.
 - **Window filters** (slice 5b: Motion Blur, Add Noise, Reduce Noise, Mosaic, Emboss, Find Edges,
   Vignette) compute each output tile from a window of the tile plus the filter's reach, with edges
   repeated (`engine/ops/window-filters.ts`). They are split across the pool the same way.

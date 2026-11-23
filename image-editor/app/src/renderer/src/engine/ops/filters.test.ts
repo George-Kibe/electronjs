@@ -36,10 +36,10 @@ const at = (tiles: Map<string, Uint8Array>, x: number, y: number) => {
 };
 
 /** Impulse response along a line: its sum and variance. */
-function moments(run: (line: Float32Array, tmp: Float32Array, n: number) => void, n = 801) {
-  const line = new Float32Array(n * 4);
-  line[(n >> 1) * 4] = 1;
-  run(line, new Float32Array(n * 4), n);
+function moments(run: (line: Float32Array, tmp: Float32Array, n: number) => Float32Array, n = 801) {
+  const input = new Float32Array(n * 4);
+  input[(n >> 1) * 4] = 1;
+  const line = run(input, new Float32Array(n * 4), n);
   let sum = 0;
   let varSum = 0;
   for (let i = 0; i < n; i++) {
