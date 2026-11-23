@@ -39,12 +39,33 @@ export function runOps(job: OpsJob, onProgress?: (p: number) => void): Promise<L
   return post(ops(), job, onProgress);
 }
 
-function post(target: Worker, job: OpsJob, onProgress?: (p: number) => void): Promise<LayerTiles[]> {
+function post(
+  target: Worker,
+  job: OpsJob,
+  onProgress?: (p: number) => void,
+  transfer: Transferable[] = [],
+): Promise<LayerTiles[]> {
   const id = ++seq;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject, onProgress });
-    target.postMessage({ id, job });
+    target.postMessage({ id, job }, transfer);
   });
+}
+
+/**
+ * The tiles copied into one buffer, as views on it: one memcpy and a transfer instead of cloning many small
+ * arrays (the live tiles themselves must never be transferred away).
+ */
+function packed(tiles: LayerTiles['tiles']): { tiles: LayerTiles['tiles']; buffer: ArrayBuffer } {
+  const buffer = new ArrayBuffer(tiles.reduce((n, [, t]) => n + t.byteLength, 0));
+  let at = 0;
+  const out = tiles.map(([k, t]): [TileKey, Uint8Array] => {
+    const view = new Uint8Array(buffer, at, t.byteLength);
+    view.set(t);
+    at += t.byteLength;
+    return [k, view];
+  });
+  return { tiles: out, buffer };
 }
 
 /** Extra workers for filters, which split well into bands of tile rows (NFR-PERF-05). */
@@ -100,16 +121,26 @@ async function runFilter(
         const ty = parseTileKey(k)[1];
         return ty >= lo && ty <= hi;
       };
+      const layer = packed(job.layer.tiles.filter(([k]) => near(k)));
+      const selection = job.selection
+        ? packed(job.selection.filter(([k]) => mine.has(parseTileKey(k)[1])))
+        : null;
       const band: OpsJob = {
         ...job,
-        layer: { id: job.layer.id, tiles: job.layer.tiles.filter(([k]) => near(k)) },
-        selection: job.selection ? job.selection.filter(([k]) => mine.has(parseTileKey(k)[1])) : null,
+        layer: { id: job.layer.id, tiles: layer.tiles },
+        selection: selection?.tiles ?? null,
         keys: keys.filter((k) => mine.has(parseTileKey(k)[1])),
       };
-      return post(poolWorker(b), band, (p) => {
-        progress[b] = p;
-        onProgress?.(progress.reduce((x, y) => x + y, 0) / bands);
-      });
+      const transfer = selection ? [layer.buffer, selection.buffer] : [layer.buffer];
+      return post(
+        poolWorker(b),
+        band,
+        (p) => {
+          progress[b] = p;
+          onProgress?.(progress.reduce((x, y) => x + y, 0) / bands);
+        },
+        transfer,
+      );
     }),
   );
   return [{ id: job.layer.id, tiles: parts.flatMap((p) => p[0]?.tiles ?? []) }];
