@@ -97,6 +97,122 @@ export function FilterDialog(props: {
             />
           </>
         )}
+        {f.kind === 'motion-blur' && (
+          <>
+            <Slider
+              label="Angle"
+              value={f.angle}
+              min={-90}
+              max={90}
+              unit="°"
+              onChange={(angle) => set({ ...f, angle })}
+            />
+            <Slider
+              label="Distance"
+              value={f.distance}
+              min={1}
+              max={500}
+              unit="px"
+              onChange={(distance) => set({ ...f, distance })}
+            />
+          </>
+        )}
+        {f.kind === 'add-noise' && (
+          <>
+            <Slider
+              label="Amount"
+              value={f.amount}
+              min={0.1}
+              max={400}
+              step={0.1}
+              unit="%"
+              onChange={(amount) => set({ ...f, amount })}
+            />
+            <label className="flex items-center gap-2">
+              <span className="text-ui-muted w-20">Distribution</span>
+              <select
+                aria-label="Distribution"
+                value={f.distribution}
+                onChange={(e) => set({ ...f, distribution: e.target.value as 'uniform' | 'gaussian' })}
+                className="bg-ui-bg border-ui-border rounded border px-1 py-0.5"
+              >
+                <option value="uniform">Uniform</option>
+                <option value="gaussian">Gaussian</option>
+              </select>
+            </label>
+            <Check
+              label="Monochromatic"
+              checked={f.monochromatic}
+              onChange={(monochromatic) => set({ ...f, monochromatic })}
+            />
+          </>
+        )}
+        {f.kind === 'reduce-noise' && (
+          <Slider
+            label="Radius"
+            value={f.radius}
+            min={1}
+            max={10}
+            unit="px"
+            onChange={(radius) => set({ ...f, radius })}
+          />
+        )}
+        {f.kind === 'mosaic' && (
+          <Slider
+            label="Cell Size"
+            value={f.cellSize}
+            min={2}
+            max={200}
+            unit="px"
+            onChange={(cellSize) => set({ ...f, cellSize })}
+          />
+        )}
+        {f.kind === 'emboss' && (
+          <>
+            <Slider
+              label="Angle"
+              value={f.angle}
+              min={-180}
+              max={180}
+              unit="°"
+              onChange={(angle) => set({ ...f, angle })}
+            />
+            <Slider
+              label="Height"
+              value={f.height}
+              min={1}
+              max={10}
+              unit="px"
+              onChange={(height) => set({ ...f, height })}
+            />
+            <Slider
+              label="Amount"
+              value={f.amount}
+              min={1}
+              max={500}
+              unit="%"
+              onChange={(amount) => set({ ...f, amount })}
+            />
+          </>
+        )}
+        {f.kind === 'vignette' && (
+          <>
+            <Slider
+              label="Amount"
+              value={f.amount}
+              min={-100}
+              max={100}
+              onChange={(amount) => set({ ...f, amount })}
+            />
+            <Slider
+              label="Midpoint"
+              value={f.midpoint}
+              min={0}
+              max={100}
+              onChange={(midpoint) => set({ ...f, midpoint })}
+            />
+          </>
+        )}
         <div className="flex justify-end">
           <Button onClick={() => set(defaultFilter(f.kind))}>Reset</Button>
         </div>

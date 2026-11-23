@@ -271,11 +271,25 @@ export function menuTemplate(
         { type: 'separator' },
         {
           label: 'Blur',
-          submenu: [cmd('Gaussian Blur…', 'filter.gaussian-blur'), cmd('Box Blur…', 'filter.box-blur')],
+          submenu: [
+            cmd('Gaussian Blur…', 'filter.gaussian-blur'),
+            cmd('Box Blur…', 'filter.box-blur'),
+            cmd('Motion Blur…', 'filter.motion-blur'),
+          ],
         },
+        {
+          label: 'Noise',
+          submenu: [cmd('Add Noise…', 'filter.add-noise'), cmd('Reduce Noise…', 'filter.reduce-noise')],
+        },
+        { label: 'Pixelate', submenu: [cmd('Mosaic…', 'filter.mosaic')] },
+        { label: 'Render', submenu: [cmd('Vignette…', 'filter.vignette')] },
         {
           label: 'Sharpen',
           submenu: [cmd('Sharpen', 'filter.sharpen'), cmd('Unsharp Mask…', 'filter.unsharp-mask')],
+        },
+        {
+          label: 'Stylize',
+          submenu: [cmd('Emboss…', 'filter.emboss'), cmd('Find Edges', 'filter.find-edges')],
         },
       ],
     },

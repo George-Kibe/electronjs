@@ -1,4 +1,5 @@
 import { TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
+import { runWindowFilter, windowReach, type WindowFilter } from './window-filters';
 
 /**
  * Filters (FR-FLT-01, docs/02 §5.5): destructive, applied to the canvas area of one layer, within the
@@ -11,7 +12,8 @@ export type Filter =
   | { kind: 'gaussian-blur'; radius: number }
   | { kind: 'box-blur'; radius: number }
   | { kind: 'sharpen' }
-  | { kind: 'unsharp-mask'; amount: number; radius: number; threshold: number };
+  | { kind: 'unsharp-mask'; amount: number; radius: number; threshold: number }
+  | WindowFilter;
 
 export type FilterKind = Filter['kind'];
 export type FilterOf<K extends FilterKind> = Extract<Filter, { kind: K }>;
@@ -21,6 +23,13 @@ export const FILTER_LABELS: Record<FilterKind, string> = {
   'box-blur': 'Box Blur',
   sharpen: 'Sharpen',
   'unsharp-mask': 'Unsharp Mask',
+  'motion-blur': 'Motion Blur',
+  'add-noise': 'Add Noise',
+  'reduce-noise': 'Reduce Noise',
+  mosaic: 'Mosaic',
+  emboss: 'Emboss',
+  'find-edges': 'Find Edges',
+  vignette: 'Vignette',
 };
 
 /** Photoshop's defaults. */
@@ -30,12 +39,22 @@ export function defaultFilter<K extends FilterKind>(kind: K): FilterOf<K> {
     'box-blur': { kind: 'box-blur', radius: 5 },
     sharpen: { kind: 'sharpen' },
     'unsharp-mask': { kind: 'unsharp-mask', amount: 100, radius: 1, threshold: 0 },
+    'motion-blur': { kind: 'motion-blur', angle: 0, distance: 10 },
+    'add-noise': { kind: 'add-noise', amount: 12.5, distribution: 'uniform', monochromatic: false, seed: 1 },
+    'reduce-noise': { kind: 'reduce-noise', radius: 1 },
+    mosaic: { kind: 'mosaic', cellSize: 10 },
+    emboss: { kind: 'emboss', angle: 135, height: 3, amount: 100 },
+    'find-edges': { kind: 'find-edges' },
+    vignette: { kind: 'vignette', amount: -50, midpoint: 50 },
   };
   return { ...all[kind] };
 }
 
 /** Filters that open a dialog (the others apply at once, like Photoshop's Sharpen). */
-export const hasSettings = (kind: FilterKind) => kind !== 'sharpen';
+export const hasSettings = (kind: FilterKind) => kind !== 'sharpen' && kind !== 'find-edges';
+
+const SEPARABLE = new Set<FilterKind>(['gaussian-blur', 'box-blur', 'sharpen', 'unsharp-mask']);
+const isWindow = (f: Filter): f is WindowFilter => !SEPARABLE.has(f.kind);
 
 // ---- one line (a row or a column), RGBA interleaved, premultiplied, edges repeated --------------
 
@@ -286,7 +305,7 @@ export type FilterInput = {
  * Runs `filter` and returns the new content of each computed tile; an empty array means the tile became
  * fully transparent (remove it). Tiles the filter cannot change (outside the selection) are not returned.
  */
-function lineBlurOf(filter: Filter): LineBlur {
+function lineBlurOf(filter: Exclude<Filter, WindowFilter>): LineBlur {
   return filter.kind === 'gaussian-blur'
     ? gaussianLine(filter.radius)
     : filter.kind === 'box-blur'
@@ -298,7 +317,7 @@ function lineBlurOf(filter: Filter): LineBlur {
 
 /** How far (px) the filter reads around each output pixel: a job split into bands needs this margin. */
 export function filterReach(filter: Filter): number {
-  return lineBlurOf(filter).reach;
+  return isWindow(filter) ? windowReach(filter) : lineBlurOf(filter).reach;
 }
 
 export function applyFilter(
@@ -306,14 +325,14 @@ export function applyFilter(
   input: FilterInput,
   onRow?: (done: number, total: number) => void,
 ): Array<[TileKey, Uint8Array]> {
-  const blur =
-    filter.kind === 'gaussian-blur'
-      ? gaussianLine(filter.radius)
-      : filter.kind === 'box-blur'
-        ? boxBlurLine(filter.radius)
-        : filter.kind === 'sharpen'
-          ? gaussianLine(1)
-          : gaussianLine(filter.radius);
+  if (isWindow(filter))
+    return runWindowFilter(
+      filter,
+      input,
+      (o, oi, f, fi, k, out) => combine(o, oi, f, fi, k, out, input.preserveAlpha, -1, 0),
+      onRow,
+    );
+  const blur = lineBlurOf(filter);
   // Unsharp masking (and Sharpen, a fixed mild one): amount ≥ 0; a plain blur: −1.
   const amount = filter.kind === 'unsharp-mask' ? filter.amount / 100 : filter.kind === 'sharpen' ? 0.5 : -1;
   const threshold = filter.kind === 'unsharp-mask' ? filter.threshold / 255 : 0;

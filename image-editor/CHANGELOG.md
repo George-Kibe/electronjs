@@ -52,7 +52,8 @@ All notable changes to ImageEditor are documented here. The format follows
   Levels shows the histogram too, and its Auto button sets the levels for you.
 - Filter menu: Gaussian Blur, Box Blur, Sharpen and Unsharp Mask. The dialog shows the result on the
   canvas as you change it, and OK applies it to the layer, or only to the selection (soft edges blend).
-  Filter › Last Filter (Ctrl+Alt+F) repeats the last one.
+  Filter › Last Filter (Ctrl+Alt+F) repeats the last one. Also Motion Blur, Add Noise, Reduce Noise,
+  Mosaic, Emboss, Find Edges and Vignette.
 - Image › Trim… removes transparent edges, or edges of the same colour as the top-left or bottom-right
   pixel, from the sides you choose. Image › Reveal All enlarges the canvas so that everything moved off the
   edge is visible again.
