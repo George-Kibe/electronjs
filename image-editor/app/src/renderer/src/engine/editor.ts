@@ -18,6 +18,7 @@ import {
   SetLayerPropsCommand,
   ApplyLayerMaskCommand,
   SetAdjustmentCommand,
+  SetGuidesCommand,
   SetLayerMaskCommand,
   SetSelectionCommand,
   type Command,
@@ -145,6 +146,7 @@ import {
 } from './ops/adjust';
 import { autoLevels, unpackHistogram, type Histogram } from './ops/histogram';
 import { defaultFilter, FILTER_LABELS, hasSettings, type Filter, type FilterKind } from './ops/filters';
+import { snapOffset, snapTargets, type SnapTargets } from './tools/snap';
 import type { ModifyOp } from './ops/modify';
 import type { TrimBasis } from './ops/trim';
 import { inscribedSize, rotatedCanvasSize, type ResampleFilter } from './ops/resample';
@@ -258,6 +260,8 @@ export type EditorSnapshot = {
     height: number;
     name: string;
     sourceProfile: string | null;
+    /** Pixels per inch (rulers in inches and centimetres). */
+    ppi: number;
   } | null;
   /** Save state (FR-DOC-04/11). */
   file: {
@@ -324,6 +328,14 @@ export type EditorSnapshot = {
   filtering: { layerId: string; filter: Filter; preview: boolean; updating: boolean } | null;
   /** Filter › Last Filter (Ctrl+Alt+F) has something to repeat. */
   canRepeatFilter: boolean;
+  /** View › Rulers / Guides / Lock Guides / Snap (FR-NAV-04). */
+  view: { rulers: boolean; guides: boolean; guidesLocked: boolean; snap: boolean };
+  /** Guides, document px (FR-NAV-04). */
+  guides: { horizontal: number[]; vertical: number[] };
+  /** A guide being dragged (a new one, or a moved one), document px. */
+  guideDrag: { orientation: GuideOrientation; position: number; index: number | null } | null;
+  /** The Move tool is over a guide (the cursor shows it can be dragged). */
+  guideHover: GuideOrientation | null;
   /** Changes with every document change (the Histogram panel recomputes when it does). */
   docVersion: number;
   /** Image › Adjustments open for the active layer (destructive, FR-ADJ-01): its settings and preview. */
@@ -426,6 +438,12 @@ type TransformShown = { layerIds: ReadonlySet<string>; matrix: Affine; doc: Docu
 
 /** The id of the selection in a transform job's layers (the app's layer ids never start with '#'). */
 const SELECTION_JOB_ID = '#selection';
+
+export type GuideOrientation = 'horizontal' | 'vertical';
+
+/** How close (screen px) things snap, and a press must be to grab a guide (FR-NAV-04). */
+const SNAP_PX = 8;
+const GUIDE_GRAB_PX = 4;
 
 /** What a histogram measures (FR-ADJ-03): the image as shown, the active layer, or what is below a layer. */
 export type HistogramSource = 'image' | 'layer' | { below: string };
@@ -538,6 +556,23 @@ export class Editor {
   private filterPreview: Document | null = null;
   /** Filter › Last Filter (Ctrl+Alt+F) repeats this. */
   private lastFilter: Filter | null = null;
+  /** View › Rulers, Guides, Lock Guides, Snap (FR-NAV-04); view state, not undo steps. */
+  private viewFlags = { rulers: false, guides: true, guidesLocked: false, snap: true };
+  /**
+   * A guide being dragged: a new one from a ruler (index null) or an existing one with the Move tool. The
+   * position is in document px, snapped; NaN while the pointer is still over the ruler.
+   */
+  private guideDrag: {
+    orientation: GuideOrientation;
+    index: number | null;
+    position: number;
+    pointerId: number | null;
+    targets: SnapTargets | null;
+  } | null = null;
+  /** The guide under the pointer (Move tool), for the cursor. */
+  private guideHover: GuideOrientation | null = null;
+  /** Snapping for the current Move-tool drag: the moved content's bounds and what it can snap to. */
+  private moveSnap: { bounds: Bounds; targets: SnapTargets } | null = null;
   /** A committed transform, still drawn until its job replaces the pixels. */
   private transformPreview: TransformShown | null = null;
   private sampling: { pointerId: number; target: 'foreground' | 'background' } | null = null;
@@ -1012,6 +1047,7 @@ export class Editor {
             height: doc.height,
             name: doc.meta.name,
             sourceProfile: doc.meta.sourceProfile,
+            ppi: doc.meta.ppi,
           }
         : null,
       file: {
@@ -1067,6 +1103,14 @@ export class Editor {
       selectedLayerIds: doc ? this.selectedIds() : [],
       activeAdjustment: this.activeAdjustment,
       docVersion: this.version,
+      view: { ...this.viewFlags },
+      guides: doc ? doc.meta.guides : { horizontal: [], vertical: [] },
+      guideDrag: this.guideDrag && {
+        orientation: this.guideDrag.orientation,
+        position: this.guideDrag.position,
+        index: this.guideDrag.index,
+      },
+      guideHover: this.guideHover,
       filtering: this.filtering && {
         layerId: this.filtering.layerId,
         filter: this.filtering.filter,
@@ -1917,6 +1961,114 @@ export class Editor {
     return preview;
   }
 
+  // ---- rulers, guides and snapping (FR-NAV-04) -----------------------------------------------------
+
+  /** View › Rulers (Ctrl+R), Guides (Ctrl+;), Lock Guides (Ctrl+Alt+;), Snap (Ctrl+Shift+;). */
+  toggleView(flag: 'rulers' | 'guides' | 'guidesLocked' | 'snap'): void {
+    this.viewFlags = { ...this.viewFlags, [flag]: !this.viewFlags[flag] };
+    this.changed();
+  }
+
+  private setGuides(label: string, guides: { horizontal: number[]; vertical: number[] }): void {
+    this.exec(new SetGuidesCommand(label, guides));
+  }
+
+  /** View › New Guide…: at `position` document px (one undo step). */
+  addGuide(orientation: GuideOrientation, position: number): void {
+    const doc = this.doc;
+    if (!doc || !Number.isFinite(position)) return;
+    const g = doc.meta.guides;
+    this.setGuides('New Guide', { ...g, [orientation]: [...g[orientation], Math.round(position)] });
+  }
+
+  /** View › Clear Guides. */
+  clearGuides(): void {
+    const g = this.doc?.meta.guides;
+    if (!g || g.horizontal.length + g.vertical.length === 0) return;
+    this.setGuides('Clear Guides', { horizontal: [], vertical: [] });
+  }
+
+  /** The guide within reach of a document point, for the Move tool (shown and unlocked guides only). */
+  private guideAt(p: { x: number; y: number }): { orientation: GuideOrientation; index: number } | null {
+    const doc = this.doc;
+    if (!doc || !this.viewFlags.guides || this.viewFlags.guidesLocked) return null;
+    const reach = GUIDE_GRAB_PX / this.viewport.zoom;
+    const v = doc.meta.guides.vertical.findIndex((x) => Math.abs(x - p.x) <= reach);
+    if (v >= 0) return { orientation: 'vertical', index: v };
+    const h = doc.meta.guides.horizontal.findIndex((y) => Math.abs(y - p.y) <= reach);
+    return h >= 0 ? { orientation: 'horizontal', index: h } : null;
+  }
+
+  /** Guides snap to the canvas edges and centre and to layer edges (not to other guides). */
+  private guideSnapTargets(): SnapTargets | null {
+    const doc = this.doc;
+    if (!doc || !this.viewFlags.snap) return null;
+    const t = snapTargets(doc);
+    const g = doc.meta.guides;
+    return {
+      x: t.x.filter((x) => !g.vertical.includes(x)),
+      y: t.y.filter((y) => !g.horizontal.includes(y)),
+    };
+  }
+
+  /** A ruler was pressed: a new guide follows the pointer until it is released (dragGuideTo / endGuideDrag). */
+  beginGuideFromRuler(orientation: GuideOrientation): void {
+    if (!this.doc || this.busy) return;
+    if (this.viewFlags.guidesLocked) return this.notice('Guides are locked (View › Lock Guides).');
+    if (!this.viewFlags.guides) this.viewFlags = { ...this.viewFlags, guides: true };
+    this.guideDrag = {
+      orientation,
+      index: null,
+      position: Number.NaN,
+      pointerId: null,
+      targets: this.guideSnapTargets(),
+    };
+    this.changed();
+  }
+
+  /** The dragged guide follows the pointer (client px), snapped to whole pixels and nearby targets. */
+  dragGuideTo(clientX: number, clientY: number): void {
+    const d = this.guideDrag;
+    if (!d) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const [x, y] = this.viewport.screenToDoc(clientX - rect.left, clientY - rect.top);
+    let position = d.orientation === 'vertical' ? x : y;
+    if (d.targets) {
+      const targets = d.orientation === 'vertical' ? d.targets.x : d.targets.y;
+      position += snapOffset([position], targets, SNAP_PX / this.viewport.zoom).offset;
+    }
+    const inside = d.orientation === 'vertical' ? clientY >= rect.top : clientX >= rect.left;
+    this.guideDrag = { ...d, position: inside ? Math.round(position) : Number.NaN };
+    this.changed();
+  }
+
+  /**
+   * The drag ends: a new guide is added where it was released over the canvas; a moved one goes there, or is
+   * removed when dropped outside the canvas (back on a ruler), as in Photoshop.
+   */
+  endGuideDrag(): void {
+    const d = this.guideDrag;
+    const doc = this.doc;
+    this.guideDrag = null;
+    if (!d || !doc) return this.changed();
+    const size = d.orientation === 'vertical' ? doc.width : doc.height;
+    const onCanvas = Number.isFinite(d.position) && d.position >= 0 && d.position <= size;
+    const g = doc.meta.guides;
+    const list = [...g[d.orientation]];
+    if (d.index === null) {
+      if (onCanvas) this.setGuides('New Guide', { ...g, [d.orientation]: [...list, d.position] });
+      else this.changed();
+      return;
+    }
+    if (!onCanvas) {
+      list.splice(d.index, 1);
+      this.setGuides('Delete Guide', { ...g, [d.orientation]: list });
+    } else if (list[d.index] !== d.position) {
+      list[d.index] = d.position;
+      this.setGuides('Move Guide', { ...g, [d.orientation]: list });
+    } else this.changed();
+  }
+
   // ---- filters (FR-FLT-01) -------------------------------------------------------------------------
 
   /**
@@ -2598,6 +2750,13 @@ export class Editor {
     // A modifier held since mouse-down only chose the mode; released and pressed again, it shapes the box.
     const shiftFree = d.shiftFree || !e.shiftKey;
     const altFree = d.altFree || !e.altKey;
+    // The dragged corner snaps to guides, the canvas and layer edges (FR-NAV-04).
+    if (this.viewFlags.snap && this.doc) {
+      const targets = snapTargets(this.doc);
+      const t = SNAP_PX / this.viewport.zoom;
+      p.x += snapOffset([p.x], targets.x, t).offset;
+      p.y += snapOffset([p.y], targets.y, t).offset;
+    }
     this.marqueeDrag = {
       ...d,
       current: { x: p.x, y: p.y },
@@ -3139,6 +3298,13 @@ export class Editor {
   private beginMove(e: PointerEvent, toggleAutoSelect: boolean): void {
     const doc = this.doc!;
     const p = this.docPoint(e);
+    // A guide under the pointer is dragged instead (FR-NAV-04).
+    const guide = this.guideAt(p);
+    if (guide) {
+      const position = doc.meta.guides[guide.orientation][guide.index]!;
+      this.guideDrag = { ...guide, position, pointerId: e.pointerId, targets: this.guideSnapTargets() };
+      return this.changed();
+    }
     const { autoSelect, autoSelectMode } = this.toolOptions.move;
     if (autoSelect !== toggleAutoSelect) {
       const hit = layerAt(doc, p.x, p.y, autoSelectMode);
@@ -3149,10 +3315,14 @@ export class Editor {
     const ids = topSelected(doc, this.selectedIds());
     const blocker = ids.map((x) => moveBlocker(doc, x)).find(Boolean);
     if (blocker) return this.notice(blocker);
+    const rasterIds = new Set(ids.flatMap((x) => movedRasters(doc, x).map((l) => l.id)));
+    const moved = contentBounds(ids.flatMap((x) => movedRasters(doc, x).map((l) => l.tiles)));
+    this.moveSnap =
+      this.viewFlags.snap && moved ? { bounds: moved, targets: snapTargets(doc, rasterIds) } : null;
     this.moving = {
       layerId: id,
       layerIds: ids,
-      rasterIds: new Set(ids.flatMap((x) => movedRasters(doc, x).map((l) => l.id))),
+      rasterIds,
       start: { x: p.x, y: p.y },
       dx: 0,
       dy: 0,
@@ -3375,6 +3545,20 @@ export class Editor {
         if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
         else dx = 0;
       }
+      // Snapping: the moved content's edges or centre onto guides, the canvas and other layers.
+      const snap = this.moveSnap;
+      if (snap) {
+        const t = SNAP_PX / this.viewport.zoom;
+        const b = snap.bounds;
+        if (!e.shiftKey || dx !== 0)
+          dx += Math.round(
+            snapOffset([b.x0 + dx, b.x1 + dx, (b.x0 + b.x1) / 2 + dx], snap.targets.x, t).offset,
+          );
+        if (!e.shiftKey || dy !== 0)
+          dy += Math.round(
+            snapOffset([b.y0 + dy, b.y1 + dy, (b.y0 + b.y1) / 2 + dy], snap.targets.y, t).offset,
+          );
+      }
       if (dx !== this.moving.dx || dy !== this.moving.dy) {
         this.moving = { ...this.moving, dx, dy };
         this.requestRender(e.timeStamp);
@@ -3382,6 +3566,15 @@ export class Editor {
       return;
     }
     if (this.transform) return this.transformMove(e);
+    if (this.guideDrag && e.pointerId === this.guideDrag.pointerId)
+      return this.dragGuideTo(e.clientX, e.clientY);
+    if (!e.buttons && this.doc && this.effectiveTool(this.modifiers) === 'move') {
+      const hover = this.guideAt(this.docPoint(e))?.orientation ?? null;
+      if (hover !== this.guideHover) {
+        this.guideHover = hover;
+        this.changed();
+      }
+    }
     if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
     if (this.lassoDraw) return this.lassoMove(e);
@@ -3411,9 +3604,11 @@ export class Editor {
     if (this.cropDrag && e.pointerId === this.cropDrag.pointerId) this.endCrop();
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
+    if (this.guideDrag && e.pointerId === this.guideDrag.pointerId) this.endGuideDrag();
     if (this.moving && e.pointerId === this.moving.pointerId) {
       const { layerIds, dx, dy } = this.moving;
       this.moving = null;
+      this.moveSnap = null;
       if (this.doc && (dx !== 0 || dy !== 0))
         this.exec(
           translateMoves(

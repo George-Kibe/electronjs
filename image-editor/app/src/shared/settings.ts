@@ -18,6 +18,8 @@ export const GeneralSettings = z.looseObject({
   canvasColor: hexColor.nullable().default(null),
   /** Painting cursor: the brush outline, or a precise crosshair (FR-GEN-04). */
   brushCursor: z.enum(['outline', 'precise']).default('outline'),
+  /** Units of the rulers (FR-NAV-04); right-click a ruler to change them. */
+  rulerUnits: z.enum(['px', 'in', 'cm', '%']).default('px'),
 });
 
 export const PerformanceSettings = z.looseObject({

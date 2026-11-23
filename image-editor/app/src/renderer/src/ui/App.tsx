@@ -19,7 +19,15 @@ import { BrushCursor } from './components/BrushCursor';
 import { Button } from './components/Button';
 import { ColorPickerDialog } from './components/ColorPickerDialog';
 import { CropOverlay } from './components/CropOverlay';
-import { CanvasSizeDialog, ImageSizeDialog, RotateDialog, TrimDialog } from './components/ImageDialogs';
+import {
+  CanvasSizeDialog,
+  ImageSizeDialog,
+  NewGuideDialog,
+  RotateDialog,
+  TrimDialog,
+} from './components/ImageDialogs';
+import { GuidesOverlay } from './components/GuidesOverlay';
+import { Rulers } from './components/Rulers';
 import { ExportDialog } from './components/ExportDialog';
 import { HistoryPanel } from './components/HistoryPanel';
 import { LayersPanel } from './components/LayersPanel';
@@ -67,7 +75,9 @@ export function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [engineNotice, setEngineNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<'foreground' | 'background' | null>(null);
-  const [imageDialog, setImageDialog] = useState<'imageSize' | 'canvasSize' | 'rotate' | 'trim' | null>(null);
+  const [imageDialog, setImageDialog] = useState<
+    'imageSize' | 'canvasSize' | 'rotate' | 'trim' | 'newGuide' | null
+  >(null);
   /** Select › Modify › … or Select › Color Range (FR-SEL-05). */
   const [selectDialog, setSelectDialog] = useState<ModifyKind | 'colorRange' | null>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
@@ -230,6 +240,12 @@ export function App() {
           'window.history': () => setWorkspace(toggleVisible(workspace, 'history')),
           'window.properties': () => setWorkspace(toggleVisible(workspace, 'properties')),
           'window.histogram': () => setWorkspace(toggleVisible(workspace, 'histogram')),
+          'view.rulers': () => editor?.toggleView('rulers'),
+          'view.guides': () => editor?.toggleView('guides'),
+          'view.snap': () => editor?.toggleView('snap'),
+          'view.lockGuides': () => editor?.toggleView('guidesLocked'),
+          'view.clearGuides': () => editor?.clearGuides(),
+          'view.newGuide': () => setImageDialog('newGuide'),
           'filter.last': () => editor?.repeatLastFilter(),
           'filter.gaussian-blur': () => editor?.beginFilter('gaussian-blur'),
           'filter.box-blur': () => editor?.beginFilter('box-blur'),
@@ -370,11 +386,16 @@ export function App() {
   const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
   // The crop tool shows the handle under the pointer (resize arrows, move).
   const t = snap?.transform;
+  const guideCursor = snap?.guideDrag ?? (snap?.guideHover ? { orientation: snap.guideHover } : null);
   const cropCursor = t
     ? transformCursor(t.box, t.params, t.hover ?? 'rotate')
-    : active === 'crop' && snap?.crop?.hover
-      ? HANDLE_CURSORS[snap.crop.hover]
-      : undefined;
+    : guideCursor
+      ? guideCursor.orientation === 'vertical'
+        ? 'col-resize'
+        : 'row-resize'
+      : active === 'crop' && snap?.crop?.hover
+        ? HANDLE_CURSORS[snap.crop.hover]
+        : undefined;
   const toast = files.error ?? prefs.error ?? files.busy ?? engineNotice ?? files.notice;
   return (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -473,6 +494,23 @@ export function App() {
             {hasDoc && <BrushCursor host={canvasHost} diameter={outline} />}
             {snap?.crop && editor && <CropOverlay crop={snap.crop} editor={editor} />}
             {snap?.transform && editor && <TransformOverlay transform={snap.transform} editor={editor} />}
+            {snap?.doc && editor && (
+              <GuidesOverlay
+                editor={editor}
+                guides={snap.guides}
+                drag={snap.guideDrag}
+                shown={snap.view.guides}
+              />
+            )}
+            {snap?.doc && editor && snap.view.rulers && (
+              <Rulers
+                editor={editor}
+                doc={snap.doc}
+                units={prefs.settings.general.rulerUnits}
+                cursor={snap.cursor}
+                onUnits={(rulerUnits) => void prefs.update({ general: { rulerUnits } })}
+              />
+            )}
             {editor && (snap?.selection || snap?.marquee || snap?.lasso) && (
               <SelectionOverlay
                 editor={editor}
@@ -661,6 +699,16 @@ export function App() {
           onPreview={(on) => editor.setAdjustingPreview(on)}
           onApply={() => void editor.commitAdjustment()}
           onCancel={() => editor.cancelAdjustment()}
+        />
+      )}
+      {imageDialog === 'newGuide' && snap?.doc && editor && (
+        <NewGuideDialog
+          max={snap.doc}
+          onCancel={() => setImageDialog(null)}
+          onApply={(orientation, position) => {
+            setImageDialog(null);
+            editor.addGuide(orientation, position);
+          }}
         />
       )}
       {imageDialog === 'trim' && snap?.doc && editor && (

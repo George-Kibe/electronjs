@@ -302,6 +302,13 @@ export function menuTemplate(
         cmd('100 %', 'view.actualSize', 'CmdOrCtrl+1'),
         { type: 'separator' },
         cmd('Pixel Grid', 'view.pixelGrid'),
+        { type: 'separator' },
+        cmd('Rulers', 'view.rulers', 'CmdOrCtrl+R'),
+        cmd('Guides', 'view.guides', 'CmdOrCtrl+;'),
+        cmd('Snap', 'view.snap', 'CmdOrCtrl+Shift+;'),
+        cmd('Lock Guides', 'view.lockGuides', 'CmdOrCtrl+Alt+;'),
+        cmd('Clear Guides', 'view.clearGuides'),
+        cmd('New Guide…', 'view.newGuide'),
       ],
     },
     // Not role 'windowMenu': its native "Close Window" would take Ctrl/⌘+W from File › Close (a tab).
