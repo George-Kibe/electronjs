@@ -252,11 +252,11 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         selection) is E2E-tested. NFR-PERF-05 is measured by E2E: Gaussian r = 50 on 24 MP takes 1.2 s on a
         4-core laptop, on the CPU (worker pool). That is not yet under 1 s; see 5c.
         E2E green on 3 OSes (run 44944116530).
-  - [ ] 5b The rest of FR-FLT-01: Filter › Blur › Motion Blur…, Noise › Add Noise… (uniform or Gaussian,
+  - [x] 5b The rest of FR-FLT-01: Filter › Blur › Motion Blur…, Noise › Add Noise… (uniform or Gaussian,
         monochromatic; deterministic, so the preview is the result) and Reduce Noise… (a median, by Huang's
         sliding histogram), Pixelate › Mosaic… (canvas-aligned cells), Stylize › Emboss… and Find Edges
         (Sobel), and Render › Vignette…. They share 5a's dialog, preview, selection and worker pool, through a
-        window-per-tile driver (`ops/window-filters.ts`).
+        window-per-tile driver (`ops/window-filters.ts`). E2E green on 3 OSes (run 44944120863).
   - [ ] 5c NFR-PERF-05 under 1 s: a GPU path for the separable blurs (docs/02 §5.5), with the CPU code as
         its reference
 - [ ] Slice 6 — the other 9 blend modes (FR-LAY-03, T-BLD-01 full), the full golden set
