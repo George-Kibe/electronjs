@@ -6,6 +6,7 @@ type Props = {
   selection: EditorSnapshot['selection'];
   marquee: EditorSnapshot['marquee'];
   lasso: EditorSnapshot['lasso'];
+  gradientLine?: EditorSnapshot['gradientLine'];
 };
 
 /** Black dashes over white, 1 screen px at any zoom (FR-SEL-06). */
@@ -24,15 +25,29 @@ function Ants({ children }: { children: (props: React.SVGProps<SVGElement>) => R
  * in document pixels under the view transform, so the outline stays crisp at any zoom. The dashes stop
  * moving with prefers-reduced-motion (docs/03 §7). Display only: the editor handles input.
  */
-export function SelectionOverlay({ editor, selection, marquee, lasso }: Props) {
+export function SelectionOverlay({ editor, selection, marquee, lasso, gradientLine }: Props) {
   const { zoom, panX, panY } = useSyncExternalStore(editor.subscribeView, editor.getView);
-  if (!selection && !marquee && !lasso) return null;
+  if (!selection && !marquee && !lasso && !gradientLine) return null;
   // The outline drawn so far; a polygon also shows the edge to the pointer.
   const lassoPoints = lasso ? [...lasso.points, ...(lasso.hover ? [lasso.hover] : [])] : [];
   const r = marquee?.rect;
   return (
     <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
       <g transform={`translate(${panX} ${panY}) scale(${zoom})`}>
+        {gradientLine && (
+          // The Gradient tool's drag (FR-PNT-04): from where the gradient starts to where it ends.
+          <Ants>
+            {(p) => (
+              <line
+                x1={gradientLine.start.x}
+                y1={gradientLine.start.y}
+                x2={gradientLine.end.x}
+                y2={gradientLine.end.y}
+                {...(p as React.SVGProps<SVGLineElement>)}
+              />
+            )}
+          </Ants>
+        )}
         {selection && (
           <Ants>{(p) => <path d={selection.outline} {...(p as React.SVGProps<SVGPathElement>)} />}</Ants>
         )}

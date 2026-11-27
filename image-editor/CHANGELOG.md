@@ -61,6 +61,9 @@ All notable changes to ImageEditor are documented here. The format follows
 - View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
   the whole image with the part in view outlined; click or drag in it to move around, and use its slider
   to zoom.
+- Gradient (Shift+G): drag across the image for a linear, radial, angle, reflected or diamond gradient from
+  the foreground to the background colour (or to transparent, black to white, a spectrum), with a blend
+  mode, opacity, reverse and dither. It stays inside the selection.
 - Paint Bucket (G): click to fill the area of similar colour with the foreground colour. It has the Magic
   Wand's options (tolerance, contiguous, anti-alias, sample all layers) and stays inside the selection.
 - Long history on big images: steps beyond the memory budget (Preferences › Performance) are kept on disk

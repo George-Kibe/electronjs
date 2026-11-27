@@ -137,6 +137,7 @@ import {
 } from './tools/lasso';
 import { fromGrid, runOpsJob, toGrid, type LayerTiles, type OpsJob } from './ops/jobs';
 import type { WandOptions } from './ops/wand';
+import { presetStops, type GradientPreset, type GradientType } from './ops/gradient';
 import {
   ADJUSTMENT_LABELS,
   defaultAdjustment,
@@ -174,6 +175,7 @@ export type Tool =
   | 'eraser'
   | 'eyedropper'
   | 'bucket'
+  | 'gradient'
   | 'hand'
   | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
@@ -210,6 +212,15 @@ export type ToolOptions = {
   wand: WandOptions & { mode: SelectionOp; sampleAll: boolean };
   /** Paint Bucket (FR-PNT-03): the Magic Wand's options, for the region it fills. */
   bucket: WandOptions & { sampleAll: boolean };
+  /** Gradient (FR-PNT-04): geometry, colours (a preset of the current colours), opacity, mode, dither. */
+  gradient: {
+    type: GradientType;
+    preset: GradientPreset;
+    opacity: number;
+    mode: BlendMode;
+    dither: boolean;
+    reverse: boolean;
+  };
 };
 
 const brushDefaults = (o: Partial<BrushOptions> = {}): BrushOptions => ({
@@ -236,6 +247,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   lasso: DEFAULT_LASSO,
   wand: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false, mode: 'replace' },
   bucket: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false },
+  gradient: { type: 'linear', preset: 'fg-bg', opacity: 1, mode: 'normal', dither: true, reverse: false },
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
@@ -318,6 +330,8 @@ export type EditorSnapshot = {
   selection: { outline: string; bounds: Bounds } | null;
   /** A marquee being dragged: the shape it will add (doc px), before it becomes a selection. */
   marquee: { shape: MarqueeShape; rect: Bounds } | null;
+  /** The Gradient tool's line being dragged, in document px. */
+  gradientLine: { start: { x: number; y: number }; end: { x: number; y: number } } | null;
   /** A lasso outline being drawn (doc px), and for the polygonal lasso the pointer's position. */
   lasso: { kind: LassoKind; points: Point[]; hover: Point | null } | null;
   /** Select › Reselect has something to bring back. */
@@ -610,6 +624,12 @@ export class Editor {
     | { kind: 'line'; line: { x0: number; y0: number; x1: number; y1: number }; pointerId: number }
     | null = null;
   private cropHover: Handle | null = null;
+  private gradientDrag: {
+    pointerId: number;
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+  } | null = null;
+  private lastFillTool: 'bucket' | 'gradient' = 'bucket';
   private marqueeDrag: {
     pointerId: number;
     start: { x: number; y: number };
@@ -1126,6 +1146,7 @@ export class Editor {
       // While selected pixels float, the box shows where they go instead of the marching ants.
       selection: this.transformShown()?.doc ? null : this.selectionState(),
       marquee: this.marqueeState(),
+      gradientLine: this.gradientDrag && { start: this.gradientDrag.start, end: this.gradientDrag.end },
       lasso: this.lassoDraw
         ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
         : null,
@@ -1199,6 +1220,7 @@ export class Editor {
       this.job !== null ||
       this.history?.loading === true ||
       this.marqueeDrag !== null ||
+      this.gradientDrag !== null ||
       this.lassoDraw?.pointerId != null
     );
   }
@@ -1564,10 +1586,17 @@ export class Editor {
     if (tool !== 'lasso') this.lassoDraw = null; // an unfinished polygon is abandoned
     this.tool = tool;
     if (tool === 'brush' || tool === 'pencil') this.lastBrushTool = tool;
+    if (tool === 'bucket' || tool === 'gradient') this.lastFillTool = tool;
     this.changed();
   }
 
   /** B: the brush or pencil, whichever was used last; Shift+B switches between them (docs/03 §4). */
+  /** G: the Paint Bucket or the Gradient, whichever was used last; Shift+G switches (docs/03 §4). */
+  selectFillTool(cycle = false): void {
+    if (this.tool !== 'bucket' && this.tool !== 'gradient') this.setTool(this.lastFillTool);
+    else if (cycle) this.setTool(this.tool === 'bucket' ? 'gradient' : 'bucket');
+  }
+
   selectBrushTool(cycle = false): void {
     if (this.tool !== 'brush' && this.tool !== 'pencil') this.setTool(this.lastBrushTool);
     else if (cycle) this.setTool(this.tool === 'brush' ? 'pencil' : 'brush');
@@ -1718,7 +1747,10 @@ export class Editor {
    */
   private effectiveTool(mods: { alt: boolean; ctrl: boolean }): Tool {
     const t = this.tool;
-    if (mods.ctrl && (isPaintTool(t) || ['eyedropper', 'marquee', 'lasso', 'wand', 'bucket'].includes(t)))
+    if (
+      mods.ctrl &&
+      (isPaintTool(t) || ['eyedropper', 'marquee', 'lasso', 'wand', 'bucket', 'gradient'].includes(t))
+    )
       return 'move';
     if (mods.alt && (t === 'brush' || t === 'pencil' || t === 'bucket')) return 'eyedropper';
     return t;
@@ -2676,14 +2708,9 @@ export class Editor {
   private async paintBucket(e: PointerEvent): Promise<void> {
     const doc = this.doc;
     if (!doc || this.busy) return;
-    const layer = doc.activeLayer;
-    if (layer.type !== 'raster')
-      return this.notice(
-        `Select a layer to fill (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`,
-      );
-    if (this.editingMask)
-      return this.notice('The Paint Bucket fills pixels. Click the layer thumbnail to edit them.');
-    if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
+    const blocker = this.fillBlocker('Paint Bucket');
+    if (blocker) return this.notice(blocker);
+    const layer = doc.raster(doc.activeLayerId);
     const p = this.docPoint(e);
     const [x, y] = [Math.floor(p.x), Math.floor(p.y)];
     if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return;
@@ -2721,18 +2748,104 @@ export class Editor {
         preserveAlpha: layer.locks.transparency,
       },
       ([result]) => {
-        const tiles = doc.raster(layer.id).tiles;
-        const before = new Map<TileKey, Tile | undefined>();
-        const after = new Map<TileKey, Tile | undefined>();
-        for (const [key, bytes] of result?.tiles ?? []) {
-          before.set(key, tiles.get(key));
-          after.set(key, createTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength)));
-        }
-        if (after.size === 0) return;
-        this.addRecent(color);
-        this.exec(new PaintTilesCommand('Paint Bucket', layer.id, before, after));
+        if (result?.tiles.length) this.addRecent(color);
+        this.commitPaintedTiles('Paint Bucket', layer.id, result?.tiles ?? []);
       },
     );
+  }
+
+  /** Why the active layer cannot take paint from the bucket or the gradient, or null. */
+  private fillBlocker(tool: string): string | null {
+    const layer = this.doc!.activeLayer;
+    if (layer.type !== 'raster')
+      return `Select a layer to paint on (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`;
+    if (this.editingMask) return `The ${tool} paints pixels. Click the layer thumbnail to edit them.`;
+    if (layer.locks.all || layer.locks.pixels) return 'This layer is locked.';
+    return null;
+  }
+
+  /** Gradient (G; FR-PNT-04): drag from where it starts to where it ends; Shift keeps 45° steps. */
+  private beginGradient(e: PointerEvent): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const blocker = this.fillBlocker('Gradient');
+    if (blocker) return this.notice(blocker);
+    const p = this.docPoint(e);
+    this.gradientDrag = { pointerId: e.pointerId, start: { x: p.x, y: p.y }, end: { x: p.x, y: p.y } };
+    this.changed();
+  }
+
+  private moveGradient(e: PointerEvent): void {
+    const d = this.gradientDrag!;
+    const p = this.docPoint(e);
+    let { x, y } = p;
+    if (e.shiftKey) {
+      const dx = x - d.start.x;
+      const dy = y - d.start.y;
+      const step = Math.PI / 4;
+      const a = Math.round(Math.atan2(dy, dx) / step) * step;
+      const len = Math.hypot(dx, dy);
+      x = d.start.x + Math.cos(a) * len;
+      y = d.start.y + Math.sin(a) * len;
+    }
+    this.gradientDrag = { ...d, end: { x, y } };
+    this.changed();
+  }
+
+  /** Draws the gradient (in the ops worker) onto the active layer, within the selection: one history step. */
+  private async endGradient(): Promise<void> {
+    const d = this.gradientDrag;
+    const doc = this.doc;
+    this.gradientDrag = null;
+    this.changed();
+    if (!d || !doc || Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) < 1) return;
+    const blocker = this.fillBlocker('Gradient');
+    if (blocker) return this.notice(blocker);
+    const layer = doc.raster(doc.activeLayerId);
+    const o = this.toolOptions.gradient;
+    const { foreground: fg, background: bg } = this.colors;
+    const selection = doc.selection
+      ? [...doc.selection.entries()].map(([k, t]): [TileKey, Uint8Array] => [
+          k,
+          new Uint8Array(t.data.buffer, t.data.byteOffset, t.data.byteLength),
+        ])
+      : null;
+    await this.runJobFor(
+      'Gradient',
+      {
+        op: 'gradient',
+        layer: fromGrid(layer.id, layer.tiles),
+        size: { width: doc.width, height: doc.height },
+        fill: {
+          gradient: {
+            type: o.type,
+            stops: presetStops(o.preset, fg, bg),
+            start: d.start,
+            end: d.end,
+            reverse: o.reverse,
+          },
+          opacity: o.opacity,
+          mode: o.mode,
+          dither: o.dither,
+        },
+        selection,
+        preserveAlpha: layer.locks.transparency,
+        keys: null,
+      },
+      ([result]) => this.commitPaintedTiles('Gradient', layer.id, result?.tiles ?? []),
+    );
+  }
+
+  /** Painted tiles from an ops job as one history step (only the tiles that changed come back). */
+  private commitPaintedTiles(label: string, layerId: string, tiles: Array<[TileKey, Uint8Array]>): void {
+    const grid = this.doc!.raster(layerId).tiles;
+    const before = new Map<TileKey, Tile | undefined>();
+    const after = new Map<TileKey, Tile | undefined>();
+    for (const [key, bytes] of tiles) {
+      before.set(key, grid.get(key));
+      after.set(key, createTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength)));
+    }
+    if (after.size) this.exec(new PaintTilesCommand(label, layerId, before, after));
   }
 
   /** Runs a selection job in the ops worker and applies its mask in `op` (one history step). */
@@ -3397,6 +3510,7 @@ export class Editor {
     if (tool === 'lasso') return this.lassoDown(e);
     if (tool === 'wand') return void this.magicWand(e);
     if (tool === 'bucket') return void this.paintBucket(e);
+    if (tool === 'gradient') return this.beginGradient(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,
@@ -3740,6 +3854,7 @@ export class Editor {
     }
     if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
+    if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) return this.moveGradient(e);
     if (this.lassoDraw) return this.lassoMove(e);
     if (this.tool === 'crop') return this.moveCrop(e);
     const stroke = this.stroke;
@@ -3766,6 +3881,7 @@ export class Editor {
     }
     if (this.cropDrag && e.pointerId === this.cropDrag.pointerId) this.endCrop();
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
+    if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) void this.endGradient();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
     if (this.guideDrag && e.pointerId === this.guideDrag.pointerId) this.endGuideDrag();
     if (this.moving && e.pointerId === this.moving.pointerId) {

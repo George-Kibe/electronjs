@@ -94,7 +94,7 @@ that client before quitting. Don't replace it with `firstWindow()` or with retri
   the diffs attached for visual review).
   *As built (M2):* the baselines are rendered by the CPU reference (plain TypeScript, the same bits on every
   OS), not the GPU, so they need no CI runner to generate. `test/golden/golden.test.ts` renders three
-  contact sheets (`blend-modes.png`, `adjustments.png`, `filters.png`) and compares them cell by cell within
+  contact sheets (`blend-modes.png`, `adjustments.png`, `filters.png`, and since M3 `gradients.png`) and compares them cell by cell within
   ±2/255. A failure names the cells and writes `__diff__/<name>.actual.png` and `<name>.diff.png` (red: out
   of tolerance, amber: changed within it), uploaded as a CI artifact. A missing baseline is written locally
   and fails in CI. `pnpm test:golden --update` rewrites them, only after the visual change has been

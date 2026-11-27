@@ -236,3 +236,40 @@ test(`[${target}] paint bucket: fills the area of similar colour, inside the sel
   expect(await canvasPixel(win, ...at(230, 170))).toEqual([255, 255, 255]);
   await close();
 });
+
+test(`[${target}] gradient: drag a linear or radial gradient onto the layer, one undo step (FR-PNT-04)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win);
+  const at = await docToPage(win);
+  const options = win.getByRole('toolbar', { name: 'Tool options' });
+  // G is the Paint Bucket at first; Shift+G switches to the Gradient.
+  await win.keyboard.press('g');
+  await win.keyboard.press('Shift+g');
+  await expect(options).toContainText('Gradient');
+  await options.getByRole('button', { name: 'Smooth the banding of slow gradients' }).click(); // dither off
+
+  // Foreground (black) to background (white), left to right.
+  await drag(win, at(0, 100), at(299, 100));
+  await expect(history(win)).toContainText('Gradient', { timeout: 15_000 });
+  // The screenshot is colour-managed to the display (ADR-0004), which bends levels between black, mid-grey
+  // and white on some systems: check the ends, the middle and that it rises across.
+  await expect.poll(async () => (await canvasPixel(win, ...at(5, 50)))[0]).toBeLessThan(25);
+  const row = await Promise.all(
+    [5, 75, 150, 225, 295].map(async (x) => (await canvasPixel(win, ...at(x, 50)))[0]),
+  );
+  for (let i = 1; i < row.length; i++) expect(row[i]).toBeGreaterThan(row[i - 1]!);
+  expect(Math.abs(row[2]! - 128)).toBeLessThanOrEqual(4);
+  expect(row[4]).toBeGreaterThan(235);
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => canvasPixel(win, ...at(2, 50))).toEqual([255, 255, 255]);
+
+  // Radial from the centre: black there, white from the radius out.
+  await options.getByRole('button', { name: 'Radial gradient' }).click();
+  await drag(win, at(150, 100), at(150, 180));
+  await expect
+    .poll(async () => (await canvasPixel(win, ...at(150, 100)))[0], { timeout: 15_000 })
+    .toBeLessThan(25);
+  expect((await canvasPixel(win, ...at(150, 140)))[0]).toBeGreaterThan(100); // half way out
+  expect(await canvasPixel(win, ...at(10, 10))).toEqual([255, 255, 255]);
+  await close();
+});

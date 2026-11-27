@@ -145,6 +145,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (e.shiftKey && key === 'b') return run(() => editor.selectBrushTool(true));
         if (e.shiftKey && key === 'm') return run(() => editor.selectMarqueeTool(true));
         if (e.shiftKey && key === 'l') return run(() => editor.selectLassoTool(true));
+        if (e.shiftKey && key === 'g') return run(() => editor.selectFillTool(true));
         if (e.shiftKey) return false;
         if (key === 'v') return run(() => editor.setTool('move'));
         if (key === 'm') return run(() => editor.selectMarqueeTool());
@@ -163,7 +164,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (tool === 'crop' && e.key === 'Escape') return run(() => editor.resetCrop());
         if (key === 'b') return run(() => editor.selectBrushTool());
         if (key === 'e') return run(() => editor.setTool('eraser'));
-        if (key === 'g') return run(() => editor.setTool('bucket'));
+        if (key === 'g') return run(() => editor.selectFillTool());
         if (key === 'i') return run(() => editor.setTool('eyedropper'));
         if (key === 'h') return run(() => editor.setTool('hand'));
         if (key === 'z') return run(() => editor.setTool('zoom'));

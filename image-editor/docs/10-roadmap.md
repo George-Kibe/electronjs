@@ -316,8 +316,16 @@ start only after approval):
         blends Normal at 100 % in straight alpha, keeps alpha when transparency is locked, and is one undo
         step. A click outside the selection fills nothing. It runs in the ops worker (`ops/fill.ts` on
         `magicWand`'s region). Filling a layer mask with the bucket is later.
-  - [ ] 1b Gradient (FR-PNT-04): linear, radial, angle, reflected, diamond; foreground → background,
-        foreground → transparent and presets; opacity, blend mode, dither; golden images for each type.
+  - [ ] 1b Gradient (FR-PNT-04). As built: Shift+G (G picks the last of Paint Bucket and Gradient), or
+        the toolbar's flyout. Drag from start to end (Shift: 45° steps); the line shows while dragging. Linear,
+        radial, angle, reflected and diamond; colours Foreground to Background, Foreground to Transparent,
+        Black-White or Spectrum, with Reverse; any of the 18 blend modes, opacity and dither (on by default,
+        a fixed per-pixel offset under half a level). Interpolation is in gamma sRGB (ADR-0004) and blending
+        uses the compositor's CPU reference, within the selection, keeping alpha when transparency is locked;
+        one undo step, computed in bands on the ops worker pool (`ops/gradient.ts`): a 24 MP gradient takes
+        about 0.6 s on the 4-core laptop. A golden sheet covers the five types
+        at three settings. Not yet: editing a gradient's stops and saving custom presets (FR-PNT-04's
+        "custom presets"), which needs a gradient editor.
 - [ ] Slice 2 — Clone Stamp (S; FR-PNT-05), brush blend modes and "Lock transparent pixels" for every
       painting tool (FR-PNT-10)
 - [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep`

@@ -33,9 +33,10 @@ function ops(): Worker {
   return worker;
 }
 
-/** Runs a pixel job in the ops worker (the editor's `runOps`). Large filter jobs are shared out. */
+/** Runs a pixel job in the ops worker (the editor's `runOps`). Large filters and gradients are shared out. */
 export function runOps(job: OpsJob, onProgress?: (p: number) => void): Promise<LayerTiles[]> {
-  if (job.op === 'filter') return runFilter(job, onProgress);
+  if (job.op === 'filter') return inBands(job, Math.ceil(filterReach(job.filter) / TILE_SIZE), onProgress);
+  if (job.op === 'gradient') return inBands(job, 0, onProgress);
   return post(ops(), job, onProgress);
 }
 
@@ -97,18 +98,18 @@ export function warmUpOps(): void {
 }
 
 /**
- * A filter job in bands of tile rows, one per worker. Each band gets only the tiles it reads: its own rows
- * and the filter's reach above and below.
+ * A filter or gradient job in bands of tile rows, one per worker. Each band gets only the tiles it reads:
+ * its own rows and `margin` tile rows above and below (a filter's reach; a gradient reads none).
  */
-async function runFilter(
-  job: Extract<OpsJob, { op: 'filter' }>,
+async function inBands(
+  job: Extract<OpsJob, { op: 'filter' | 'gradient' }>,
+  margin: number,
   onProgress?: (p: number) => void,
 ): Promise<LayerTiles[]> {
   const keys = job.keys ?? tileKeysInRect(0, 0, job.size.width, job.size.height);
   const rows = [...new Set(keys.map((k) => parseTileKey(k)[1]))].sort((a, b) => a - b);
   const bands = Math.min(POOL_SIZE, rows.length);
   if (bands <= 1) return post(ops(), job, onProgress);
-  const margin = Math.ceil(filterReach(job.filter) / TILE_SIZE);
   const per = Math.ceil(rows.length / bands);
   const progress = new Array<number>(bands).fill(0);
   const parts = await Promise.all(

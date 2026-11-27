@@ -17,7 +17,10 @@ const GROUPS: ToolInfo[][] = [
     { id: 'pencil', label: 'Pencil', key: 'B', icon: '✎' },
   ],
   [{ id: 'eraser', label: 'Eraser', key: 'E', icon: '⌫' }],
-  [{ id: 'bucket', label: 'Paint Bucket', key: 'G', icon: '🪣' }],
+  [
+    { id: 'bucket', label: 'Paint Bucket', key: 'G', icon: '🪣' },
+    { id: 'gradient', label: 'Gradient', key: 'G', icon: '▦' },
+  ],
   [{ id: 'eyedropper', label: 'Eyedropper', key: 'I', icon: '💧' }],
   [{ id: 'hand', label: 'Hand', key: 'H', icon: '✋' }],
   [{ id: 'zoom', label: 'Zoom', key: 'Z', icon: '🔍' }],
