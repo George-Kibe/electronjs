@@ -9,6 +9,7 @@ import { applyFilter, type Filter } from './filters';
 import { histogramOf, packHistogram } from './histogram';
 import { trimContent, type TrimBasis } from './trim';
 import { colorRange, magicWand, type WandOptions } from './wand';
+import { fillRegion } from './fill';
 
 /**
  * Pixel jobs too heavy for the UI thread (docs/02 §5.6): Image Size and arbitrary rotation. Pure, so the ops
@@ -70,6 +71,21 @@ export type OpsJob =
       size: Size;
       selection: Array<[TileKey, Uint8Array]> | null;
     }
+  /**
+   * Paint Bucket (FR-PNT-03): the Magic Wand's region from `seed` in `sample` (the layer itself, or all
+   * layers), filled with `color` on `layer` within the selection. The result is the changed tiles.
+   */
+  | {
+      op: 'fill';
+      layer: LayerTiles;
+      sample: LayerSnapshot[];
+      size: Size;
+      seed: { x: number; y: number };
+      options: WandOptions;
+      color: [number, number, number];
+      selection: Array<[TileKey, Uint8Array]> | null;
+      preserveAlpha: boolean;
+    }
   /** Image › Trim (FR-TRF-06): the composite pixels to keep, as a mask. */
   | { op: 'trim'; layers: LayerSnapshot[]; size: Size; basis: TrimBasis }
   /** Select › Color Range (FR-SEL-05). */
@@ -113,6 +129,13 @@ export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerT
             : colorRange(snapshotLayers(job.layers), job.size, job.color, job.fuzziness);
     onProgress?.(1);
     return [{ id: 'mask', tiles }];
+  }
+  if (job.op === 'fill') {
+    const region = magicWand(snapshotLayers(job.sample), job.size, job.seed, job.options);
+    const selection = job.selection ? new Map(job.selection) : null;
+    const tiles = fillRegion(new Map(job.layer.tiles), region, job.color, selection, job.preserveAlpha);
+    onProgress?.(1);
+    return [{ id: job.layer.id, tiles }];
   }
   if (job.op === 'filter') {
     const tiles = applyFilter(

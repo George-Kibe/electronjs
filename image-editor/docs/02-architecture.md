@@ -190,6 +190,9 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
 - The selection is a `Mask` (A8 tiles). Marquee and lasso shapes rasterize on the GPU (anti-aliased polygon fill).
 - Magic wand and paint bucket use a **scanline flood fill** in the CPU-ops worker over the relevant tiles
   (transferred), with tolerance in RGB distance.
+  *As built (M3 slice 1a):* the paint bucket is the `fill` ops job: `magicWand`'s region (premultiplied
+  per-channel distance) from the click, then `ops/fill.ts` blends the foreground colour into the active
+  layer through it and the selection's coverage. Only the changed tiles come back, as one PaintTiles step.
 - Feather = separable Gaussian on the mask (GPU). Grow/shrink = distance-transform-based morphology (worker).
 - Marching ants: an edge-detect shader on the mask with an animated dash, drawn in the overlay pass.
 

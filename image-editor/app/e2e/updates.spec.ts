@@ -83,8 +83,17 @@ test(`[${target}] Check for Updates reports up to date; the update channel is sa
   await expect(prefs.getByLabel('Update status')).toContainText('is up to date.');
   await prefs.getByRole('combobox', { name: 'Update channel' }).selectOption('beta');
   await prefs.getByRole('button', { name: 'Done' }).click();
+  // The setting is written by main after an IPC round trip: wait for it before quitting.
+  const saved = () => {
+    try {
+      return JSON.parse(readFileSync(join(profile, 'settings.json'), 'utf8')) as {
+        updates?: { channel?: string };
+      };
+    } catch {
+      return null; // not written yet
+    }
+  };
+  await expect.poll(() => saved()?.updates?.channel).toBe('beta');
   await close();
-  expect(JSON.parse(readFileSync(join(profile, 'settings.json'), 'utf8'))).toMatchObject({
-    updates: { channel: 'beta' },
-  });
+  expect(saved()).toMatchObject({ updates: { channel: 'beta' } });
 });

@@ -48,6 +48,7 @@ const TOOL_NAMES: Record<Tool, string> = {
   pencil: 'Pencil',
   eraser: 'Eraser',
   eyedropper: 'Eyedropper',
+  bucket: 'Paint Bucket',
   hand: 'Hand',
   zoom: 'Zoom',
 };
@@ -526,6 +527,29 @@ function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: 
           </Button>
         ))}
       </div>
+      <RegionOptions tool="wand" options={options} onOptions={onOptions} />
+    </>
+  );
+}
+
+/**
+ * The region of similar colour around a click: tolerance, contiguous, anti-alias, sample all layers. The
+ * Magic Wand selects it (FR-SEL-03); the Paint Bucket fills it (FR-PNT-03).
+ */
+function RegionOptions({
+  tool,
+  options,
+  onOptions,
+}: {
+  tool: 'wand' | 'bucket';
+  options: ToolOptions;
+  onOptions: Props['onOptions'];
+}) {
+  const o = options[tool];
+  const set = (patch: Partial<ToolOptions['bucket']>) =>
+    tool === 'wand' ? onOptions('wand', patch) : onOptions('bucket', patch);
+  return (
+    <>
       <label className="flex items-center gap-1">
         <span className="text-ui-muted">Tolerance</span>
         <input
@@ -536,7 +560,7 @@ function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: 
           value={o.tolerance}
           onChange={(e) => {
             const v = Math.round(Number(e.target.value));
-            if (v >= 0 && v <= 255) onOptions('wand', { tolerance: v });
+            if (v >= 0 && v <= 255) set({ tolerance: v });
           }}
           className="bg-ui-bg border-ui-border w-14 rounded border px-1 py-0.5"
         />
@@ -545,19 +569,19 @@ function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: 
         label="Contiguous"
         title="Only the connected area around the click"
         checked={o.contiguous}
-        onChange={(contiguous) => onOptions('wand', { contiguous })}
+        onChange={(contiguous) => set({ contiguous })}
       />
       <Toggle
         label="Anti-alias"
-        title="Smooth the selection's edge"
+        title={tool === 'wand' ? "Smooth the selection's edge" : "Smooth the filled area's edge"}
         checked={o.antiAlias}
-        onChange={(antiAlias) => onOptions('wand', { antiAlias })}
+        onChange={(antiAlias) => set({ antiAlias })}
       />
       <Toggle
         label="Sample all layers"
         title="Pick colours from the whole image, not just the active layer"
         checked={o.sampleAll}
-        onChange={(sampleAll) => onOptions('wand', { sampleAll })}
+        onChange={(sampleAll) => set({ sampleAll })}
       />
     </>
   );
@@ -601,6 +625,7 @@ export function OptionsBar({
       {tool === 'marquee' && <MarqueeOptions options={options} onOptions={onOptions} />}
       {tool === 'lasso' && <LassoOptions options={options} onOptions={onOptions} />}
       {tool === 'wand' && <WandOptions options={options} onOptions={onOptions} />}
+      {tool === 'bucket' && <RegionOptions tool="bucket" options={options} onOptions={onOptions} />}
       {tool === 'eyedropper' && (
         <>
           <Select

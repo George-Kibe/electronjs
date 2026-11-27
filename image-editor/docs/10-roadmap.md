@@ -306,6 +306,27 @@ FR-LAY-01 (text/shape), 07 · FR-TXT-01..03 · FR-PNT-03..05, 08, 10 · FR-DOC-0
 **Exit:** journey 5 passes. The PSD fixture corpus passes (T-IO-05). A PSD round trip opens correctly in
 Photoshop/GIMP/Photopea (manual checklist).
 
+Slices (planned at the start of M3; the ones marked ⚑ touch an "ask a human first" area in AGENTS.md and
+start only after approval):
+
+- [ ] Slice 1 — painting extras: Paint Bucket and Gradient (G, Shift+G; FR-PNT-03/04)
+  - [ ] 1a Paint Bucket (FR-PNT-03). As built: G, and Alt-click picks a colour as with the brush. A click
+        pours the foreground colour into the area the Magic Wand would select there, with the same options
+        (tolerance, contiguous, anti-alias, sample all layers), within the selection by its coverage. It
+        blends Normal at 100 % in straight alpha, keeps alpha when transparency is locked, and is one undo
+        step. A click outside the selection fills nothing. It runs in the ops worker (`ops/fill.ts` on
+        `magicWand`'s region). Filling a layer mask with the bucket is later.
+  - [ ] 1b Gradient (FR-PNT-04): linear, radial, angle, reflected, diamond; foreground → background,
+        foreground → transparent and presets; opacity, blend mode, dither; golden images for each type.
+- [ ] Slice 2 — Clone Stamp (S; FR-PNT-05), brush blend modes and "Lock transparent pixels" for every
+      painting tool (FR-PNT-10)
+- [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep`
+- [ ] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep`
+- [ ] Slice 5 ⚑ — layer styles: drop shadow, stroke, outer glow (FR-LAY-07), stored in `.iep`
+- [ ] Slice 6 — PSD import (FR-DOC-07) in the files worker, with a fixture corpus and fuzzing (untrusted
+      input, docs/06)
+- [ ] Slice 7 — PSD export (FR-DOC-08), journey 5, T-IO-05
+
 ## M4 — Batch, AI, customisation
 
 FR-BAT-01..05 · FR-AI-01..05 · FR-SEL-07, 08 · FR-TRF-05 · FR-FLT-02 · FR-NAV-03 · FR-GEN-03 (custom keymap) ·

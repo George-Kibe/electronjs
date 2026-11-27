@@ -163,6 +163,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (tool === 'crop' && e.key === 'Escape') return run(() => editor.resetCrop());
         if (key === 'b') return run(() => editor.selectBrushTool());
         if (key === 'e') return run(() => editor.setTool('eraser'));
+        if (key === 'g') return run(() => editor.setTool('bucket'));
         if (key === 'i') return run(() => editor.setTool('eyedropper'));
         if (key === 'h') return run(() => editor.setTool('hand'));
         if (key === 'z') return run(() => editor.setTool('zoom'));
