@@ -61,6 +61,8 @@ All notable changes to ImageEditor are documented here. The format follows
 - View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
   the whole image with the part in view outlined; click or drag in it to move around, and use its slider
   to zoom.
+- Clone Stamp (S): Alt-click where to copy from, then paint to copy that part of the image. Aligned keeps
+  the same offset for every stroke; Sample all layers copies the whole image.
 - Gradient (Shift+G): drag across the image for a linear, radial, angle, reflected or diamond gradient from
   the foreground to the background colour (or to transparent, black to white, a spectrum), with a blend
   mode, opacity, reverse and dither. It stays inside the selection.

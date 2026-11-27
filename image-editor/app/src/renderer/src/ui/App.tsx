@@ -401,7 +401,8 @@ export function App() {
   const hasDoc = Boolean(snap?.doc);
   // Painting tools show the brush outline; below 4 screen px a crosshair is clearer (docs/03 §4).
   const active = snap?.activeTool ?? 'brush';
-  const brushPx = snap && isPaintTool(active) ? snap.options[active].size * snap.zoom : 0;
+  const brushPx =
+    snap && (isPaintTool(active) || active === 'clone') ? snap.options[active].size * snap.zoom : 0;
   // Preferences › Painting cursor: "precise" always shows the crosshair.
   const outline = brushPx >= 4 && prefs.settings.general.brushCursor === 'outline' ? brushPx : 0;
   const cursorClass = CURSORS[active] ?? (outline ? 'cursor-none' : 'cursor-crosshair');
@@ -540,16 +541,22 @@ export function App() {
                 onUnits={(rulerUnits) => void prefs.update({ general: { rulerUnits } })}
               />
             )}
-            {editor && (snap?.selection || snap?.marquee || snap?.lasso || snap?.gradientLine) && (
-              <SelectionOverlay
-                editor={editor}
-                // In Quick Mask the red overlay shows the selection instead of the ants.
-                selection={snap.quickMask ? null : snap.selection}
-                marquee={snap.marquee}
-                lasso={snap.lasso}
-                gradientLine={snap.gradientLine}
-              />
-            )}
+            {editor &&
+              (snap?.selection ||
+                snap?.marquee ||
+                snap?.lasso ||
+                snap?.gradientLine ||
+                snap?.cloneSource) && (
+                <SelectionOverlay
+                  editor={editor}
+                  // In Quick Mask the red overlay shows the selection instead of the ants.
+                  selection={snap.quickMask ? null : snap.selection}
+                  marquee={snap.marquee}
+                  lasso={snap.lasso}
+                  gradientLine={snap.gradientLine}
+                  cloneSource={snap.cloneSource}
+                />
+              )}
             {snap?.doc && editor && (
               <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
             )}

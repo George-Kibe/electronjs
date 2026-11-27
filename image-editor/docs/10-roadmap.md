@@ -328,6 +328,18 @@ start only after approval):
         "custom presets"), which needs a gradient editor.
 - [ ] Slice 2 — Clone Stamp (S; FR-PNT-05), brush blend modes and "Lock transparent pixels" for every
       painting tool (FR-PNT-10)
+  - [ ] 2a Clone Stamp (FR-PNT-05). As built: S. Alt-click sets the source (a crosshair marks it, and during
+        a stroke it shows the pixel being sampled). Then paint with the brush options (size, hardness,
+        opacity, flow, tip, pressure). Aligned (on by default) keeps the offset from the first stroke after
+        the Alt-click; off, each stroke starts again at the source. Samples the active layer or all layers
+        as they were when the stroke began, so a stroke never clones itself. Offsets are whole pixels, so
+        copies are exact. Within the selection, keeping alpha when transparency is locked; one undo step.
+        The stroke is composited on the CPU as you paint (`brush/clone.ts`) and shown as a preview document.
+        With this, transparency lock is respected by every painting tool (brush, pencil, eraser, bucket,
+        gradient, clone).
+  - [ ] 2b Brush blend modes (FR-PNT-10): the brush and pencil paint with any of the 18 modes. This
+        changes how strokes composite on the GPU and the CPU, next to the blend-mode shaders (an
+        "ask a human first" area), so it waits for review.
 - [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep`
 - [ ] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep`
 - [ ] Slice 5 ⚑ — layer styles: drop shadow, stroke, outer glow (FR-LAY-07), stored in `.iep`

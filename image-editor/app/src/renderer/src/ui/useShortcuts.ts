@@ -164,6 +164,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (tool === 'crop' && e.key === 'Escape') return run(() => editor.resetCrop());
         if (key === 'b') return run(() => editor.selectBrushTool());
         if (key === 'e') return run(() => editor.setTool('eraser'));
+        if (key === 's') return run(() => editor.setTool('clone'));
         if (key === 'g') return run(() => editor.selectFillTool());
         if (key === 'i') return run(() => editor.setTool('eyedropper'));
         if (key === 'h') return run(() => editor.setTool('hand'));
@@ -171,7 +172,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (key === 'x') return run(() => editor.swapColors());
         if (key === 'd') return run(() => editor.resetColors());
         // 1…9, 0: opacity 10 %…90 %, 100 % for painting tools (docs/03 §6).
-        if (/^[0-9]$/.test(key) && isPaintTool(tool))
+        if (/^[0-9]$/.test(key) && (isPaintTool(tool) || tool === 'clone'))
           return run(() => editor.setBrush({ opacity: key === '0' ? 1 : Number(key) / 10 }));
         return false;
       })();

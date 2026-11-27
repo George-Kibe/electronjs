@@ -7,6 +7,7 @@ type Props = {
   marquee: EditorSnapshot['marquee'];
   lasso: EditorSnapshot['lasso'];
   gradientLine?: EditorSnapshot['gradientLine'];
+  cloneSource?: EditorSnapshot['cloneSource'];
 };
 
 /** Black dashes over white, 1 screen px at any zoom (FR-SEL-06). */
@@ -25,15 +26,27 @@ function Ants({ children }: { children: (props: React.SVGProps<SVGElement>) => R
  * in document pixels under the view transform, so the outline stays crisp at any zoom. The dashes stop
  * moving with prefers-reduced-motion (docs/03 §7). Display only: the editor handles input.
  */
-export function SelectionOverlay({ editor, selection, marquee, lasso, gradientLine }: Props) {
+export function SelectionOverlay({ editor, selection, marquee, lasso, gradientLine, cloneSource }: Props) {
   const { zoom, panX, panY } = useSyncExternalStore(editor.subscribeView, editor.getView);
-  if (!selection && !marquee && !lasso && !gradientLine) return null;
+  if (!selection && !marquee && !lasso && !gradientLine && !cloneSource) return null;
+  // The Clone Stamp's source: a crosshair 8 screen px each way (FR-PNT-05).
+  const arm = 8 / zoom;
   // The outline drawn so far; a polygon also shows the edge to the pointer.
   const lassoPoints = lasso ? [...lasso.points, ...(lasso.hover ? [lasso.hover] : [])] : [];
   const r = marquee?.rect;
   return (
     <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
       <g transform={`translate(${panX} ${panY}) scale(${zoom})`}>
+        {cloneSource && (
+          <Ants>
+            {(p) => (
+              <path
+                d={`M${cloneSource.x - arm} ${cloneSource.y}H${cloneSource.x + arm}M${cloneSource.x} ${cloneSource.y - arm}V${cloneSource.y + arm}`}
+                {...(p as React.SVGProps<SVGPathElement>)}
+              />
+            )}
+          </Ants>
+        )}
         {gradientLine && (
           // The Gradient tool's drag (FR-PNT-04): from where the gradient starts to where it ends.
           <Ants>

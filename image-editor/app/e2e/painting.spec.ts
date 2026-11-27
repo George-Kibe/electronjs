@@ -273,3 +273,40 @@ test(`[${target}] gradient: drag a linear or radial gradient onto the layer, one
   expect(await canvasPixel(win, ...at(10, 10))).toEqual([255, 255, 255]);
   await close();
 });
+
+test(`[${target}] clone stamp: Alt-click a source, paint a copy of it elsewhere, aligned (FR-PNT-05)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win);
+  const at = await docToPage(win);
+  const options = win.getByRole('toolbar', { name: 'Tool options' });
+  // A red line to clone.
+  await win.getByRole('button', { name: /^Foreground colour/ }).click();
+  const picker = win.getByRole('dialog', { name: 'Foreground colour' });
+  await picker.getByRole('textbox', { name: 'Hex' }).fill('FF0000');
+  await picker.getByRole('button', { name: 'OK' }).click();
+  await options.getByRole('slider', { name: 'Size' }).fill('12');
+  await paintLine(win, at(30, 50), at(70, 50));
+  await expect.poll(() => canvasPixel(win, ...at(50, 50))).toEqual([255, 0, 0]);
+
+  await win.keyboard.press('s');
+  await expect(options).toContainText('Clone Stamp');
+  await options.getByRole('slider', { name: 'Size' }).fill('12');
+  await win.mouse.click(...at(200, 150));
+  await expect(
+    win.getByRole('status').filter({ hasText: 'Alt-click where to clone from first.' }),
+  ).toBeVisible();
+
+  // Alt-click the line's middle, then paint 100 px down and 150 px right: the line's right half appears.
+  await win.keyboard.down('Alt');
+  await win.mouse.click(...at(50, 50));
+  await win.keyboard.up('Alt');
+  await paintLine(win, at(200, 150), at(240, 150));
+  await win.mouse.move(...at(10, 190)); // the brush outline follows the pointer: keep it off the pixels read
+  await expect(history(win)).toContainText('Clone Stamp');
+  await expect.poll(() => canvasPixel(win, ...at(210, 150))).toEqual([255, 0, 0]); // from (60, 50)
+  expect(await canvasPixel(win, ...at(235, 150))).toEqual([255, 255, 255]); // from (85, 50): white
+  expect(await canvasPixel(win, ...at(210, 120))).toEqual([255, 255, 255]); // outside the brush
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => canvasPixel(win, ...at(210, 150))).toEqual([255, 255, 255]);
+  await close();
+});
