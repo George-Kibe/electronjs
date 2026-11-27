@@ -173,6 +173,7 @@ export type Tool =
   | 'pencil'
   | 'eraser'
   | 'eyedropper'
+  | 'bucket'
   | 'hand'
   | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
@@ -207,6 +208,8 @@ export type ToolOptions = {
   lasso: LassoOptions;
   /** Magic Wand (FR-SEL-03): tolerance, contiguous, anti-alias, and sampling the active layer or all. */
   wand: WandOptions & { mode: SelectionOp; sampleAll: boolean };
+  /** Paint Bucket (FR-PNT-03): the Magic Wand's options, for the region it fills. */
+  bucket: WandOptions & { sampleAll: boolean };
 };
 
 const brushDefaults = (o: Partial<BrushOptions> = {}): BrushOptions => ({
@@ -232,6 +235,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   marquee: DEFAULT_MARQUEE,
   lasso: DEFAULT_LASSO,
   wand: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false, mode: 'replace' },
+  bucket: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false },
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
@@ -1708,12 +1712,15 @@ export class Editor {
     this.changed();
   }
 
-  /** Alt turns the brush and pencil into the eyedropper; Ctrl/⌘ turns painting tools into Move (docs/03 §4). */
+  /**
+   * Alt turns the brush, pencil and paint bucket into the eyedropper; Ctrl/⌘ turns painting tools into Move
+   * (docs/03 §4).
+   */
   private effectiveTool(mods: { alt: boolean; ctrl: boolean }): Tool {
     const t = this.tool;
-    if (mods.ctrl && (isPaintTool(t) || ['eyedropper', 'marquee', 'lasso', 'wand'].includes(t)))
+    if (mods.ctrl && (isPaintTool(t) || ['eyedropper', 'marquee', 'lasso', 'wand', 'bucket'].includes(t)))
       return 'move';
-    if (mods.alt && (t === 'brush' || t === 'pencil')) return 'eyedropper';
+    if (mods.alt && (t === 'brush' || t === 'pencil' || t === 'bucket')) return 'eyedropper';
     return t;
   }
 
@@ -2661,6 +2668,73 @@ export class Editor {
     );
   }
 
+  /**
+   * Paint Bucket click (G; FR-PNT-03): the foreground colour poured into the region the Magic Wand would
+   * select there (in the ops worker), within the selection, as one history step. A click outside the
+   * selection fills nothing, as in Photoshop.
+   */
+  private async paintBucket(e: PointerEvent): Promise<void> {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const layer = doc.activeLayer;
+    if (layer.type !== 'raster')
+      return this.notice(
+        `Select a layer to fill (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`,
+      );
+    if (this.editingMask)
+      return this.notice('The Paint Bucket fills pixels. Click the layer thumbnail to edit them.');
+    if (layer.locks.all || layer.locks.pixels) return this.notice('This layer is locked.');
+    const p = this.docPoint(e);
+    const [x, y] = [Math.floor(p.x), Math.floor(p.y)];
+    if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return;
+    if (doc.selection && doc.selection.value(x, y) === 0) return;
+    const o = this.toolOptions.bucket;
+    const sample = o.sampleAll
+      ? toSnapshot(doc).layers
+      : [
+          {
+            ...layerToSnapshot(layer),
+            visible: true,
+            opacity: 1,
+            fillOpacity: 1,
+            blendMode: 'normal' as const,
+          },
+        ];
+    const selection = doc.selection
+      ? [...doc.selection.entries()].map(([k, t]): [TileKey, Uint8Array] => [
+          k,
+          new Uint8Array(t.data.buffer, t.data.byteOffset, t.data.byteLength),
+        ])
+      : null;
+    const color = this.colors.foreground;
+    await this.runJobFor(
+      'Paint Bucket',
+      {
+        op: 'fill',
+        layer: fromGrid(layer.id, layer.tiles),
+        sample,
+        size: { width: doc.width, height: doc.height },
+        seed: { x, y },
+        options: { tolerance: o.tolerance, contiguous: o.contiguous, antiAlias: o.antiAlias },
+        color: [color[0], color[1], color[2]],
+        selection,
+        preserveAlpha: layer.locks.transparency,
+      },
+      ([result]) => {
+        const tiles = doc.raster(layer.id).tiles;
+        const before = new Map<TileKey, Tile | undefined>();
+        const after = new Map<TileKey, Tile | undefined>();
+        for (const [key, bytes] of result?.tiles ?? []) {
+          before.set(key, tiles.get(key));
+          after.set(key, createTile(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength)));
+        }
+        if (after.size === 0) return;
+        this.addRecent(color);
+        this.exec(new PaintTilesCommand('Paint Bucket', layer.id, before, after));
+      },
+    );
+  }
+
   /** Runs a selection job in the ops worker and applies its mask in `op` (one history step). */
   private async runSelectionJob(label: string, job: OpsJob, op: SelectionOp): Promise<void> {
     const doc = this.doc;
@@ -3322,6 +3396,7 @@ export class Editor {
     if (tool === 'marquee') return this.beginMarquee(e);
     if (tool === 'lasso') return this.lassoDown(e);
     if (tool === 'wand') return void this.magicWand(e);
+    if (tool === 'bucket') return void this.paintBucket(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,

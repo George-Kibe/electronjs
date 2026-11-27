@@ -193,3 +193,46 @@ test(`[${target}] move tool: drag, keep off-canvas pixels, nudge, align, lock an
   await black(30, 150);
   await close();
 });
+
+test(`[${target}] paint bucket: fills the area of similar colour, inside the selection, as one step (FR-PNT-03)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win);
+  const at = await docToPage(win);
+  // A black wall from top to bottom of the white background.
+  await win.getByRole('toolbar', { name: 'Tool options' }).getByRole('slider', { name: 'Size' }).fill('12');
+  await paintLine(win, at(150, 0), at(150, 199));
+  await expect.poll(() => canvasPixel(win, ...at(150, 100))).toEqual([0, 0, 0]);
+
+  await win.getByRole('button', { name: /^Foreground colour/ }).click();
+  const picker = win.getByRole('dialog', { name: 'Foreground colour' });
+  await picker.getByRole('textbox', { name: 'Hex' }).fill('FF0000');
+  await picker.getByRole('button', { name: 'OK' }).click();
+
+  // G, then a click left of the wall: the left side fills, the wall stops it.
+  await win.keyboard.press('g');
+  await expect(win.getByRole('toolbar', { name: 'Tool options' })).toContainText('Paint Bucket');
+  await win.mouse.click(...at(40, 100));
+  await expect(history(win)).toContainText('Paint Bucket', { timeout: 15_000 });
+  await expect.poll(() => canvasPixel(win, ...at(40, 100))).toEqual([255, 0, 0]);
+  await expect.poll(() => canvasPixel(win, ...at(5, 195))).toEqual([255, 0, 0]);
+  expect(await canvasPixel(win, ...at(250, 100))).toEqual([255, 255, 255]);
+  expect(await canvasPixel(win, ...at(150, 100))).toEqual([0, 0, 0]);
+  await win.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => canvasPixel(win, ...at(40, 100))).toEqual([255, 255, 255]);
+
+  // With a selection, only the selected part of the area fills.
+  await win.keyboard.press('m');
+  await win.mouse.move(...at(200, 50));
+  await win.mouse.down();
+  await win.mouse.move(...at(260, 150), { steps: 8 });
+  await win.mouse.up();
+  await win.keyboard.press('g');
+  await win.mouse.click(...at(230, 100));
+  await expect(history(win).getByRole('button', { name: 'Paint Bucket' })).toHaveCount(1, {
+    timeout: 15_000,
+  });
+  await expect.poll(() => canvasPixel(win, ...at(230, 100))).toEqual([255, 0, 0]);
+  expect(await canvasPixel(win, ...at(285, 100))).toEqual([255, 255, 255]);
+  expect(await canvasPixel(win, ...at(230, 170))).toEqual([255, 255, 255]);
+  await close();
+});

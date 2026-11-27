@@ -70,6 +70,7 @@ const CURSORS: Partial<Record<Tool, string>> = {
   hand: 'cursor-grab',
   zoom: 'cursor-zoom-in',
   eyedropper: 'cursor-crosshair',
+  bucket: 'cursor-crosshair',
 };
 
 /** One history scratch file per window, shared by its documents and by an Editor rebuilt after a GPU reset. */
