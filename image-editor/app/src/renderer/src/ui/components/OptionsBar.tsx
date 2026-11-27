@@ -52,6 +52,7 @@ const TOOL_NAMES: Record<Tool, string> = {
   eyedropper: 'Eyedropper',
   bucket: 'Paint Bucket',
   gradient: 'Gradient',
+  clone: 'Clone Stamp',
   hand: 'Hand',
   zoom: 'Zoom',
 };
@@ -135,7 +136,7 @@ function PaintOptions({
   options,
   onOptions,
 }: {
-  tool: 'brush' | 'pencil' | 'eraser';
+  tool: 'brush' | 'pencil' | 'eraser' | 'clone';
   options: ToolOptions;
   onOptions: Props['onOptions'];
 }) {
@@ -693,6 +694,24 @@ export function OptionsBar({
       {tool === 'wand' && <WandOptions options={options} onOptions={onOptions} />}
       {tool === 'bucket' && <RegionOptions tool="bucket" options={options} onOptions={onOptions} />}
       {tool === 'gradient' && <GradientOptions options={options} onOptions={onOptions} />}
+      {tool === 'clone' && (
+        <>
+          <PaintOptions tool="clone" options={options} onOptions={onOptions} />
+          <Toggle
+            label="Aligned"
+            title="Keep the distance to the source between strokes"
+            checked={options.clone.aligned}
+            onChange={(aligned) => onOptions('clone', { aligned })}
+          />
+          <Toggle
+            label="Sample all layers"
+            title="Clone from the whole image, not just the active layer"
+            checked={options.clone.sampleAll}
+            onChange={(sampleAll) => onOptions('clone', { sampleAll })}
+          />
+          <span className="text-ui-muted">Alt-click to set the source</span>
+        </>
+      )}
       {tool === 'eyedropper' && (
         <>
           <Select

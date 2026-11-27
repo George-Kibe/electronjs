@@ -1,5 +1,6 @@
 import { tileRange } from '@shared/iep-schema';
 import {
+  accumulateDabs,
   applyMaskStroke,
   applySelectionStroke,
   applyStroke,
@@ -10,6 +11,7 @@ import {
   type BrushSettings,
   type Dab,
 } from './brush/brush';
+import { cloneTile, type CloneSource } from './brush/clone';
 import {
   AddLayerCommand,
   DeleteLayerCommand,
@@ -34,7 +36,7 @@ import {
   type LayerLocks,
   type LayerProps,
 } from './doc/document';
-import { compositePixel, liveLayers, flattenPreview } from './doc/flatten';
+import { compositePixel, compositeTile, liveLayers, flattenPreview } from './doc/flatten';
 import {
   duplicateLayer,
   flattenImage,
@@ -176,6 +178,7 @@ export type Tool =
   | 'eyedropper'
   | 'bucket'
   | 'gradient'
+  | 'clone'
   | 'hand'
   | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
@@ -212,6 +215,11 @@ export type ToolOptions = {
   wand: WandOptions & { mode: SelectionOp; sampleAll: boolean };
   /** Paint Bucket (FR-PNT-03): the Magic Wand's options, for the region it fills. */
   bucket: WandOptions & { sampleAll: boolean };
+  /**
+   * Clone Stamp (FR-PNT-05): a brush, plus Aligned (the offset to the source stays between strokes) and
+   * sampling the active layer or all layers.
+   */
+  clone: BrushOptions & { aligned: boolean; sampleAll: boolean };
   /** Gradient (FR-PNT-04): geometry, colours (a preset of the current colours), opacity, mode, dither. */
   gradient: {
     type: GradientType;
@@ -248,6 +256,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   wand: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false, mode: 'replace' },
   bucket: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false },
   gradient: { type: 'linear', preset: 'fg-bg', opacity: 1, mode: 'normal', dither: true, reverse: false },
+  clone: { ...brushDefaults(), aligned: true, sampleAll: false },
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
@@ -332,6 +341,8 @@ export type EditorSnapshot = {
   marquee: { shape: MarqueeShape; rect: Bounds } | null;
   /** The Gradient tool's line being dragged, in document px. */
   gradientLine: { start: { x: number; y: number }; end: { x: number; y: number } } | null;
+  /** The Clone Stamp's source (Alt-click), or where it samples during a stroke, in document px. */
+  cloneSource: { x: number; y: number } | null;
   /** A lasso outline being drawn (doc px), and for the polygonal lasso the pointer's position. */
   lasso: { kind: LassoKind; points: Point[]; hover: Point | null } | null;
   /** Select › Reselect has something to bring back. */
@@ -630,6 +641,26 @@ export class Editor {
     end: { x: number; y: number };
   } | null = null;
   private lastFillTool: 'bucket' | 'gradient' = 'bucket';
+  /** Clone Stamp (FR-PNT-05): the Alt-clicked source, and the offset kept between strokes when aligned. */
+  private cloneFrom: { x: number; y: number } | null = null;
+  private cloneOffset: { dx: number; dy: number } | null = null;
+  private cloneStroke: {
+    pointerId: number;
+    layerId: string;
+    settings: BrushSettings;
+    generator: DabGenerator;
+    smoother: PulledString;
+    offset: { dx: number; dy: number };
+    source: CloneSource;
+    preserveAlpha: boolean;
+    coverage: Map<TileKey, Float32Array>;
+    /** The layer's tiles as the stroke began, and the stroke's result so far. */
+    before: Map<TileKey, Tile | undefined>;
+    after: Map<TileKey, Tile | undefined>;
+    last: { x: number; y: number };
+  } | null = null;
+  /** The document with the clone stroke so far (shown instead of the document while painting). */
+  private clonePreview: Document | null = null;
   private marqueeDrag: {
     pointerId: number;
     start: { x: number; y: number };
@@ -1147,6 +1178,7 @@ export class Editor {
       selection: this.transformShown()?.doc ? null : this.selectionState(),
       marquee: this.marqueeState(),
       gradientLine: this.gradientDrag && { start: this.gradientDrag.start, end: this.gradientDrag.end },
+      cloneSource: this.cloneSourceShown(),
       lasso: this.lassoDraw
         ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
         : null,
@@ -1221,6 +1253,7 @@ export class Editor {
       this.history?.loading === true ||
       this.marqueeDrag !== null ||
       this.gradientDrag !== null ||
+      this.cloneStroke !== null ||
       this.lassoDraw?.pointerId != null
     );
   }
@@ -1639,12 +1672,13 @@ export class Editor {
   }
 
   /** Changes the options of the current paint tool (or the last brush tool). */
+  /** The brush keys ([ ], Shift+[ ], 1…0) change the active painting tool's brush, the Clone Stamp's too. */
   setBrush(patch: Partial<BrushOptions>): void {
-    this.setToolOptions(this.paintTool, patch);
+    this.setToolOptions(this.tool === 'clone' ? 'clone' : this.paintTool, patch);
   }
 
   get brushOptions(): BrushOptions {
-    return this.toolOptions[this.paintTool];
+    return this.toolOptions[this.tool === 'clone' ? 'clone' : this.paintTool];
   }
 
   // ---- colours (FR-PNT-07) ----------------------------------------------------------------------
@@ -1749,7 +1783,8 @@ export class Editor {
     const t = this.tool;
     if (
       mods.ctrl &&
-      (isPaintTool(t) || ['eyedropper', 'marquee', 'lasso', 'wand', 'bucket', 'gradient'].includes(t))
+      (isPaintTool(t) ||
+        ['eyedropper', 'marquee', 'lasso', 'wand', 'bucket', 'gradient', 'clone'].includes(t))
     )
       return 'move';
     if (mods.alt && (t === 'brush' || t === 'pencil' || t === 'bucket')) return 'eyedropper';
@@ -2836,6 +2871,146 @@ export class Editor {
     );
   }
 
+  // ---- Clone Stamp (S; FR-PNT-05) --------------------------------------------------------------
+
+  /** Where the crosshair goes: the source, or during a stroke the pixel being sampled. */
+  private cloneSourceShown(): { x: number; y: number } | null {
+    const c = this.cloneStroke;
+    if (c) return { x: c.last.x + c.offset.dx, y: c.last.y + c.offset.dy };
+    return this.tool === 'clone' ? this.cloneFrom : null;
+  }
+
+  /** Alt-click sets the source; a plain drag paints with the image from there. */
+  private beginClone(e: PointerEvent): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    const p = this.docPoint(e);
+    if (e.altKey) {
+      this.cloneFrom = { x: Math.floor(p.x) + 0.5, y: Math.floor(p.y) + 0.5 };
+      this.cloneOffset = null;
+      return this.changed();
+    }
+    const blocker = this.fillBlocker('Clone Stamp');
+    if (blocker) return this.notice(blocker);
+    if (!this.cloneFrom) return this.notice('Alt-click where to clone from first.');
+    const layer = doc.raster(doc.activeLayerId);
+    const o = this.toolOptions.clone;
+    // Aligned: the first stroke after Alt-click fixes the offset. Otherwise every stroke starts at the source.
+    const offset = (o.aligned && this.cloneOffset) || {
+      dx: Math.round(this.cloneFrom.x - p.x),
+      dy: Math.round(this.cloneFrom.y - p.y),
+    };
+    if (o.aligned) this.cloneOffset = offset;
+    // The image as the stroke begins (tiles are immutable, so this costs references only).
+    let source: CloneSource;
+    if (o.sampleAll) {
+      const layers = liveLayers(doc.layers);
+      const cache = new Map<TileKey, Uint8ClampedArray>();
+      source = (key) => {
+        let t = cache.get(key);
+        if (!t) cache.set(key, (t = compositeTile(layers, key)));
+        return t;
+      };
+    } else {
+      const tiles = new Map([...layer.tiles.entries()].map(([k, t]) => [k, t.data]));
+      source = (key) => tiles.get(key);
+    }
+    // The colour is unused: the source pixels are the paint.
+    const settings: BrushSettings = { ...o, aliased: false, mode: 'paint', color: [0, 0, 0] };
+    const generator = new DabGenerator(settings);
+    this.cloneStroke = {
+      pointerId: e.pointerId,
+      layerId: layer.id,
+      settings,
+      generator,
+      smoother: new PulledString((settings.smoothing * SMOOTHING_SCREEN_PX) / this.viewport.zoom),
+      offset,
+      source,
+      preserveAlpha: layer.locks.transparency,
+      coverage: new Map(),
+      before: new Map(),
+      after: new Map(),
+      last: { x: p.x, y: p.y },
+    };
+    this.cloneDabs(generator.begin(p));
+  }
+
+  private moveClone(e: PointerEvent): void {
+    const c = this.cloneStroke!;
+    const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+    const dabs: Dab[] = [];
+    for (const ev of events.length ? events : [e]) {
+      const point = this.docPoint(ev);
+      c.last = { x: point.x, y: point.y };
+      const q = c.smoother.move(point);
+      if (q) dabs.push(...c.generator.moveTo(q));
+    }
+    this.cloneDabs(dabs);
+  }
+
+  /** Adds dabs to the coverage and recomputes the tiles they touch (CPU; within the selection). */
+  private cloneDabs(dabs: Dab[]): void {
+    const c = this.cloneStroke;
+    const doc = this.doc;
+    if (!c || !doc || dabs.length === 0) return this.changed();
+    const layer = doc.raster(c.layerId);
+    const touched = new Set<TileKey>();
+    for (const d of dabs)
+      for (const key of tileKeysInRect(
+        Math.max(0, d.x - d.radius),
+        Math.max(0, d.y - d.radius),
+        Math.min(doc.width, d.x + d.radius),
+        Math.min(doc.height, d.y + d.radius),
+      ))
+        touched.add(key);
+    for (const key of touched) {
+      const [tileX, tileY] = parseTileKey(key);
+      let coverage = c.coverage.get(key);
+      if (!coverage) c.coverage.set(key, (coverage = new Float32Array(TILE_SIZE * TILE_SIZE)));
+      accumulateDabs(coverage, tileX, tileY, dabs, c.settings.hardness);
+      // Painting only reaches selected pixels, in proportion to their coverage (FR-SEL-06).
+      const mask = doc.selection?.tile(key);
+      if (doc.selection && !mask) continue;
+      const k = mask && !mask.full ? coverage.map((v, i) => (v * mask.data[i]!) / 255) : coverage;
+      if (!c.before.has(key)) c.before.set(key, layer.tiles.get(key));
+      const before = c.before.get(key);
+      c.after.set(
+        key,
+        cloneTile(
+          before,
+          k,
+          c.source,
+          c.offset,
+          c.settings,
+          { tileX, tileY, docWidth: doc.width, docHeight: doc.height },
+          c.preserveAlpha,
+        ),
+      );
+    }
+    const grid = new TileGrid();
+    for (const [k, t] of layer.tiles.entries()) grid.set(k, t);
+    for (const [k, t] of c.after) grid.set(k, t);
+    this.clonePreview = withLayerTiles(doc, c.layerId, grid);
+    this.changed();
+  }
+
+  /** The stroke so far becomes one history step. */
+  private endClone(): void {
+    const c = this.cloneStroke;
+    this.cloneStroke = null;
+    this.clonePreview = null;
+    if (!c || !this.doc) return this.changed();
+    const before = new Map<TileKey, Tile | undefined>();
+    const after = new Map<TileKey, Tile | undefined>();
+    for (const [key, next] of c.after)
+      if (next !== c.before.get(key)) {
+        before.set(key, c.before.get(key));
+        after.set(key, next);
+      }
+    if (after.size) this.exec(new PaintTilesCommand('Clone Stamp', c.layerId, before, after));
+    else this.changed();
+  }
+
   /** Painted tiles from an ops job as one history step (only the tiles that changed come back). */
   private commitPaintedTiles(label: string, layerId: string, tiles: Array<[TileKey, Uint8Array]>): void {
     const grid = this.doc!.raster(layerId).tiles;
@@ -3511,6 +3686,7 @@ export class Editor {
     if (tool === 'wand') return void this.magicWand(e);
     if (tool === 'bucket') return void this.paintBucket(e);
     if (tool === 'gradient') return this.beginGradient(e);
+    if (tool === 'clone') return this.beginClone(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,
@@ -3855,6 +4031,7 @@ export class Editor {
     if (this.sampling && e.pointerId === this.sampling.pointerId) return this.sample(e);
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
     if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) return this.moveGradient(e);
+    if (this.cloneStroke && e.pointerId === this.cloneStroke.pointerId) return this.moveClone(e);
     if (this.lassoDraw) return this.lassoMove(e);
     if (this.tool === 'crop') return this.moveCrop(e);
     const stroke = this.stroke;
@@ -3882,6 +4059,7 @@ export class Editor {
     if (this.cropDrag && e.pointerId === this.cropDrag.pointerId) this.endCrop();
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
     if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) void this.endGradient();
+    if (this.cloneStroke && e.pointerId === this.cloneStroke.pointerId) this.endClone();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
     if (this.guideDrag && e.pointerId === this.guideDrag.pointerId) this.endGuideDrag();
     if (this.moving && e.pointerId === this.moving.pointerId) {
@@ -4062,7 +4240,7 @@ export class Editor {
       : undefined;
     const shown = this.transformShown();
     this.compositor.render(
-      shown?.doc ?? this.adjustPreview ?? this.filterPreview ?? this.doc,
+      shown?.doc ?? this.clonePreview ?? this.adjustPreview ?? this.filterPreview ?? this.doc,
       this.viewport,
       { cssWidth, cssHeight, width, height, dpr },
       preview,
