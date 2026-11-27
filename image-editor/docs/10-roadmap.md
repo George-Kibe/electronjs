@@ -289,7 +289,15 @@ Progress (vertical slices, each E2E-tested on 3 OSes):
         them when shown. The Navigator panel (Window › Navigator; on top in Photography, FR-NAV-05) shows
         the image with the part in view outlined; click or drag in it to move the view, and its slider
         zooms. The thumbnail fits the panel's size. E2E green on 3 OSes (run 45138641802).
-- [ ] Slice 8 — history beyond the RAM budget spills to OPFS (FR-HIS-03, T-HIS-02)
+- [x] Slice 8 — history beyond the RAM budget spills to OPFS (FR-HIS-03, T-HIS-02)
+  - As built: steps beyond the memory budget keep their place in History and their tiles go to a scratch
+        file in OPFS (one per window, written by a worker), oldest first. Undo and redo read them back,
+        with "Reading history back…" in the status bar if that takes over 100 ms; the status bar shows how
+        much history is on disk. A tile still in memory comes back as the same object. Failures never touch
+        the image: a failed write drops the oldest steps as before, and a failed read removes the steps it
+        made unreachable, each with a notice. Files of crashed sessions are removed at start-up; another
+        window's open file is locked and kept. Details in docs/02 §4; tests in docs/07 (T-HIS-02). E2E green
+        on 3 OSes (run 46059514857).
 
 ## M3 — Text, shapes, painting extras, PSD
 

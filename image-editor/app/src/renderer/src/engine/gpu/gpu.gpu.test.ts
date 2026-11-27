@@ -30,6 +30,7 @@ import { floatingPreview, liftedId, splitBySelection } from '../doc/float';
 import { contentBounds } from '../ops/canvas';
 import { Compositor, type TransformPreview } from './compositor';
 import { StrokeBuffer } from './stroke-buffer';
+import { TextureCache } from './texture-cache';
 
 function context(width: number, height: number): WebGL2RenderingContext {
   const canvas = document.createElement('canvas');
@@ -1482,5 +1483,32 @@ describe('document tabs (FR-DOC-03)', () => {
     next.cycleDocument(1);
     expect(next.getSnapshot().doc).toMatchObject({ width: 10, height: 10 });
     next.dispose();
+  });
+});
+
+describe('texture cache (ADR-0003)', () => {
+  it('beyond the soft limit, drops the textures a frame did not draw and keeps all it did', () => {
+    const gl = context(4, 4);
+    const cache = new TextureCache(gl, 100, 2);
+    const tiles = [1, 2, 3, 4].map((v) =>
+      createTile(new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4).fill(v)),
+    );
+    cache.beginFrame();
+    const drawn = tiles.slice(0, 3).map((t) => cache.get(t));
+    cache.endFrame();
+    expect(cache.size).toBe(3); // all three were drawn: kept, even over the limit
+    cache.beginFrame();
+    cache.get(tiles[2]!);
+    cache.get(tiles[3]!);
+    cache.endFrame();
+    // Tiles 1 and 2 were not drawn (out of view, or replaced by an edit): gone, down to the limit.
+    expect(cache.size).toBe(2);
+    expect(gl.isTexture(drawn[0]!)).toBe(false);
+    expect(gl.isTexture(drawn[1]!)).toBe(false);
+    expect(gl.isTexture(drawn[2]!)).toBe(true);
+    cache.beginFrame();
+    cache.endFrame();
+    expect(cache.size).toBe(2); // within the limit, nothing goes
+    cache.dispose();
   });
 });

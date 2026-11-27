@@ -93,6 +93,7 @@ import {
 } from './doc/geometry';
 import { History, type HistoryEntry } from './history/history';
 import { captureState, collectTileIds, restoreState, type DocState } from './history/snapshots';
+import { TileVault, type SpillStore } from './history/spill';
 import { clipGrid, contentBounds, type Turns } from './ops/canvas';
 import { invert, isIdentity, snapExact, type Affine } from './ops/affine';
 import {
@@ -291,7 +292,8 @@ export type EditorSnapshot = {
     maxSteps: number;
   };
   /** Memory meter (FR-NAV-06): pixels held by the document, snapshots and history, against the budget. */
-  memory: { usedBytes: number; budgetBytes: number };
+  /** diskBytes: history in the scratch file (FR-HIS-03); spilling: being written there now. */
+  memory: { usedBytes: number; budgetBytes: number; diskBytes: number; spilling: boolean };
   /** Pixel grid at ≥ 800 % (View › Pixel Grid). */
   pixelGrid: boolean;
   zoom: number;
@@ -353,7 +355,8 @@ export type EditorSnapshot = {
   /** Document pixel under the pointer and the composite colour there (#RRGGBB, null if transparent). */
   cursor: { x: number; y: number; color: string | null } | null;
   /** A pixel job running in the ops worker (Image Size, rotation); editing waits until it ends. */
-  job: { label: string; progress: number } | null;
+  /** A long operation; progress null = unknown (reading history back from disk). */
+  job: { label: string; progress: number | null } | null;
   gpu: string;
 };
 
@@ -506,6 +509,11 @@ export type EditorOptions = {
   onNotice?: (message: string) => void;
   /** Runs heavy pixel jobs (resampling) off the UI thread; defaults to running them in-thread. */
   runOps?: (job: OpsJob, onProgress: (p: number) => void) => Promise<LayerTiles[]>;
+  /**
+   * The window's history scratch file (FR-HIS-03): history beyond the memory budget spills there. Without
+   * one, the oldest steps are dropped instead.
+   */
+  spillStore?: SpillStore;
 };
 
 /**
@@ -583,6 +591,9 @@ export class Editor {
   private modifiers = { alt: false, ctrl: false };
   private lastNudge = 0;
   private job: { label: string; progress: number } | null = null;
+  private readonly vault: TileVault | null;
+  /** History has been reading spilled tiles back for over 100 ms: the status bar says so. */
+  private historyLoadingShown = false;
   private cropRect: CropRect | null = null;
   private cropDrag:
     | {
@@ -654,6 +665,7 @@ export class Editor {
     private readonly canvas: HTMLCanvasElement,
     private readonly options: EditorOptions = {},
   ) {
+    this.vault = options.spillStore ? new TileVault(options.spillStore) : null;
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: true });
     if (!gl) throw new Error('WebGL2 is not available on this system.');
     this.gl = gl;
@@ -964,7 +976,7 @@ export class Editor {
     this.doc = state.doc;
     this.history = state.history;
     this.file = state.file;
-    if (this.history) this.history.onChange = () => this.onHistoryChange();
+    if (this.history) this.bindHistory(this.history);
     Object.assign(this.viewport, { zoom: state.view.zoom, panX: state.view.panX, panY: state.view.panY });
     this.autoFit = state.view.autoFit;
     this.tool = state.tool;
@@ -974,7 +986,7 @@ export class Editor {
     this.docId = state.docId;
     this.background.clear();
     for (const s of state.background) {
-      s.history.onChange = () => this.onHistoryChange();
+      this.bindHistory(s.history);
       this.background.set(s.id, s);
     }
     this.tabOrder = [...state.tabOrder];
@@ -1009,14 +1021,27 @@ export class Editor {
     this.filterPreview = null;
     this.strokeBuffer.clear();
     this.doc = doc;
-    this.history = new History(doc, { maxSteps: this.historySteps, maxBytes: this.historyBytes }, () =>
-      this.onHistoryChange(),
+    this.history = new History(
+      doc,
+      { maxSteps: this.historySteps, maxBytes: this.historyBytes },
+      () => this.onHistoryChange(),
+      this.vault && { vault: this.vault },
     );
+    this.bindHistory(this.history);
     // The document as opened is always reachable, however many steps are dropped (FR-HIS-02).
     this.snapshots = [{ id: `S${++this.snapshotSeq}`, name: doc.meta.name, state: captureState(doc) }];
     this.file = { ...file, savedTop: null };
     this.version++;
     this.fitToScreen();
+  }
+
+  /** Points a history's callbacks at this Editor (new documents, and adopted ones after a GPU reset). */
+  private bindHistory(history: History): void {
+    history.onChange = () => this.onHistoryChange();
+    // A spill changes memory, not pixels: refresh the panels without a new document version (which would
+    // make a running job drop its result as stale).
+    history.onStatus = () => this.changed();
+    history.onError = (m) => this.notice(m);
   }
 
   private onHistoryChange(): void {
@@ -1083,7 +1108,12 @@ export class Editor {
         snapshots: this.snapshots.map(({ id, name }) => ({ id, name })),
         maxSteps: this.history?.limits.maxSteps ?? DEFAULT_HISTORY_STEPS,
       },
-      memory: { usedBytes: this.memoryUsed(), budgetBytes: this.historyBytes },
+      memory: {
+        usedBytes: this.memoryUsed(),
+        budgetBytes: this.historyBytes,
+        diskBytes: this.options.spillStore?.bytesOnDisk ?? 0,
+        spilling: this.history?.spillRunning ?? false,
+      },
       pixelGrid: this.pixelGrid,
       zoom: this.viewport.zoom,
       tool: this.tool,
@@ -1135,7 +1165,11 @@ export class Editor {
       options: this.toolOptions,
       colors: this.colors,
       cursor: this.cursor,
-      job: this.job,
+      job:
+        this.job ??
+        (this.history?.loading && this.historyLoadingShown
+          ? { label: 'Reading history back', progress: null }
+          : null),
       gpu: this.gl.isContextLost()
         ? 'Graphics context lost — restoring…'
         : `${debug ? String(this.gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : 'WebGL2'} · strokes ${this.strokeBuffer.format.toUpperCase()}`,
@@ -1159,6 +1193,7 @@ export class Editor {
       this.adjusting !== null ||
       this.filtering !== null ||
       this.job !== null ||
+      this.history?.loading === true ||
       this.marqueeDrag !== null ||
       this.lassoDraw?.pointerId != null
     );
@@ -1170,14 +1205,34 @@ export class Editor {
     if (this.adjusting) return this.cancelAdjustment();
     if (this.filtering) return this.cancelFilter();
     if (!this.busy) this.history?.undo();
+    this.whileHistoryLoads();
   }
 
   redo(): void {
     if (!this.busy) this.history?.redo();
+    this.whileHistoryLoads();
   }
 
   goToHistory(index: number): void {
     if (!this.busy) this.history?.goTo(index);
+    this.whileHistoryLoads();
+  }
+
+  /** An undo or redo is reading spilled tiles back: say so in the status bar if it takes over 100 ms. */
+  private whileHistoryLoads(): void {
+    const history = this.history;
+    if (!history?.loading) return;
+    const timer = window.setTimeout(() => {
+      if (!history.loading) return;
+      this.historyLoadingShown = true;
+      this.changed();
+    }, 100);
+    void history.idle().then(() => {
+      window.clearTimeout(timer);
+      if (!this.historyLoadingShown) return;
+      this.historyLoadingShown = false;
+      this.changed();
+    });
   }
 
   private exec(cmd: Parameters<History['execute']>[0] | null, opts?: { coalesce?: boolean }): void {

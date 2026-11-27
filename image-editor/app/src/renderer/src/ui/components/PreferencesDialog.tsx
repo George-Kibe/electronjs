@@ -171,7 +171,7 @@ export function PreferencesDialog({
               </Row>
               <Row
                 label="Memory for history"
-                hint={`Automatic uses ${autoBudgetGB.toFixed(1)} GB on this computer.`}
+                hint={`Automatic uses ${autoBudgetGB.toFixed(1)} GB on this computer. History beyond it is kept on disk.`}
               >
                 <select
                   aria-label="Memory for history"
