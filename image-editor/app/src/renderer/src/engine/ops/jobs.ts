@@ -10,6 +10,7 @@ import { histogramOf, packHistogram } from './histogram';
 import { trimContent, type TrimBasis } from './trim';
 import { colorRange, magicWand, type WandOptions } from './wand';
 import { fillRegion } from './fill';
+import { paintGradient, type GradientFill } from './gradient';
 
 /**
  * Pixel jobs too heavy for the UI thread (docs/02 §5.6): Image Size and arbitrary rotation. Pure, so the ops
@@ -86,6 +87,19 @@ export type OpsJob =
       selection: Array<[TileKey, Uint8Array]> | null;
       preserveAlpha: boolean;
     }
+  /**
+   * Gradient (FR-PNT-04): `fill` drawn onto `layer` within the selection; `keys` limits it to those tiles
+   * (a band of the worker pool; null = the canvas). The result is the changed tiles.
+   */
+  | {
+      op: 'gradient';
+      layer: LayerTiles;
+      size: Size;
+      fill: GradientFill;
+      selection: Array<[TileKey, Uint8Array]> | null;
+      preserveAlpha: boolean;
+      keys: TileKey[] | null;
+    }
   /** Image › Trim (FR-TRF-06): the composite pixels to keep, as a mask. */
   | { op: 'trim'; layers: LayerSnapshot[]; size: Size; basis: TrimBasis }
   /** Select › Color Range (FR-SEL-05). */
@@ -134,6 +148,19 @@ export function runOpsJob(job: OpsJob, onProgress?: (p: number) => void): LayerT
     const region = magicWand(snapshotLayers(job.sample), job.size, job.seed, job.options);
     const selection = job.selection ? new Map(job.selection) : null;
     const tiles = fillRegion(new Map(job.layer.tiles), region, job.color, selection, job.preserveAlpha);
+    onProgress?.(1);
+    return [{ id: job.layer.id, tiles }];
+  }
+  if (job.op === 'gradient') {
+    const selection = job.selection ? new Map(job.selection) : null;
+    const tiles = paintGradient(
+      new Map(job.layer.tiles),
+      job.size,
+      job.fill,
+      selection,
+      job.preserveAlpha,
+      job.keys,
+    );
     onProgress?.(1);
     return [{ id: job.layer.id, tiles }];
   }

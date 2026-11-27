@@ -12,6 +12,8 @@ import {
   type ToolOptions,
 } from '../../engine/editor';
 import type { TransformParams } from '../../engine/tools/transform';
+import { BLEND_MODE_LABELS, IMPLEMENTED_BLEND_MODES } from '../../engine/doc/blend';
+import { GRADIENT_PRESET_LABELS, type GradientPreset, type GradientType } from '../../engine/ops/gradient';
 import { Button } from './Button';
 
 type Props = {
@@ -49,6 +51,7 @@ const TOOL_NAMES: Record<Tool, string> = {
   eraser: 'Eraser',
   eyedropper: 'Eyedropper',
   bucket: 'Paint Bucket',
+  gradient: 'Gradient',
   hand: 'Hand',
   zoom: 'Zoom',
 };
@@ -532,6 +535,69 @@ function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: 
   );
 }
 
+const GRADIENT_TYPE_BUTTONS: ReadonlyArray<readonly [GradientType, string, string]> = [
+  ['linear', '▭', 'Linear gradient'],
+  ['radial', '◎', 'Radial gradient'],
+  ['angle', '◔', 'Angle gradient'],
+  ['reflected', '⇔', 'Reflected gradient'],
+  ['diamond', '◇', 'Diamond gradient'],
+];
+
+/** Gradient options (FR-PNT-04): colours, type, mode, opacity, reverse, dither. */
+function GradientOptions({ options, onOptions }: { options: ToolOptions; onOptions: Props['onOptions'] }) {
+  const o = options.gradient;
+  return (
+    <>
+      <Select
+        label="Colours"
+        value={o.preset}
+        options={Object.entries(GRADIENT_PRESET_LABELS) as Array<[GradientPreset, string]>}
+        onChange={(preset) => onOptions('gradient', { preset })}
+      />
+      <div role="group" aria-label="Gradient type" className="flex gap-0.5">
+        {GRADIENT_TYPE_BUTTONS.map(([type, icon, title]) => (
+          <Button
+            key={type}
+            aria-pressed={o.type === type}
+            active={o.type === type}
+            aria-label={title}
+            title={title}
+            onClick={() => onOptions('gradient', { type })}
+          >
+            {icon}
+          </Button>
+        ))}
+      </div>
+      <Select
+        label="Mode"
+        value={o.mode}
+        options={IMPLEMENTED_BLEND_MODES.map((m) => [m, BLEND_MODE_LABELS[m]] as const)}
+        onChange={(mode) => onOptions('gradient', { mode })}
+      />
+      <Slider
+        label="Opacity"
+        value={Math.round(o.opacity * 100)}
+        min={1}
+        max={100}
+        unit="%"
+        onChange={(v) => onOptions('gradient', { opacity: v / 100 })}
+      />
+      <Toggle
+        label="Reverse"
+        title="Swap the gradient's colours"
+        checked={o.reverse}
+        onChange={(reverse) => onOptions('gradient', { reverse })}
+      />
+      <Toggle
+        label="Dither"
+        title="Smooth the banding of slow gradients"
+        checked={o.dither}
+        onChange={(dither) => onOptions('gradient', { dither })}
+      />
+    </>
+  );
+}
+
 /**
  * The region of similar colour around a click: tolerance, contiguous, anti-alias, sample all layers. The
  * Magic Wand selects it (FR-SEL-03); the Paint Bucket fills it (FR-PNT-03).
@@ -626,6 +692,7 @@ export function OptionsBar({
       {tool === 'lasso' && <LassoOptions options={options} onOptions={onOptions} />}
       {tool === 'wand' && <WandOptions options={options} onOptions={onOptions} />}
       {tool === 'bucket' && <RegionOptions tool="bucket" options={options} onOptions={onOptions} />}
+      {tool === 'gradient' && <GradientOptions options={options} onOptions={onOptions} />}
       {tool === 'eyedropper' && (
         <>
           <Select

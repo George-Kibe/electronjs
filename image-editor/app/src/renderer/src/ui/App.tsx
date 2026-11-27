@@ -71,6 +71,7 @@ const CURSORS: Partial<Record<Tool, string>> = {
   zoom: 'cursor-zoom-in',
   eyedropper: 'cursor-crosshair',
   bucket: 'cursor-crosshair',
+  gradient: 'cursor-crosshair',
 };
 
 /** One history scratch file per window, shared by its documents and by an Editor rebuilt after a GPU reset. */
@@ -539,13 +540,14 @@ export function App() {
                 onUnits={(rulerUnits) => void prefs.update({ general: { rulerUnits } })}
               />
             )}
-            {editor && (snap?.selection || snap?.marquee || snap?.lasso) && (
+            {editor && (snap?.selection || snap?.marquee || snap?.lasso || snap?.gradientLine) && (
               <SelectionOverlay
                 editor={editor}
                 // In Quick Mask the red overlay shows the selection instead of the ants.
                 selection={snap.quickMask ? null : snap.selection}
                 marquee={snap.marquee}
                 lasso={snap.lasso}
+                gradientLine={snap.gradientLine}
               />
             )}
             {snap?.doc && editor && (

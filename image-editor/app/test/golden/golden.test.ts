@@ -10,6 +10,12 @@ import {
 import { compositeTile, liveLayers } from '../../src/renderer/src/engine/doc/flatten';
 import { defaultAdjustment, type Adjustment } from '../../src/renderer/src/engine/ops/adjust';
 import { applyFilter, type Filter } from '../../src/renderer/src/engine/ops/filters';
+import {
+  GRADIENT_TYPES,
+  paintGradient,
+  presetStops,
+  type GradientFill,
+} from '../../src/renderer/src/engine/ops/gradient';
 import { createTile, TILE_SIZE, TileGrid } from '../../src/renderer/src/engine/tiles/tile';
 import { decodePng, encodePng } from './png';
 
@@ -321,5 +327,76 @@ describe('golden images', () => {
       }),
     );
     compare('filters', sheetOf(S, rows));
+  });
+
+  it('gradients: 5 types at 3 settings each (FR-PNT-04)', () => {
+    const S = 64;
+    const photo = hues(S);
+    const base = new Map(
+      [...TileGrid.fromRgba(S, S, photo).entries()].map(([k, t]) => [k, new Uint8Array(t.data)]),
+    );
+    const settings: Array<
+      (type: GradientFill['gradient']['type']) => [GradientFill, Map<string, Uint8Array>]
+    > = [
+      (type) => [
+        {
+          gradient: {
+            type,
+            stops: presetStops('black-white', [0, 0, 0], [0, 0, 0]),
+            start: { x: 8, y: 8 },
+            end: { x: 56, y: 56 },
+            reverse: false,
+          },
+          opacity: 1,
+          mode: 'normal',
+          dither: false,
+        },
+        new Map(),
+      ],
+      (type) => [
+        {
+          gradient: {
+            type,
+            stops: presetStops('spectrum', [0, 0, 0], [0, 0, 0]),
+            start: { x: 32, y: 32 },
+            end: { x: 60, y: 32 },
+            reverse: true,
+          },
+          opacity: 1,
+          mode: 'normal',
+          dither: true,
+        },
+        new Map(),
+      ],
+      (type) => [
+        {
+          gradient: {
+            type,
+            stops: presetStops('fg-transparent', [230, 30, 40], [0, 0, 0]),
+            start: { x: 32, y: 10 },
+            end: { x: 32, y: 54 },
+            reverse: false,
+          },
+          opacity: 0.7,
+          mode: 'multiply',
+          dither: false,
+        },
+        new Map(base),
+      ],
+    ];
+    const rows = GRADIENT_TYPES.map((type) =>
+      settings.map((setting, i) => {
+        const [fill, layer] = setting(type);
+        const out = new Map(layer);
+        for (const [k, t] of paintGradient(layer, { width: S, height: S }, fill, null, false)) out.set(k, t);
+        const tile = out.get('0,0');
+        const rgba = new Uint8Array(S * S * 4);
+        if (tile)
+          for (let y = 0; y < S; y++)
+            rgba.set(tile.subarray(y * TILE_SIZE * 4, (y * TILE_SIZE + S) * 4), y * S * 4);
+        return { label: `${type} #${i + 1}`, rgba };
+      }),
+    );
+    compare('gradients', sheetOf(S, rows));
   });
 });
