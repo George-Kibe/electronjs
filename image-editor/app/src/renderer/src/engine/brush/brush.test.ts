@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { blendInto, blendModeIndex, IMPLEMENTED_BLEND_MODES } from '../doc/blend';
 import { createTile, TILE_BYTES, TILE_SIZE } from '../tiles/tile';
 import {
   accumulateDabs,
@@ -253,5 +254,80 @@ describe('textured tips (FR-PNT-01)', () => {
       expect(a.data[(y * TILE_SIZE + x) * 4 + 3]).toBe(g);
       expect(b.data[(y * TILE_SIZE + x) * 4 + 3]).toBe(g);
     }
+  });
+});
+
+describe('brush blend modes (FR-PNT-10)', () => {
+  /** One pixel per test: a tile whose pixel 0 is `px`, painted with coverage `c` there. */
+  function paintOne(
+    px: number[],
+    c: number,
+    color: [number, number, number],
+    mode: (typeof IMPLEMENTED_BLEND_MODES)[number],
+    preserveAlpha = false,
+  ) {
+    const data = new Uint8ClampedArray(TILE_BYTES);
+    data.set(px, 0);
+    const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+    cov[0] = c;
+    const out = applyStroke(
+      createTile(data),
+      cov,
+      { color, opacity: 1, mode: 'paint', blendMode: mode, aliased: true },
+      { tileX: 0, tileY: 0, docWidth: 10, docHeight: 10 },
+      preserveAlpha,
+    );
+    return out ? [...out.data.subarray(0, 4)] : [0, 0, 0, 0];
+  }
+
+  const separableAndNot = IMPLEMENTED_BLEND_MODES.filter((m) => m !== 'dissolve');
+
+  it.each(separableAndNot)(
+    '%s: the colour is blended with the pixel as a layer would be (W3C general formula)',
+    (mode) => {
+      fc.assert(
+        fc.property(
+          fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 3, maxLength: 3 }),
+          fc.integer({ min: 1, max: 255 }),
+          fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 3, maxLength: 3 }),
+          fc.double({ min: 0.05, max: 1, noNaN: true }),
+          (rgb, alpha, color, c) => {
+            const got = paintOne([...rgb, alpha], c, color as [number, number, number], mode);
+            // Reference: the compositor's own blend of the brush colour over the pixel at coverage c.
+            const a = alpha / 255;
+            const acc = new Float32Array([(rgb[0]! / 255) * a, (rgb[1]! / 255) * a, (rgb[2]! / 255) * a, a]);
+            blendInto(acc, 0, blendModeIndex(mode), color[0]! / 255, color[1]! / 255, color[2]! / 255, c);
+            const want = [0, 1, 2].map((i) => (acc[i]! / acc[3]!) * 255);
+            for (let i = 0; i < 3; i++) expect(Math.abs(got[i]! - want[i]!)).toBeLessThanOrEqual(1);
+            expect(Math.abs(got[3]! - acc[3]! * 255)).toBeLessThanOrEqual(1);
+          },
+        ),
+        { numRuns: 200 },
+      );
+    },
+  );
+
+  it('Normal is exactly the plain brush, and transparency lock keeps alpha with a mode', () => {
+    expect(paintOne([10, 200, 30, 255], 0.5, [250, 0, 0], 'normal')).toEqual([130, 100, 15, 255]);
+    // Multiply over a 100-alpha pixel, transparency locked: colour toward Cb·Cs, alpha stays.
+    expect(paintOne([200, 200, 200, 100], 1, [128, 255, 0], 'multiply', true)).toEqual([100, 200, 0, 100]);
+  });
+
+  it('Dissolve paints whole pixels: each is the brush colour or untouched', () => {
+    const data = new Uint8ClampedArray(TILE_BYTES).fill(255);
+    const cov = new Float32Array(TILE_SIZE * TILE_SIZE).fill(0.4);
+    const out = applyStroke(
+      createTile(data),
+      cov,
+      { color: [0, 0, 0], opacity: 1, mode: 'paint', blendMode: 'dissolve', aliased: true },
+      { tileX: 0, tileY: 0, docWidth: TILE_SIZE, docHeight: TILE_SIZE },
+    )!;
+    let painted = 0;
+    for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
+      const v = out.data[i * 4]!;
+      expect(v === 0 || v === 255).toBe(true);
+      if (v === 0) painted++;
+    }
+    expect(painted / (TILE_SIZE * TILE_SIZE)).toBeCloseTo(0.4, 1);
   });
 });

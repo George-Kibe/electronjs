@@ -337,9 +337,13 @@ start only after approval):
         The stroke is composited on the CPU as you paint (`brush/clone.ts`) and shown as a preview document.
         With this, transparency lock is respected by every painting tool (brush, pencil, eraser, bucket,
         gradient, clone).
-  - [ ] 2b Brush blend modes (FR-PNT-10): the brush and pencil paint with any of the 18 modes. This
-        changes how strokes composite on the GPU and the CPU, next to the blend-mode shaders (an
-        "ask a human first" area), so it waits for review.
+  - [ ] 2b Brush blend modes (FR-PNT-10), approved. As built: the brush and pencil have a Mode (the 18
+        blend modes; the eraser has none). The colour is blended with the layer's own pixel before it is laid
+        down, by the W3C general formula the layers use: Cs' = (1 − αb)·Cs + αb·B(Cb, Cs), with αb taken as 1
+        when transparency is locked. Dissolve paints each pixel fully or not at all with the layer mode's
+        noise. The GPU preview (`layer.frag`) and the CPU commit (`brush.ts applyStroke`) agree within ±2/255
+        for every mode tested, and Normal is unchanged byte for byte. The layer blend shaders and the golden
+        baselines are untouched.
 - [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep`
 - [ ] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep`
 - [ ] Slice 5 ⚑ — layer styles: drop shadow, stroke, outer glow (FR-LAY-07), stored in `.iep`

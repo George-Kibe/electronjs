@@ -77,70 +77,84 @@ describe('GPU conformance (shader vs CPU reference, docs/07 §1)', () => {
     }
   });
 
-  it('live preview composite matches the CPU commit + composite within ±2/255', () => {
-    const size = 300;
-    const gl = context(size, size);
-    const compositor = new Compositor(gl);
-    const stroke = new StrokeBuffer(gl, compositor.quad);
-    const settings: BrushSettings = {
-      ...DEFAULT_BRUSH,
-      color: [200, 30, 60],
-      opacity: 0.7,
-      hardness: 0.6,
-      mode: 'paint',
-    };
-    stroke.hardness = settings.hardness;
+  it.each([
+    'normal',
+    'multiply',
+    'screen',
+    'overlay',
+    'difference',
+    'color-dodge',
+    'hue',
+    'luminosity',
+    'dissolve',
+  ] as const)(
+    'live preview composite matches the CPU commit + composite within ±2/255 (%s brush, FR-PNT-10)',
+    (blendMode) => {
+      const size = 300;
+      const gl = context(size, size);
+      const compositor = new Compositor(gl);
+      const stroke = new StrokeBuffer(gl, compositor.quad);
+      const settings: BrushSettings = {
+        ...DEFAULT_BRUSH,
+        color: [200, 30, 60],
+        opacity: 0.7,
+        hardness: 0.6,
+        mode: 'paint',
+        blendMode,
+      };
+      stroke.hardness = settings.hardness;
 
-    // White background + a semi-transparent layer with a gradient, painted with the preview on top.
-    const doc = new Document(
-      size,
-      size,
-      createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
-    );
-    const rgba = new Uint8ClampedArray(size * size * 4);
-    for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++)
-        rgba.set([x % 256, y % 256, 128, 40 + ((x + y) % 200)], (y * size + x) * 4);
-    const layer = createRasterLayer('paint', TileGrid.fromRgba(size, size, rgba));
-    layer.opacity = 0.8;
-    doc.layers.push(layer);
-    stroke.addDabs(dabs, size, size);
-
-    const viewport = new Viewport(); // zoom 1, pan 0 → 1 document px = 1 device px
-    compositor.render(
-      doc,
-      viewport,
-      { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
-      {
-        buffer: stroke,
-        layerId: layer.id,
-        settings,
-        preserveAlpha: false,
-      },
-    );
-    const pixels = new Uint8Array(size * size * 4);
-    gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-
-    // CPU: commit the same stroke, then composite.
-    for (const key of stroke.keys()) {
-      const [tileX, tileY] = key.split(',').map(Number) as [number, number];
-      const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
-      accumulateDabs(cov, tileX, tileY, dabs, settings.hardness);
-      layer.tiles.set(
-        key,
-        applyStroke(layer.tiles.get(key), cov, settings, { tileX, tileY, docWidth: size, docHeight: size }),
+      // White background + a semi-transparent layer with a gradient, painted with the preview on top.
+      const doc = new Document(
+        size,
+        size,
+        createRasterLayer('bg', TileGrid.filled(size, size, [255, 255, 255, 255])),
       );
-    }
-    let maxErr = 0;
-    for (let y = 0; y < size; y += 3) {
-      for (let x = 0; x < size; x += 3) {
-        const expected = compositePixel(liveLayers(doc.layers), x, y);
-        const i = ((size - 1 - y) * size + x) * 4; // readPixels rows are bottom-up
-        for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+      const rgba = new Uint8ClampedArray(size * size * 4);
+      for (let y = 0; y < size; y++)
+        for (let x = 0; x < size; x++)
+          rgba.set([x % 256, y % 256, 128, 40 + ((x + y) % 200)], (y * size + x) * 4);
+      const layer = createRasterLayer('paint', TileGrid.fromRgba(size, size, rgba));
+      layer.opacity = 0.8;
+      doc.layers.push(layer);
+      stroke.addDabs(dabs, size, size);
+
+      const viewport = new Viewport(); // zoom 1, pan 0 → 1 document px = 1 device px
+      compositor.render(
+        doc,
+        viewport,
+        { cssWidth: size, cssHeight: size, width: size, height: size, dpr: 1 },
+        {
+          buffer: stroke,
+          layerId: layer.id,
+          settings,
+          preserveAlpha: false,
+        },
+      );
+      const pixels = new Uint8Array(size * size * 4);
+      gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      // CPU: commit the same stroke, then composite.
+      for (const key of stroke.keys()) {
+        const [tileX, tileY] = key.split(',').map(Number) as [number, number];
+        const cov = new Float32Array(TILE_SIZE * TILE_SIZE);
+        accumulateDabs(cov, tileX, tileY, dabs, settings.hardness);
+        layer.tiles.set(
+          key,
+          applyStroke(layer.tiles.get(key), cov, settings, { tileX, tileY, docWidth: size, docHeight: size }),
+        );
       }
-    }
-    expect(maxErr).toBeLessThanOrEqual(2);
-  });
+      let maxErr = 0;
+      for (let y = 0; y < size; y += 3) {
+        for (let x = 0; x < size; x += 3) {
+          const expected = compositePixel(liveLayers(doc.layers), x, y);
+          const i = ((size - 1 - y) * size + x) * 4; // readPixels rows are bottom-up
+          for (let c = 0; c < 3; c++) maxErr = Math.max(maxErr, Math.abs(pixels[i + c]! - expected[c]!));
+        }
+      }
+      expect(maxErr).toBeLessThanOrEqual(2);
+    },
+  );
 });
 
 /**
