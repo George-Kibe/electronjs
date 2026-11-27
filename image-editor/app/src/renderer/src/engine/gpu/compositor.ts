@@ -210,6 +210,7 @@ export class Compositor {
     } = {},
   ): void {
     const gl = this.gl;
+    this.textures.beginFrame();
     this.resizePool(size.width, size.height);
     gl.viewport(0, 0, size.width, size.height);
     gl.bindVertexArray(this.vao);
@@ -274,6 +275,7 @@ export class Compositor {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(null);
+    this.textures.endFrame();
   }
 
   /** Quick Mask: 50 % red over unselected pixels, on screen after the composite (FR-SEL-06). */

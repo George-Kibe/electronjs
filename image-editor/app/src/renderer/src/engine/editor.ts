@@ -292,7 +292,8 @@ export type EditorSnapshot = {
     maxSteps: number;
   };
   /** Memory meter (FR-NAV-06): pixels held by the document, snapshots and history, against the budget. */
-  memory: { usedBytes: number; budgetBytes: number; diskBytes: number };
+  /** diskBytes: history in the scratch file (FR-HIS-03); spilling: being written there now. */
+  memory: { usedBytes: number; budgetBytes: number; diskBytes: number; spilling: boolean };
   /** Pixel grid at ≥ 800 % (View › Pixel Grid). */
   pixelGrid: boolean;
   zoom: number;
@@ -1111,6 +1112,7 @@ export class Editor {
         usedBytes: this.memoryUsed(),
         budgetBytes: this.historyBytes,
         diskBytes: this.options.spillStore?.bytesOnDisk ?? 0,
+        spilling: this.history?.spillRunning ?? false,
       },
       pixelGrid: this.pixelGrid,
       zoom: this.viewport.zoom,

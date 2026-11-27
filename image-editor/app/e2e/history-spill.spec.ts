@@ -24,8 +24,10 @@ test(`[${target}] FR-HIS-03, T-HIS-02: history beyond the memory budget goes to 
     await expect(steps).toHaveCount(1 + i, { timeout: 60_000 }); // "New" + one row per step
   }
   await expect.poll(() => canvasPixel(win, cx, cy)).toEqual(colour(8));
-  // The older steps went to the scratch file instead of being dropped.
+  // The older steps went to the scratch file instead of being dropped. Until a step's tiles are all
+  // written, history still holds them, so wait for the writing to finish before letting them go.
   await expect(footer).toContainText('history on disk', { timeout: 60_000 });
+  await expect(footer).not.toContainText('writing history', { timeout: 60_000 });
   await expect(steps).toHaveCount(9);
 
   // Let go of the originals, so the undos below have to read the scratch file.

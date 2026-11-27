@@ -115,7 +115,8 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
   does nothing and the steps it can no longer reach are removed, with a notice. Steps without tiles
   (property changes, selections) cannot spill. If they alone exceed the budget, the oldest steps are
   dropped, spilled ones only as far as needed to reach them. A finished spill refreshes the panels
-  without changing the document version, so a job running meanwhile keeps its result.
+  without changing the document version, so a job running meanwhile keeps its result. While tiles are
+  being written, the status bar says "writing history to disk…".
 - Masks and selection use 1-byte tiles.
 
 ## 5. GPU pipeline (WebGL2)
@@ -125,6 +126,10 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
 - **CPU tiles are the source of truth. GPU textures are a cache** (LRU, bounded by a VRAM budget estimated
   from `MAX_TEXTURE_SIZE` and a conservative default of 1 GB). This makes context loss recoverable
   (NFR-REL-02): on `webglcontextrestored`, the cache is dropped and re-uploaded lazily.
+  *As built (M2 slice 8):* `TextureCache` keeps up to 4096 tile textures in one frame. Beyond 1024 it drops,
+  after each frame, the textures that frame did not draw: tiles out of view, and tiles no longer in the
+  document. Every edit makes new tiles, so without this the old ones (now held only by history, or by
+  nothing) filled GPU memory; eight 24 MP edits ran a macOS CI runner out of memory.
 - Tile textures are `RGBA8`. Intermediate framebuffers use `RGBA16F` when `EXT_color_buffer_float` is
   available (it is on ANGLE and SwiftShader). Otherwise they use `RGBA8` with dithering.
 - The compositor works in **premultiplied alpha** internally (converting on texture sample), and blends in

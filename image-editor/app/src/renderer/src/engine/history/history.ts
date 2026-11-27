@@ -98,6 +98,11 @@ export class History {
     return this.restoring !== null;
   }
 
+  /** Tiles are being written to the scratch file (the status bar says so). */
+  get spillRunning(): boolean {
+    return this.spilling !== null;
+  }
+
   /** Settles once no spill or restore is running (tests; the editor never needs to wait). */
   async idle(): Promise<void> {
     while (this.restoring || this.spilling) await (this.restoring ?? this.spilling);
@@ -307,6 +312,7 @@ export class History {
           this.spillRequested = false;
           this.spillSoon();
         }
+        this.status();
       });
   }
 

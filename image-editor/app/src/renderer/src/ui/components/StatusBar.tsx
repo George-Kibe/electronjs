@@ -44,7 +44,7 @@ function ZoomField({ zoom, onZoom }: { zoom: number; onZoom: (z: number) => void
  */
 export function StatusBar({ snap, onZoom }: { snap: EditorSnapshot; onZoom: (z: number) => void }) {
   const doc = snap.doc!;
-  const { usedBytes, budgetBytes, diskBytes } = snap.memory;
+  const { usedBytes, budgetBytes, diskBytes, spilling } = snap.memory;
   const high = usedBytes >= budgetBytes * 0.8;
   return (
     <>
@@ -75,7 +75,10 @@ export function StatusBar({ snap, onZoom }: { snap: EditorSnapshot; onZoom: (z: 
         }
       >
         Mem {formatBytes(usedBytes)} / {formatBytes(budgetBytes)}
-        {diskBytes > 0 && ` · ${diskBytes < 1024 ** 2 ? '< 1 MB' : formatBytes(diskBytes)} history on disk`}
+        {spilling
+          ? ' · writing history to disk…'
+          : diskBytes > 0 &&
+            ` · ${diskBytes < 1024 ** 2 ? '< 1 MB' : formatBytes(diskBytes)} history on disk`}
       </span>
       {snap.job && (
         <span
