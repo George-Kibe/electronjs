@@ -345,7 +345,7 @@ start only after approval):
         for every mode tested, and Normal is unchanged byte for byte. The layer blend shaders and the golden
         baselines are untouched. E2E green on 3 OSes (run 46068222430).
 - [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep` (approved)
-  - [ ] 3a Text layers end to end. As built: the Type tool (T). Click for point text, drag for a text box;
+  - [x] 3a Text layers end to end. As built: the Type tool (T). Click for point text, drag for a text box;
         type in place (the editor is the text itself, scaled with the zoom); Esc, Ctrl/⌘+Enter or a click
         outside commits, as one undo step ("Type Layer", "Edit Type Layer"); emptied text removes the
         layer. Click a text layer (or double-click its thumbnail) to edit it. The options bar sets font
@@ -355,7 +355,8 @@ start only after approval):
         composites, masks and clips like pixels. Moving, crop and Canvas Size keep it text; rotate, flip and
         Image Size turn it into pixels; tools that paint, filter, adjust or transform pixels ask for
         Layer › Rasterize Type first. Saved in `.iep` per docs/05 §2 (text, transform, `cache`), validated
-        with limits; a transform this version cannot edit opens as pixels, read-only.
+        with limits; a transform this version cannot edit opens as pixels, read-only. E2E green on 3 OSes
+        (run 46140292251).
   - [ ] 3b Per-character styling (colour, weight, size) from a selection in the editor, and the installed
         font list (Local Font Access API; needs the permission in main, docs/06).
   - [ ] 3c FR-TXT-03 checks for complex scripts, RTL and emoji in the editor and the rendering.
