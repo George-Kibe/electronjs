@@ -360,7 +360,7 @@ start only after approval):
   - [ ] 3b Per-character styling (colour, weight, size) from a selection in the editor, and the installed
         font list (Local Font Access API; needs the permission in main, docs/06).
   - [ ] 3c FR-TXT-03 checks for complex scripts, RTL and emoji in the editor and the rendering.
-- [ ] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep` (approved). As built: the Shape tool
+- [x] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep` (approved). As built: the Shape tool
       (U; again or Shift+U for the next kind): rectangle, rounded rectangle, ellipse, line (with
       arrowheads), polygon and star. Drag to draw (Shift: square, round or 45°; Alt: from the centre) and
       an outline shows the shape meanwhile. Fill (a colour or none) and stroke (colour, width, inside,
@@ -370,7 +370,7 @@ start only after approval):
       with Path2D onto tiles (`lib/shape-render.ts`). Like text layers, shapes composite as pixels; move,
       crop and Canvas Size keep them editable; rotate, flip and Image Size make them pixels; pixel tools ask
       for Layer › Rasterize Shape. Saved in `.iep` per docs/05 §2 (`shape`, `transform`, `cache`),
-      validated with limits.
+      validated with limits. E2E green on 3 OSes (run 46142451672).
 - [ ] Slice 5 ⚑ — layer styles: drop shadow, stroke, outer glow (FR-LAY-07), stored in `.iep`
 - [ ] Slice 6 — PSD import (FR-DOC-07) in the files worker, with a fixture corpus and fuzzing (untrusted
       input, docs/06)
