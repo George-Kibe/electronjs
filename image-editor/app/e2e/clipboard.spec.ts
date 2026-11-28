@@ -55,7 +55,7 @@ test(`[${target}] clipboard: paste as document and as layer, copy layer and copy
     // No document open: Paste creates one.
     await editRole(app, 'paste');
     await expect(footer(win)).toContainText('40 × 30 px');
-    await expect(win.getByLabel('Document')).toHaveText('Pasted image');
+    await expect(win.getByLabel('Document', { exact: true })).toHaveText('Pasted image');
 
     // With a document open: Paste adds a layer, centred.
     await win.keyboard.press('ControlOrMeta+n');
@@ -99,7 +99,7 @@ test(`[${target}] clipboard: paste as document and as layer, copy layer and copy
       [255, 255, 255, 255],
     ]);
 
-    // Edit › Paste as New Document: asks about the unsaved document first, then opens the clipboard image.
+    // Edit › Paste as New Document: a new tab; the other documents stay open.
     await setClipboardPng(app, png);
     await app.evaluate(({ Menu, BrowserWindow }) => {
       const edit = Menu.getApplicationMenu()!.items.find((i) => i.label === 'Edit')!;
@@ -107,11 +107,8 @@ test(`[${target}] clipboard: paste as document and as layer, copy layer and copy
         .submenu!.items.find((i) => i.label === 'Paste as New Document')!
         .click(undefined, BrowserWindow.getAllWindows()[0], undefined as never);
     });
-    await win
-      .getByRole('dialog', { name: 'Save changes?' })
-      .getByRole('button', { name: 'Don’t Save' })
-      .click();
     await expect(footer(win)).toContainText('40 × 30 px');
+    await expect(win.getByRole('tab')).toHaveCount(3);
   } finally {
     await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), saved).catch(() => undefined);
     await close();

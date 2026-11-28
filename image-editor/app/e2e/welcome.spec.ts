@@ -51,7 +51,7 @@ test(`[${target}] welcome: new document presets, recent files with thumbnails, o
   );
   await stubSaveDialog(first.app, projectPath);
   await win.keyboard.press('ControlOrMeta+s');
-  await expect(win.getByLabel('Document')).toHaveText('Poster.iep');
+  await expect(win.getByLabel('Document', { exact: true })).toHaveText('Poster.iep');
   await expect.poll(() => openRecentMenuLabels(first.app)).toEqual(['Poster.iep', '', 'Clear Recent']); // separators have empty labels
   await first.close();
 
@@ -66,7 +66,7 @@ test(`[${target}] welcome: new document presets, recent files with thumbnails, o
   ).toContainText('Banner');
   await card.click();
   await expect(footer(win)).toContainText('600 × 400 px');
-  await expect(win.getByLabel('Document')).toHaveText('Poster.iep');
+  await expect(win.getByLabel('Document', { exact: true })).toHaveText('Poster.iep');
 
   // Back to the Welcome screen in a fresh session: remove the entry; the list empties.
   await second.close();

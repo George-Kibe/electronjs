@@ -5,6 +5,7 @@ import { FORMAT_INFO } from '@shared/export-options';
 import { MAX_FILE_BYTES } from '@shared/ipc-contract';
 import type { FileRefRegistry } from '../services/file-refs';
 import type { RecentFiles } from '../services/recent-files';
+import type { RecoveryStore } from '../services/recovery';
 import type { SettingsStore } from '../services/settings-store';
 import { HandlerError, type Handlers } from './router';
 
@@ -14,7 +15,15 @@ export type HandlerDeps = {
   window: () => BrowserWindow | null;
   codec: { decode(path: string, target: WebContents): string; encode(target: WebContents): string };
   writeAtomic(path: string, data: Uint8Array): Promise<void>;
-  appInfo: { productName: string; version: string; platform: string; arch: string; totalMemoryBytes: number };
+  appInfo: {
+    productName: string;
+    version: string;
+    platform: string;
+    arch: string;
+    totalMemoryBytes: number;
+    autosaveSecondsOverride: number | null;
+  };
+  recovery: Pick<RecoveryStore, 'write' | 'list' | 'read' | 'discard'>;
   settings: Pick<SettingsStore, 'get' | 'update'>;
   recent: Pick<RecentFiles, 'list' | 'add' | 'resolve' | 'remove' | 'clear'>;
   /** OS recent documents (macOS Dock menu, Windows jump list). */
@@ -155,6 +164,26 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     'recent.remove': ({ id }) => deps.recent.remove(id),
 
     'recent.clear': () => deps.recent.clear(),
+
+    'recovery.write': async ({ id, name, project, thumbnail }) => {
+      try {
+        await deps.recovery.write(id, name, project, thumbnail);
+      } catch {
+        throw new HandlerError('WRITE_FAILED', 'Could not write a recovery snapshot.');
+      }
+    },
+
+    'recovery.list': () => deps.recovery.list(),
+
+    'recovery.read': async ({ id }) => {
+      try {
+        return await deps.recovery.read(id);
+      } catch {
+        throw new HandlerError('NOT_FOUND', 'That recovered document is no longer available.');
+      }
+    },
+
+    'recovery.discard': ({ id }) => deps.recovery.discard(id),
 
     'settings.get': () => deps.settings.get(),
 

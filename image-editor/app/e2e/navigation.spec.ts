@@ -97,7 +97,7 @@ test(`[${target}] navigation and history: zoom steps, pixel grid, scrollbars, st
   await expect.poll(() => canvasPixel(win, cx, cy)).toEqual([255, 255, 255]);
 
   // The automatic first snapshot returns to the document as created.
-  await snapshots.getByRole('button', { name: 'Untitled', exact: true }).click();
+  await snapshots.getByRole('button', { name: 'Untitled-1', exact: true }).click();
   await expect(win.getByRole('option', { name: /Layer 1/ })).toHaveCount(0);
   await close();
 });

@@ -25,6 +25,8 @@ export const AppInfo = z.object({
   arch: z.string(),
   /** Physical RAM, for the automatic memory budget (docs/05 §3). */
   totalMemoryBytes: z.number().nonnegative(),
+  /** E2E only (env E2E_AUTOSAVE_SECONDS): a short autosave interval, so recovery can be tested. */
+  autosaveSecondsOverride: z.number().positive().nullable(),
 });
 export type AppInfo = z.infer<typeof AppInfo>;
 

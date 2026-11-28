@@ -36,6 +36,12 @@ export const api: ImageEditorApi = {
     remove: (id) => unwrap(bridge.recent.remove(id)),
     clear: () => unwrap(bridge.recent.clear()),
   },
+  recovery: {
+    write: (req) => unwrap(bridge.recovery.write(req)),
+    list: () => unwrap(bridge.recovery.list()),
+    read: (id) => unwrap(bridge.recovery.read(id)),
+    discard: (id) => unwrap(bridge.recovery.discard(id)),
+  },
   settings: {
     get: () => unwrap(bridge.settings.get()),
     update: (patch) => unwrap(bridge.settings.update(patch)),

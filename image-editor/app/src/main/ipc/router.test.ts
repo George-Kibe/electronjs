@@ -39,6 +39,10 @@ describe('registerIpc', () => {
       'recent.list',
       'recent.open',
       'recent.remove',
+      'recovery.discard',
+      'recovery.list',
+      'recovery.read',
+      'recovery.write',
       'settings.get',
       'settings.update',
     ]);

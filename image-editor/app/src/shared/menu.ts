@@ -11,6 +11,7 @@ export const MENU_COMMANDS = [
   'file.exportAs',
   'file.quickExport',
   'file.revert',
+  'file.close',
   'app.preferences',
   'edit.undo',
   'edit.redo',

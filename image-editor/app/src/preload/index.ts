@@ -48,6 +48,12 @@ const api: ImageEditorBridge = {
     remove: (id) => call('recent.remove', { id }),
     clear: () => call('recent.clear'),
   },
+  recovery: {
+    write: (req) => call('recovery.write', req),
+    list: () => call('recovery.list'),
+    read: (id) => call('recovery.read', { id }),
+    discard: (id) => call('recovery.discard', { id }),
+  },
   settings: {
     get: () => call('settings.get'),
     update: (patch) => call('settings.update', patch),
