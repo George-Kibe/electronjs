@@ -344,7 +344,7 @@ start only after approval):
         noise. The GPU preview (`layer.frag`) and the CPU commit (`brush.ts applyStroke`) agree within ±2/255
         for every mode tested, and Normal is unchanged byte for byte. The layer blend shaders and the golden
         baselines are untouched. E2E green on 3 OSes (run 46068222430).
-- [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep` (approved)
+- [x] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep` (approved)
   - [x] 3a Text layers end to end. As built: the Type tool (T). Click for point text, drag for a text box;
         type in place (the editor is the text itself, scaled with the zoom); Esc, Ctrl/⌘+Enter or a click
         outside commits, as one undo step ("Type Layer", "Edit Type Layer"); emptied text removes the
@@ -357,16 +357,16 @@ start only after approval):
         Layer › Rasterize Type first. Saved in `.iep` per docs/05 §2 (text, transform, `cache`), validated
         with limits; a transform this version cannot edit opens as pixels, read-only. E2E green on 3 OSes
         (run 46140292251).
-  - [ ] 3b Per-character styling and the installed fonts (FR-TXT-02). As built: select characters while
+  - [x] 3b Per-character styling and the installed fonts (FR-TXT-02). As built: select characters while
         typing and change colour, weight or size in the options bar: only they change (spans in the editor,
         runs in the model); with nothing selected the change is the whole layer's. The editor is read back
         by each character's computed style, so any markup typing makes maps to runs, and pasting inserts
         plain text only. The font field lists the installed families (Local Font Access, which main already
         permits, docs/06), each shown in its own face, filtered as you type; where the list is not available
-        it suggests common families and takes any name.
-  - [ ] 3c FR-TXT-03. As built: Chromium shapes and orders the text in the editor and the renderer; tests
+        it suggests common families and takes any name. E2E green on 3 OSes (run 46144116709).
+  - [x] 3c FR-TXT-03. As built: Chromium shapes and orders the text in the editor and the renderer; tests
         render Arabic and emoji and type them end to end. Bidi across differently styled runs follows the
-        layout, word by word.
+        layout, word by word. E2E green on 3 OSes (run 46144116709).
 - [x] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep` (approved). As built: the Shape tool
       (U; again or Shift+U for the next kind): rectangle, rounded rectangle, ellipse, line (with
       arrowheads), polygon and star. Drag to draw (Shift: square, round or 45°; Alt: from the centre) and
