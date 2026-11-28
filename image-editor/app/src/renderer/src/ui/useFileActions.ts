@@ -172,6 +172,15 @@ export function useFileActions(editor: Editor | null) {
     if (ref) await openRef(ref);
   }, [run, openRef]);
 
+  /** A new document from pixels (paste with no document open, FR-DOC-02). */
+  const openPixels = useCallback(
+    async (width: number, height: number, rgba: Uint8Array, name: string) => {
+      if (editor && (await confirmDiscard()))
+        editor.loadImage(width, height, rgba, { name, sourceProfile: null, exif: null }, null);
+    },
+    [editor, confirmDiscard],
+  );
+
   /** File › Open Recent (menu or Welcome screen). */
   const openRecent = useCallback(
     async (id: string) => {
@@ -255,6 +264,8 @@ export function useFileActions(editor: Editor | null) {
       dismissError: () => setError(null),
       dismissNotice: () => setNotice(null),
       reportError: (err: unknown) => setError(errorMessage(err)),
+      reportNotice: (message: string) => setNotice(message),
+      openPixels,
       unsaved,
       exporting,
       exportInitial: lastExport,
@@ -283,6 +294,7 @@ export function useFileActions(editor: Editor | null) {
       openRef,
       openDialog,
       openRecent,
+      openPixels,
       newDocument,
       save,
       saveAs,

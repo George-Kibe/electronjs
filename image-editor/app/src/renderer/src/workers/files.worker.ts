@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import type { EncodeReply, RendererToCodec } from '@shared/codec-protocol';
-import { CODEC_CHUNK_BYTES } from '@shared/constants';
+import { CODEC_CHUNK_BYTES, MAX_DOCUMENT_SIDE } from '@shared/constants';
 import type { ExportOptions } from '@shared/export-options';
 import { flatten, flattenPreview } from '../engine/doc/flatten';
 import { IepError, readIep, writeIep } from '../engine/io/iep';
@@ -16,6 +16,10 @@ export type FilesRequest =
   | { op: 'writeIep'; doc: DocSnapshot; appVersion: string }
   /** Recent-files thumbnail (FR-GEN-08): a small PNG of the composite. */
   | { op: 'thumbnail'; doc: DocSnapshot; maxSide: number }
+  /** Clipboard paste (FR-DOC-02/12): decoded by Chromium inside the sandbox (docs/06 §2). */
+  | { op: 'decodeClipboard'; blob: Blob }
+  /** Clipboard copy (FR-DOC-12): the snapshot's composite as PNG, transparency kept. */
+  | { op: 'encodePng'; doc: DocSnapshot }
   | {
       op: 'export';
       doc: DocSnapshot;
@@ -27,7 +31,12 @@ export type FilesRequest =
 
 export type FilesResponse =
   | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; message: string; code: 'INVALID_PROJECT' | 'CODEC' | 'INTERNAL' }
+  | {
+      id: number;
+      ok: false;
+      message: string;
+      code: 'INVALID_PROJECT' | 'CODEC' | 'INTERNAL' | 'CLIPBOARD';
+    }
   | { id: number; progress: number };
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -50,6 +59,38 @@ async function previewPng(doc: DocSnapshot, maxSide = 1024): Promise<Uint8Array 
   const ctx = canvas.getContext('2d');
   if (!ctx) return undefined;
   ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+class ClipboardError extends Error {}
+
+/** Straight RGBA8 of a clipboard image (sRGB, as Chromium decodes it). */
+async function decodeClipboard(blob: Blob): Promise<{ width: number; height: number; rgba: Uint8Array }> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'default' });
+  } catch {
+    throw new ClipboardError('The clipboard holds an image in a format that cannot be pasted.');
+  }
+  const { width, height } = bitmap;
+  if (width > MAX_DOCUMENT_SIDE || height > MAX_DOCUMENT_SIDE) {
+    bitmap.close();
+    throw new ClipboardError(`The clipboard image is too large (${width} × ${height} px).`);
+  }
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' })!;
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const data = ctx.getImageData(0, 0, width, height, { colorSpace: 'srgb' }).data;
+  return { width, height, rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) };
+}
+
+async function encodePng(doc: DocSnapshot): Promise<Uint8Array> {
+  // flatten() allocates a plain ArrayBuffer (never shared), so the cast is safe.
+  const rgba = flatten(layersOf(doc), doc.width, doc.height) as Uint8ClampedArray<ArrayBuffer>;
+  const canvas = new OffscreenCanvas(doc.width, doc.height);
+  canvas.getContext('2d')!.putImageData(new ImageData(rgba, doc.width, doc.height), 0, 0);
   const blob = await canvas.convertToBlob({ type: 'image/png' });
   return new Uint8Array(await blob.arrayBuffer());
 }
@@ -109,6 +150,12 @@ self.onmessage = async (event: MessageEvent<{ id: number } & FilesRequest>) => {
     } else if (req.op === 'writeIep') {
       const bytes = writeIep(req.doc, { appVersion: req.appVersion, previewPng: await previewPng(req.doc) });
       reply({ id, ok: true, result: bytes }, [bytes.buffer as ArrayBuffer]);
+    } else if (req.op === 'decodeClipboard') {
+      const decoded = await decodeClipboard(req.blob);
+      reply({ id, ok: true, result: decoded }, [decoded.rgba.buffer as ArrayBuffer]);
+    } else if (req.op === 'encodePng') {
+      const png = await encodePng(req.doc);
+      reply({ id, ok: true, result: png }, [png.buffer as ArrayBuffer]);
     } else if (req.op === 'thumbnail') {
       const png = await previewPng(req.doc, req.maxSide);
       reply({ id, ok: true, result: png ?? null }, png ? [png.buffer as ArrayBuffer] : []);
@@ -120,6 +167,7 @@ self.onmessage = async (event: MessageEvent<{ id: number } & FilesRequest>) => {
     }
   } catch (err) {
     if (err instanceof IepError) reply({ id, ok: false, code: 'INVALID_PROJECT', message: err.message });
+    else if (err instanceof ClipboardError) reply({ id, ok: false, code: 'CLIPBOARD', message: err.message });
     else if (err instanceof Error && 'codec' in err)
       reply({ id, ok: false, code: 'CODEC', message: err.message });
     else {

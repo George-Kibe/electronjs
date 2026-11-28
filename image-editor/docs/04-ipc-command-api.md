@@ -78,7 +78,10 @@ interface Api {
 | `recent.list()`, `recent.add({ ref, thumbnail? })`, `recent.open({ id })`, `recent.remove`, `recent.clear` | Recent files kept by main (`recent.json` + 256 px thumbnails); ids are opaque hashes, the renderer never sees paths; `recent.open` returns a fresh ref or `NOT_FOUND` (and drops the entry) if the file is gone. Events `recent.changed`, `menu.openRecent` |
 | `settings.get()`, `settings.update(patch)` | User settings (docs/05 §3). The patch is validated field by field; every window then gets `settings.changed` |
 
-Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks. Menu
+Main also sends `menu.command` (a `MenuCommandId` from `shared/menu.ts`) for native menu clicks.
+The clipboard needs no IPC: Edit › Copy / Paste keep their native roles (so text fields work), which fire DOM
+`copy`/`paste` events that the renderer handles on the canvas; images are decoded and encoded by Chromium in
+the file worker, and written with the async Clipboard API (`clipboard-sanitized-write`, docs/06 §4). Menu
 accelerators are displayed but not registered; the renderer's keymap handles keys.
 
 ### 1.1 codec-host messages (over the brokered MessagePort)
