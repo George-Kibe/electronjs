@@ -13,6 +13,8 @@ import { api, errorMessage, events } from '../lib/api';
 import { readProject } from '../lib/files';
 import { runOps, warmUpOps } from '../lib/ops';
 import { OpfsSpillStore } from '../lib/scratch';
+import { renderText } from '../lib/text-render';
+import { TextEditor } from './components/TextEditor';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { transformCursor } from '../engine/tools/transform';
 import { ADJUSTMENT_KINDS, type AdjustmentKind } from '../engine/ops/adjust';
@@ -72,6 +74,7 @@ const CURSORS: Partial<Record<Tool, string>> = {
   eyedropper: 'cursor-crosshair',
   bucket: 'cursor-crosshair',
   gradient: 'cursor-crosshair',
+  text: 'cursor-text',
 };
 
 /** One history scratch file per window, shared by its documents and by an Editor rebuilt after a GPU reset. */
@@ -82,7 +85,7 @@ export function App() {
   const [fatal, setFatal] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [engineNotice, setEngineNotice] = useState<string | null>(null);
-  const [picking, setPicking] = useState<'foreground' | 'background' | null>(null);
+  const [picking, setPicking] = useState<'foreground' | 'background' | 'text' | null>(null);
   const [imageDialog, setImageDialog] = useState<
     'imageSize' | 'canvasSize' | 'rotate' | 'trim' | 'newGuide' | null
   >(null);
@@ -133,6 +136,7 @@ export function App() {
         onNotice: setEngineNotice,
         runOps,
         spillStore: scratchStore,
+        renderText,
         onUnrecoverableContextLoss: () => {
           carryOver.current = instance.exportState();
           setCanvasKey((k) => k + 1);
@@ -317,6 +321,7 @@ export function App() {
           'layer.bringForward': () => editor?.nudgeActiveLayer(1),
           'layer.sendBackward': () => editor?.nudgeActiveLayer(-1),
           'layer.mergeDown': () => editor?.mergeDown(),
+          'layer.rasterizeType': () => editor?.rasterizeType(),
           'layer.mergeVisible': () => editor?.mergeVisible(),
           'layer.flatten': () => editor?.flattenImage(),
           'layer.alignLeft': () => editor?.align('left'),
@@ -462,6 +467,7 @@ export function App() {
             reset: () => editor.resetCrop(),
           }}
           onFit={() => editor.fitToScreen()}
+          onEditTextColor={() => setPicking('text')}
           onActualSize={() => editor.zoomTo(1)}
           transform={snap.transform}
           onTransform={{
@@ -546,7 +552,8 @@ export function App() {
                 snap?.marquee ||
                 snap?.lasso ||
                 snap?.gradientLine ||
-                snap?.cloneSource) && (
+                snap?.cloneSource ||
+                snap?.textBox) && (
                 <SelectionOverlay
                   editor={editor}
                   // In Quick Mask the red overlay shows the selection instead of the ants.
@@ -555,8 +562,10 @@ export function App() {
                   lasso={snap.lasso}
                   gradientLine={snap.gradientLine}
                   cloneSource={snap.cloneSource}
+                  textBox={snap.textBox}
                 />
               )}
+            {editor && snap?.textEdit && <TextEditor editor={editor} edit={snap.textEdit} />}
             {snap?.doc && editor && (
               <Scrollbars editor={editor} docWidth={snap.doc.width} docHeight={snap.doc.height} />
             )}
@@ -678,13 +687,24 @@ export function App() {
       )}
       {picking && snap && editor && (
         <ColorPickerDialog
-          title={picking === 'foreground' ? 'Foreground colour' : 'Background colour'}
-          initial={snap.colors[picking]}
+          title={
+            picking === 'foreground'
+              ? 'Foreground colour'
+              : picking === 'text'
+                ? 'Text colour'
+                : 'Background colour'
+          }
+          initial={
+            picking === 'text'
+              ? (snap.options.text.color.slice(0, 3) as [number, number, number])
+              : snap.colors[picking]
+          }
           recent={snap.colors.recent}
           onAddSwatch={swatches.add}
           onCancel={() => setPicking(null)}
           onOk={(c) => {
             if (picking === 'foreground') editor.setForeground(c);
+            else if (picking === 'text') editor.setToolOptions('text', { color: [c[0], c[1], c[2], 1] });
             else editor.setBackground(c);
             setPicking(null);
           }}

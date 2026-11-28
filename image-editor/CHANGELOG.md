@@ -61,6 +61,9 @@ All notable changes to ImageEditor are documented here. The format follows
 - View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
   the whole image with the part in view outlined; click or drag in it to move around, and use its slider
   to zoom.
+- Text (T): click to type on the canvas, or drag a box for text that wraps. Choose the font, size, weight,
+  italic, colour, alignment, spacing, underline and strikethrough. Click the text later to edit it; it moves
+  with the Move tool and is saved in the project. Layer › Rasterize Type turns it into pixels.
 - Brush and pencil blend modes: the options bar's Mode paints with any of the 18 blend modes, for example
   Multiply to darken or Color to tint what is already on the layer.
 - Clone Stamp (S): Alt-click where to copy from, then paint to copy that part of the image. Aligned keeps

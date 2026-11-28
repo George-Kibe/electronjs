@@ -8,6 +8,7 @@ type Props = {
   lasso: EditorSnapshot['lasso'];
   gradientLine?: EditorSnapshot['gradientLine'];
   cloneSource?: EditorSnapshot['cloneSource'];
+  textBox?: EditorSnapshot['textBox'];
 };
 
 /** Black dashes over white, 1 screen px at any zoom (FR-SEL-06). */
@@ -26,9 +27,17 @@ function Ants({ children }: { children: (props: React.SVGProps<SVGElement>) => R
  * in document pixels under the view transform, so the outline stays crisp at any zoom. The dashes stop
  * moving with prefers-reduced-motion (docs/03 §7). Display only: the editor handles input.
  */
-export function SelectionOverlay({ editor, selection, marquee, lasso, gradientLine, cloneSource }: Props) {
+export function SelectionOverlay({
+  editor,
+  selection,
+  marquee,
+  lasso,
+  gradientLine,
+  cloneSource,
+  textBox,
+}: Props) {
   const { zoom, panX, panY } = useSyncExternalStore(editor.subscribeView, editor.getView);
-  if (!selection && !marquee && !lasso && !gradientLine && !cloneSource) return null;
+  if (!selection && !marquee && !lasso && !gradientLine && !cloneSource && !textBox) return null;
   // The Clone Stamp's source: a crosshair 8 screen px each way (FR-PNT-05).
   const arm = 8 / zoom;
   // The outline drawn so far; a polygon also shows the edge to the pointer.
@@ -63,6 +72,20 @@ export function SelectionOverlay({ editor, selection, marquee, lasso, gradientLi
         )}
         {selection && (
           <Ants>{(p) => <path d={selection.outline} {...(p as React.SVGProps<SVGPathElement>)} />}</Ants>
+        )}
+        {textBox && (
+          // A text box being dragged out with the Type tool (FR-TXT-01).
+          <Ants>
+            {(p) => (
+              <rect
+                x={textBox.x0}
+                y={textBox.y0}
+                width={textBox.x1 - textBox.x0}
+                height={textBox.y1 - textBox.y0}
+                {...(p as React.SVGProps<SVGRectElement>)}
+              />
+            )}
+          </Ants>
         )}
         {marquee && r && marquee.shape === 'rect' && (
           <Ants>

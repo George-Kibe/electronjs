@@ -1,4 +1,4 @@
-import type { Document, Layer } from '../doc/document';
+import { hasPixels, type Document, type Layer } from '../doc/document';
 import { contentBounds } from '../ops/canvas';
 
 /**
@@ -36,7 +36,7 @@ export function snapTargets(doc: Document, exclude: ReadonlySet<string> = new Se
     for (const l of layers) {
       if (!l.visible) continue;
       if (l.type === 'group') visit(l.children);
-      else if (l.type === 'raster' && !exclude.has(l.id)) {
+      else if (hasPixels(l) && !exclude.has(l.id)) {
         const b = contentBounds([l.tiles]);
         if (b) {
           x.push(b.x0, b.x1);

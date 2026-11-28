@@ -1,6 +1,14 @@
 import type { Tile, TileKey } from '../tiles/tile';
 import { TILE_BYTES, TileGrid } from '../tiles/tile';
-import { createRasterLayer, type Document, type Layer, type LayerMask, type LayerProps } from './document';
+import {
+  createRasterLayer,
+  hasPixels,
+  type Document,
+  type Layer,
+  type LayerMask,
+  type LayerProps,
+  type TextModel,
+} from './document';
 import type { Mask } from './selection';
 import { ADJUSTMENT_LABELS, type Adjustment } from '../ops/adjust';
 
@@ -35,7 +43,7 @@ export function* layerGrids(layers: readonly Layer[]): Generator<TileGrid> {
   for (const l of layers) {
     if (l.type === 'group') yield* layerGrids(l.children);
     else {
-      if (l.type === 'raster') yield l.tiles;
+      if (hasPixels(l)) yield l.tiles;
       if (l.mask) yield l.mask.grid;
     }
   }
@@ -326,7 +334,7 @@ export function tileBytes(layers: readonly Layer[]): number {
     n +=
       l.type === 'group'
         ? tileBytes(l.children)
-        : ((l.type === 'raster' ? l.tiles.size : 0) + (l.mask?.grid.size ?? 0)) * TILE_BYTES;
+        : ((hasPixels(l) ? l.tiles.size : 0) + (l.mask?.grid.size ?? 0)) * TILE_BYTES;
   return n;
 }
 
@@ -487,6 +495,59 @@ export class SetLayerMaskCommand implements Command {
 
   tileHolders(): Iterable<TileHolder> {
     return [this.before, this.after].flatMap((m) => (m ? [m.grid] : []));
+  }
+}
+
+/**
+ * Edits a text layer (FR-TXT-01/02): its text and style, its position and its rendering, as one step. The
+ * layer's tile grid is changed in place, like a paint command's.
+ */
+export class SetTextCommand implements Command {
+  private before: { text: TextModel; transform: number[]; tiles: Map<TileKey, Tile | undefined> } | null =
+    null;
+  private readonly afterTiles: Map<TileKey, Tile | undefined>;
+
+  constructor(
+    readonly label: string,
+    private readonly layerId: string,
+    private readonly after: { text: TextModel; transform: number[]; tiles: TileGrid },
+  ) {
+    this.afterTiles = new Map(after.tiles.entries());
+  }
+
+  private install(
+    doc: Document,
+    text: TextModel,
+    transform: number[],
+    tiles: Map<TileKey, Tile | undefined>,
+  ) {
+    const layer = doc.layer(this.layerId);
+    if (layer.type !== 'text') throw new Error(`${this.layerId} is not a text layer`);
+    layer.text = text;
+    layer.transform = transform;
+    layer.tiles.clear();
+    for (const [k, t] of tiles) layer.tiles.set(k, t);
+    return { layerIds: [this.layerId], tiles: 'all' as const };
+  }
+
+  do(doc: Document): DirtySet {
+    const layer = doc.layer(this.layerId);
+    if (layer.type !== 'text') throw new Error(`${this.layerId} is not a text layer`);
+    this.before ??= { text: layer.text, transform: layer.transform, tiles: new Map(layer.tiles.entries()) };
+    return this.install(doc, this.after.text, this.after.transform, this.afterTiles);
+  }
+
+  undo(doc: Document): DirtySet {
+    const b = this.before!;
+    return this.install(doc, b.text, b.transform, b.tiles);
+  }
+
+  sizeBytes(): number {
+    return 512 + (this.afterTiles.size + (this.before?.tiles.size ?? 0)) * TILE_BYTES;
+  }
+
+  tileHolders(): Iterable<TileHolder> {
+    return this.before ? [this.afterTiles, this.before.tiles] : [this.afterTiles];
   }
 }
 

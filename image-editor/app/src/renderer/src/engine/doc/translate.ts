@@ -12,7 +12,15 @@ import {
   type TileKey,
 } from '../tiles/tile';
 import type { Command, DirtySet, TileHolder } from './commands';
-import { walkLayers, type Document, type Layer, type RasterLayer } from './document';
+import {
+  hasPixels,
+  shiftText,
+  walkLayers,
+  type Document,
+  type Layer,
+  type RasterLayer,
+  type TextLayer,
+} from './document';
 
 /**
  * Move tool operations (FR-TRF-07): translate a layer's pixels by whole pixels, align to the canvas and
@@ -48,12 +56,15 @@ export function translateGrid(
   );
 }
 
-/** The raster layers a move of `id` affects: the layer itself, or every raster layer inside a group. */
-export function movedRasters(doc: Document, id: string): RasterLayer[] {
+/**
+ * The layers with pixels a move of `id` affects: the layer itself, or every raster and text layer inside a
+ * group (text moves with its rendering).
+ */
+export function movedRasters(doc: Document, id: string): Array<RasterLayer | TextLayer> {
   const layer = doc.layer(id);
-  if (layer.type === 'raster') return [layer];
+  if (hasPixels(layer)) return [layer];
   if (layer.type === 'adjustment') return [];
-  return [...walkLayers(layer.children)].flatMap((l) => (l.layer.type === 'raster' ? [l.layer] : []));
+  return [...walkLayers(layer.children)].flatMap((l) => (hasPixels(l.layer) ? [l.layer] : []));
 }
 
 /** Why the layer `id` cannot be moved, or null if it can (position lock, FR-LAY-02). */
@@ -70,6 +81,8 @@ export function moveBlocker(doc: Document, id: string): string | null {
 }
 
 type Pixels = ReadonlyMap<string, readonly [TileKey, Tile][]>;
+/** Text layers in the move: their transform before and after (the text follows its rendering). */
+type TextMoves = ReadonlyMap<string, { before: number[]; after: number[] }>;
 
 /** A layer's [key, tile] list as a TileHolder (history swaps its tiles in place, FR-HIS-03). */
 function entryHolder(list: readonly [TileKey, Tile][]): TileHolder {
@@ -95,24 +108,29 @@ export class TranslateCommand implements Command {
     readonly label: string,
     private readonly before: Pixels,
     private readonly after: Pixels,
+    private readonly texts: TextMoves = new Map(),
   ) {}
 
-  private apply(doc: Document, pixels: Pixels): DirtySet {
+  private apply(doc: Document, pixels: Pixels, side: 'before' | 'after'): DirtySet {
     for (const [id, entries] of pixels) {
       // `<id>#mask`: the layer's linked mask moves with it.
-      const grid = id.endsWith('#mask') ? doc.raster(id.slice(0, -5)).mask!.grid : doc.raster(id).tiles;
+      const grid = id.endsWith('#mask') ? doc.masked(id.slice(0, -5)).mask!.grid : doc.pixels(id).tiles;
       grid.clear();
       for (const [key, tile] of entries) grid.set(key, tile);
+    }
+    for (const [id, t] of this.texts) {
+      const layer = doc.layer(id);
+      if (layer.type === 'text') layer.transform = t[side];
     }
     return { layerIds: [...pixels.keys()].map((id) => id.replace(/#mask$/, '')), tiles: 'all' };
   }
 
   do(doc: Document): DirtySet {
-    return this.apply(doc, this.after);
+    return this.apply(doc, this.after, 'after');
   }
 
   undo(doc: Document): DirtySet {
-    return this.apply(doc, this.before);
+    return this.apply(doc, this.before, 'before');
   }
 
   /** Bytes of tiles created by the move (tiles shared with the previous state cost nothing). */
@@ -134,7 +152,13 @@ export class TranslateCommand implements Command {
     if (!(next instanceof TranslateCommand) || next.label !== this.label) return null;
     const ids = [...this.after.keys()].join();
     if ([...next.before.keys()].join() !== ids) return null;
-    return new TranslateCommand(this.label, this.before, next.after);
+    const texts = new Map(
+      [...this.texts].map(([id, t]) => [
+        id,
+        { before: t.before, after: next.texts.get(id)?.after ?? t.after },
+      ]),
+    );
+    return new TranslateCommand(this.label, this.before, next.after, texts);
   }
 }
 
@@ -161,6 +185,7 @@ export function translateMoves(
   const range = tileRange(doc.width, doc.height, TILE_SIZE);
   const before = new Map<string, [TileKey, Tile][]>();
   const after = new Map<string, [TileKey, Tile][]>();
+  const texts = new Map<string, { before: number[]; after: number[] }>();
   for (const move of moves) {
     const dx = Math.round(move.dx);
     const dy = Math.round(move.dy);
@@ -170,13 +195,15 @@ export function translateMoves(
       if (before.has(layer.id)) continue; // already moved (a layer inside a moved group)
       before.set(layer.id, [...layer.tiles.entries()]);
       after.set(layer.id, [...translateGrid(layer.tiles, dx, dy, range).entries()]);
+      if (layer.type === 'text')
+        texts.set(layer.id, { before: layer.transform, after: shiftText(layer, dx, dy) });
       if (layer.mask?.linked) {
         before.set(`${layer.id}#mask`, [...layer.mask.grid.entries()]);
         after.set(`${layer.id}#mask`, [...translateGrid(layer.mask.grid, dx, dy, range).entries()]);
       }
     }
   }
-  return before.size ? new TranslateCommand(label, before, after) : null;
+  return before.size ? new TranslateCommand(label, before, after, texts) : null;
 }
 
 export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
@@ -216,7 +243,7 @@ export function layerAt(doc: Document, x: number, y: number, mode: 'layer' | 'gr
       if (l.type === 'group') {
         const hit = search(l.children);
         if (hit) return hit;
-      } else if (l.type === 'raster' && l.tiles.pixel(px, py)[3] > 0) {
+      } else if (hasPixels(l) && l.tiles.pixel(px, py)[3] > 0) {
         return l.id;
       }
     }

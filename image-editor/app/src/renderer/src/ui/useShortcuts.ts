@@ -165,6 +165,7 @@ export function useShortcuts(editor: Editor | null, actions: ShortcutActions): v
         if (key === 'b') return run(() => editor.selectBrushTool());
         if (key === 'e') return run(() => editor.setTool('eraser'));
         if (key === 's') return run(() => editor.setTool('clone'));
+        if (key === 't') return run(() => editor.setTool('text'));
         if (key === 'g') return run(() => editor.selectFillTool());
         if (key === 'i') return run(() => editor.setTool('eyedropper'));
         if (key === 'h') return run(() => editor.setTool('hand'));

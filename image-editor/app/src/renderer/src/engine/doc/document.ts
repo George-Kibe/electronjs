@@ -108,7 +108,79 @@ export type AdjustmentLayer = Omit<RasterLayer, 'type' | 'tiles'> & {
   adjustment: Adjustment;
 };
 
-export type Layer = RasterLayer | GroupLayer | AdjustmentLayer;
+/** Straight RGB 0..255 and alpha 0..1. */
+export type RGBA = [number, number, number, number];
+
+/** One stretch of text with one style (docs/05 §1 TextModel). */
+export type TextRun = {
+  text: string;
+  font: { family: string; postscriptName?: string; weight: number; style: 'normal' | 'italic' };
+  /** Font size in document px. */
+  size: number;
+  color: RGBA;
+  /** Extra space between letters, in document px. */
+  letterSpacing: number;
+  underline: boolean;
+  strike: boolean;
+};
+
+export type TextParagraph = {
+  align: 'left' | 'center' | 'right' | 'justify';
+  /** Line height as a multiple of the font size. */
+  lineHeight: number;
+  runs: TextRun[];
+};
+
+/** Point text grows with its lines; box (paragraph) text wraps inside `box` (FR-TXT-01). */
+export type TextModel = {
+  mode: 'point' | 'box';
+  box?: { w: number; h: number };
+  paragraphs: TextParagraph[];
+};
+
+/**
+ * A text layer (FR-LAY-01, FR-TXT-01, docs/05 §1). `tiles` is its rendering (docs/05's `cache`), so it
+ * composites, masks and clips exactly like a raster layer; editing the text renders it again. `transform`
+ * is a row-major 3×3 matrix; this version uses only its translation (the text block's top-left corner).
+ * Tools that change pixels ask for Layer › Rasterize Type first.
+ */
+export type TextLayer = Omit<RasterLayer, 'type'> & {
+  readonly type: 'text';
+  text: TextModel;
+  transform: number[];
+};
+
+export type Layer = RasterLayer | GroupLayer | AdjustmentLayer | TextLayer;
+
+/** Layers whose pixels live in tiles: raster layers and text layers (their rendering). */
+export const hasPixels = (l: Layer): l is RasterLayer | TextLayer => l.type === 'raster' || l.type === 'text';
+
+/** The plain text of a model, paragraphs joined by newlines. */
+export function plainText(model: TextModel): string {
+  return model.paragraphs.map((p) => p.runs.map((r) => r.text).join('')).join('\n');
+}
+
+/** The text block's top-left corner (the transform's translation). */
+export const textOrigin = (l: TextLayer): { x: number; y: number } => ({
+  x: l.transform[2]!,
+  y: l.transform[5]!,
+});
+
+export const translation = (x: number, y: number): number[] => [1, 0, x, 0, 1, y, 0, 0, 1];
+
+/** Layer › Rasterize Type: the text layer as the raster layer it draws (same id, props, pixels and mask). */
+export function rasterize(l: TextLayer): RasterLayer {
+  const { text: _text, transform: _transform, ...rest } = l;
+  return { ...rest, type: 'raster' };
+}
+
+/** The text layer moved by (dx, dy): its rendering is moved by the caller; the text follows. */
+export function shiftText(l: TextLayer, dx: number, dy: number): number[] {
+  const t = l.transform.slice();
+  t[2] = t[2]! + dx;
+  t[5] = t[5]! + dy;
+  return t;
+}
 
 export type LayerProps = Pick<
   RasterLayer,
@@ -139,6 +211,33 @@ export function createRasterLayer(
     locks: { ...NO_LOCKS },
     clipped: false,
     tiles,
+    ...rest,
+    ...(extra ? { extra } : {}),
+  };
+}
+
+/** A new text layer with `tiles` as its rendering (FR-TXT-01). */
+export function createTextLayer(
+  name: string,
+  text: TextModel,
+  origin: { x: number; y: number },
+  tiles = new TileGrid(),
+  props: Partial<LayerProps> & { id?: string; extra?: Record<string, unknown>; mask?: LayerMask | null } = {},
+): TextLayer {
+  const { id, extra, ...rest } = props;
+  return {
+    id: id ?? newLayerId(),
+    type: 'text',
+    name,
+    visible: true,
+    opacity: 1,
+    fillOpacity: 1,
+    blendMode: 'normal',
+    locks: { ...NO_LOCKS },
+    clipped: false,
+    tiles,
+    text,
+    transform: translation(origin.x, origin.y),
     ...rest,
     ...(extra ? { extra } : {}),
   };
@@ -288,14 +387,21 @@ export class Document {
     return this.locate(id).layer;
   }
 
-  /** The raster layer `id`; throws for groups (pixels live only in raster layers). */
-  /** A layer that can have a mask: a raster or an adjustment layer (FR-LAY-04). */
-  masked(id: string): RasterLayer | AdjustmentLayer {
+  /** A layer that can have a mask: a raster, text or adjustment layer (FR-LAY-04). */
+  masked(id: string): RasterLayer | AdjustmentLayer | TextLayer {
     const layer = this.layer(id);
     if (layer.type === 'group') throw new Error(`Layer ${id} cannot have a mask`);
     return layer;
   }
 
+  /** The layer `id` with pixels (raster or text); throws for groups and adjustment layers. */
+  pixels(id: string): RasterLayer | TextLayer {
+    const layer = this.layer(id);
+    if (!hasPixels(layer)) throw new Error(`Layer ${id} has no pixels`);
+    return layer;
+  }
+
+  /** The raster layer `id`; throws for others (text must be rasterized before its pixels are edited). */
   raster(id: string): RasterLayer {
     const layer = this.layer(id);
     if (layer.type !== 'raster') throw new Error(`Layer ${id} is not a raster layer`);

@@ -23,14 +23,36 @@ import {
   SetGuidesCommand,
   SetLayerMaskCommand,
   SetSelectionCommand,
+  SetTextCommand,
+  TreeCommand,
+  cloneTree,
   type Command,
 } from './doc/commands';
+import {
+  DEFAULT_TEXT_STYLE,
+  emptyRendering,
+  sameModel,
+  styleOf,
+  textLayerName,
+  textModel,
+  type TextRenderer,
+  type TextStyle,
+} from './text/text';
 import {
   createAdjustmentLayer,
   createGroupLayer,
   createRasterLayer,
+  createTextLayer,
+  hasPixels,
+  plainText,
+  rasterize,
+  textOrigin,
+  translation,
+  walkLayers,
   Document,
   type RasterLayer as RasterLayerOf,
+  type TextLayer,
+  type TextModel,
   type BlendMode,
   type Layer,
   type LayerLocks,
@@ -179,6 +201,7 @@ export type Tool =
   | 'bucket'
   | 'gradient'
   | 'clone'
+  | 'text'
   | 'hand'
   | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
@@ -221,6 +244,8 @@ export type ToolOptions = {
    * sampling the active layer or all layers.
    */
   clone: BrushOptions & { aligned: boolean; sampleAll: boolean };
+  /** Type tool (FR-TXT-01/02): the style of new text, and of the text being edited. */
+  text: TextStyle;
   /** Gradient (FR-PNT-04): geometry, colours (a preset of the current colours), opacity, mode, dither. */
   gradient: {
     type: GradientType;
@@ -259,12 +284,27 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   bucket: { tolerance: 32, contiguous: true, antiAlias: true, sampleAll: false },
   gradient: { type: 'linear', preset: 'fg-bg', opacity: 1, mode: 'normal', dither: true, reverse: false },
   clone: { ...brushDefaults(), aligned: true, sampleAll: false },
+  text: DEFAULT_TEXT_STYLE,
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
 export type Colors = { foreground: RGB; background: RGB; recent: RGB[] };
 export const DEFAULT_COLORS: Colors = { foreground: [0, 0, 0], background: [255, 255, 255], recent: [] };
 const MAX_RECENT = 10;
+
+/** Text being typed in place: a new layer (layerId null) or an existing one. */
+export type TextEditState = {
+  layerId: string | null;
+  origin: { x: number; y: number };
+  mode: TextModel['mode'];
+  box?: { w: number; h: number };
+  text: string;
+  style: TextStyle;
+};
+
+/** Tools that change pixels refuse text layers: their pixels are the text's rendering (FR-TXT-01). */
+const RASTERIZE_FIRST =
+  'This is a text layer. To change its pixels, rasterize it first (Layer › Rasterize Type).';
 
 /** Smoothing 100 % is a 60 screen-px string (scaled to document px by the zoom at stroke start). */
 const SMOOTHING_SCREEN_PX = 60;
@@ -345,6 +385,10 @@ export type EditorSnapshot = {
   gradientLine: { start: { x: number; y: number }; end: { x: number; y: number } } | null;
   /** The Clone Stamp's source (Alt-click), or where it samples during a stroke, in document px. */
   cloneSource: { x: number; y: number } | null;
+  /** Text being typed in place (FR-TXT-01): where, how, and what so far. */
+  textEdit: TextEditState | null;
+  /** A text box being dragged out with the Type tool, in document px. */
+  textBox: Bounds | null;
   /** A lasso outline being drawn (doc px), and for the polygonal lasso the pointer's position. */
   lasso: { kind: LassoKind; points: Point[]; hover: Point | null } | null;
   /** Select › Reselect has something to bring back. */
@@ -393,7 +437,7 @@ export type EditorSnapshot = {
 
 export type LayerRow = {
   id: string;
-  type: 'raster' | 'group' | 'adjustment';
+  type: Layer['type'];
   /** An adjustment layer's kind (FR-ADJ-01), for its icon and the Properties panel. */
   adjustment: AdjustmentKind | null;
   name: string;
@@ -545,6 +589,8 @@ export type EditorOptions = {
    * one, the oldest steps are dropped instead.
    */
   spillStore?: SpillStore;
+  /** Lays out and draws text layers (FR-TXT-01..03; the page's text engine). Without one, text draws nothing. */
+  renderText?: TextRenderer;
 };
 
 /**
@@ -663,6 +709,14 @@ export class Editor {
   } | null = null;
   /** The document with the clone stroke so far (shown instead of the document while painting). */
   private clonePreview: Document | null = null;
+  private textEdit: TextEditState | null = null;
+  private textDrag: {
+    pointerId: number;
+    start: { x: number; y: number };
+    current: { x: number; y: number };
+  } | null = null;
+  /** A text edit is being committed (its own command must not commit it again). */
+  private committingText = false;
   private marqueeDrag: {
     pointerId: number;
     start: { x: number; y: number };
@@ -920,6 +974,8 @@ export class Editor {
 
   /** Shows a background session; transient tool state never crosses documents. */
   private show(s: Session): void {
+    this.settleText(); // typed text belongs to the document it was typed in
+    this.dropToolDrags();
     this.background.delete(s.id);
     this.stroke = null;
     this.moving = null;
@@ -965,6 +1021,7 @@ export class Editor {
 
   /** Closes a tab without asking (the host confirms unsaved changes first). */
   closeDocument(id: string = this.docId): void {
+    if (id === this.docId) this.settleText();
     if (this.busy) return;
     const index = this.tabOrder.indexOf(id);
     if (index < 0) return;
@@ -1060,6 +1117,8 @@ export class Editor {
     id: string = crypto.randomUUID(),
     replace = false,
   ): void {
+    this.settleText();
+    this.dropToolDrags();
     const at = this.tabOrder.indexOf(this.docId);
     if (replace && at >= 0) this.tabOrder.splice(at, 1, id);
     else {
@@ -1181,6 +1240,13 @@ export class Editor {
       marquee: this.marqueeState(),
       gradientLine: this.gradientDrag && { start: this.gradientDrag.start, end: this.gradientDrag.end },
       cloneSource: this.cloneSourceShown(),
+      textEdit: this.textEdit,
+      textBox: this.textDrag && {
+        x0: Math.min(this.textDrag.start.x, this.textDrag.current.x),
+        y0: Math.min(this.textDrag.start.y, this.textDrag.current.y),
+        x1: Math.max(this.textDrag.start.x, this.textDrag.current.x),
+        y1: Math.max(this.textDrag.start.y, this.textDrag.current.y),
+      },
       lasso: this.lassoDraw
         ? { kind: this.lassoDraw.kind, points: [...this.lassoDraw.points], hover: this.lassoDraw.hover }
         : null,
@@ -1256,11 +1322,13 @@ export class Editor {
       this.marqueeDrag !== null ||
       this.gradientDrag !== null ||
       this.cloneStroke !== null ||
+      this.textDrag !== null ||
       this.lassoDraw?.pointerId != null
     );
   }
 
   undo(): void {
+    this.settleText();
     // Undo during Free Transform leaves it without changes (the layers are untouched until it is applied).
     if (this.transform && !this.transform.drag) return this.cancelTransform();
     if (this.adjusting) return this.cancelAdjustment();
@@ -1270,11 +1338,13 @@ export class Editor {
   }
 
   redo(): void {
+    this.settleText();
     if (!this.busy) this.history?.redo();
     this.whileHistoryLoads();
   }
 
   goToHistory(index: number): void {
+    this.settleText();
     if (!this.busy) this.history?.goTo(index);
     this.whileHistoryLoads();
   }
@@ -1297,6 +1367,7 @@ export class Editor {
   }
 
   private exec(cmd: Parameters<History['execute']>[0] | null, opts?: { coalesce?: boolean }): void {
+    if (cmd) this.settleText();
     if (cmd && this.history && !this.busy) this.history.execute(cmd, opts);
   }
 
@@ -1509,7 +1580,7 @@ export class Editor {
       fillOpacity: 1,
       blendMode: 'normal',
       // The pixel thumbnail shows the pixels themselves; the mask has its own thumbnail.
-      ...(layer.type === 'raster' ? { mask: null } : {}),
+      ...(hasPixels(layer) ? { mask: null } : {}),
     } as Layer;
     if (plain.type === 'group') plain.passThrough = false;
     const thumb = flattenPreview(liveLayers([plain]), doc.width, doc.height, maxSide);
@@ -1615,6 +1686,7 @@ export class Editor {
   }
 
   setTool(tool: Tool): void {
+    if (tool !== 'text') this.settleText();
     // Choosing another tool applies an open Free Transform (Photoshop asks; applying loses nothing: undo).
     if (this.transform) void this.commitTransform();
     if (tool === 'crop' && this.tool !== 'crop') this.resetCrop(false);
@@ -1659,6 +1731,8 @@ export class Editor {
     const next = { ...this.toolOptions[tool], ...patch };
     if ('size' in next) next.size = Math.min(2500, Math.max(1, Math.round(next.size)));
     this.toolOptions = { ...this.toolOptions, [tool]: next };
+    // The Type tool's options restyle the text being edited (the whole layer in this version).
+    if (tool === 'text' && this.textEdit) this.textEdit = { ...this.textEdit, style: next as TextStyle };
     this.changed();
   }
 
@@ -1855,7 +1929,7 @@ export class Editor {
   }
 
   /** The active layer if it can have a mask (raster or adjustment), else null with a notice. */
-  private activeMasked(): RasterLayerOf | Extract<Layer, { type: 'adjustment' }> | null {
+  private activeMasked(): RasterLayerOf | TextLayer | Extract<Layer, { type: 'adjustment' }> | null {
     const layer = this.doc?.activeLayer;
     if (!layer || layer.type === 'group') {
       this.notice('Select a layer (groups get masks in a later version).');
@@ -1949,6 +2023,7 @@ export class Editor {
     if (layer.type === 'adjustment') return 'This is an adjustment layer: change it in the Properties panel.';
     if (this.editingMask && layer.mask)
       return 'Adjusting a mask is not supported yet. Click the layer’s thumbnail.';
+    if (layer.type === 'text') return RASTERIZE_FIRST;
     if (layer.locks.all || layer.locks.pixels) return 'This layer is locked.';
     if (!layer.visible) return 'This layer is hidden. Show it to adjust it.';
     return null;
@@ -2494,6 +2569,7 @@ export class Editor {
 
   /** Layer › Layer Mask › Apply: the mask is baked into the pixels' alpha, then removed (one step). */
   applyLayerMask(): void {
+    if (this.doc?.activeLayer.type === 'text') return this.notice(RASTERIZE_FIRST);
     const layer = this.activeRaster();
     const mask = layer?.mask;
     if (!layer || !mask || this.busy) return;
@@ -2577,7 +2653,7 @@ export class Editor {
   /** Clicking a layer's mask or pixel thumbnail chooses what painting edits. */
   editLayerMask(onMask: boolean): void {
     const layer = this.doc?.activeLayer;
-    this.editingMask = onMask && layer?.type === 'raster' && Boolean(layer.mask);
+    this.editingMask = onMask && layer !== undefined && hasPixels(layer) && Boolean(layer.mask);
     this.changed();
   }
 
@@ -2666,6 +2742,7 @@ export class Editor {
     const mask = doc?.selection;
     if (!doc || !mask || this.busy) return;
     const layer = doc.activeLayer;
+    if (layer.type === 'text') return this.notice(RASTERIZE_FIRST);
     if (layer.type !== 'raster')
       return this.notice(
         `Select a layer to clear (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`,
@@ -2709,7 +2786,7 @@ export class Editor {
     const o = this.toolOptions.wand;
     const op = dragMode(o.mode, e.shiftKey, e.altKey);
     const active = doc.activeLayer;
-    if (!o.sampleAll && active.type !== 'raster')
+    if (!o.sampleAll && !hasPixels(active))
       return this.notice('Select a layer to sample, or turn on "Sample all layers".');
     // The active layer alone counts as itself (opaque, Normal, visible); all layers as the canvas shows them.
     const layers = o.sampleAll
@@ -2794,6 +2871,7 @@ export class Editor {
   /** Why the active layer cannot take paint from the bucket or the gradient, or null. */
   private fillBlocker(tool: string): string | null {
     const layer = this.doc!.activeLayer;
+    if (layer.type === 'text') return RASTERIZE_FIRST;
     if (layer.type !== 'raster')
       return `Select a layer to paint on (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`;
     if (this.editingMask) return `The ${tool} paints pixels. Click the layer thumbnail to edit them.`;
@@ -2870,6 +2948,204 @@ export class Editor {
         keys: null,
       },
       ([result]) => this.commitPaintedTiles('Gradient', layer.id, result?.tiles ?? []),
+    );
+  }
+
+  // ---- Type tool (T; FR-TXT-01/02) ----------------------------------------------------------------
+
+  /** Click: point text there; drag: a text box; click on a text layer: edit it. A click while editing commits. */
+  private textPointerDown(e: PointerEvent): void {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.textEdit) return this.commitText(); // clicking outside the text commits it (docs/03 §5.6)
+    if (this.busy) return;
+    const p = this.docPoint(e);
+    const hit = this.textLayerAt(p.x, p.y);
+    if (hit) {
+      e.preventDefault(); // the mousedown that follows would focus the canvas, away from the text editor
+      return this.editText(hit);
+    }
+    this.textDrag = { pointerId: e.pointerId, start: { x: p.x, y: p.y }, current: { x: p.x, y: p.y } };
+    this.changed();
+  }
+
+  private endTextDrag(): void {
+    const d = this.textDrag;
+    this.textDrag = null;
+    if (!d) return this.changed();
+    const w = Math.abs(d.current.x - d.start.x);
+    const h = Math.abs(d.current.y - d.start.y);
+    const origin = {
+      x: Math.round(Math.min(d.start.x, d.current.x)),
+      y: Math.round(Math.min(d.start.y, d.current.y)),
+    };
+    // A drag under 4 screen px is a click.
+    const box =
+      Math.max(w, h) * this.viewport.zoom >= 4
+        ? { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) }
+        : undefined;
+    this.textEdit = {
+      layerId: null,
+      origin: box ? origin : { x: Math.round(d.start.x), y: Math.round(d.start.y) },
+      mode: box ? 'box' : 'point',
+      ...(box ? { box } : {}),
+      text: '',
+      style: this.toolOptions.text,
+    };
+    this.changed();
+  }
+
+  /** The topmost visible text layer whose text is under (x, y). */
+  private textLayerAt(x: number, y: number): TextLayer | null {
+    const doc = this.doc!;
+    let found: TextLayer | null = null;
+    for (const { layer } of walkLayers(doc.layers)) {
+      if (layer.type !== 'text' || !layer.visible) continue;
+      const o = textOrigin(layer);
+      const b =
+        layer.text.mode === 'box' && layer.text.box
+          ? { x0: o.x, y0: o.y, x1: o.x + layer.text.box.w, y1: o.y + layer.text.box.h }
+          : contentBounds([layer.tiles]);
+      if (b && x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1) found = layer; // later = higher up
+    }
+    return found;
+  }
+
+  /** Double-clicking a text layer's thumbnail (docs/03 §5.6): its text, all selected, in place. */
+  editTextLayer(id: string): void {
+    const layer = this.doc?.has(id) ? this.doc.layer(id) : null;
+    if (layer?.type === 'text' && !this.busy) this.editText(layer);
+  }
+
+  /** Opens a text layer for editing in place (also from the Layers panel). */
+  private editText(layer: TextLayer): void {
+    if (this.textEdit) this.commitText();
+    const style = styleOf(layer.text);
+    this.toolOptions = { ...this.toolOptions, text: style };
+    this.textEdit = {
+      layerId: layer.id,
+      origin: textOrigin(layer),
+      mode: layer.text.mode,
+      ...(layer.text.box ? { box: layer.text.box } : {}),
+      text: plainText(layer.text),
+      style,
+    };
+    if (this.tool !== 'text') this.tool = 'text';
+    this.changed();
+  }
+
+  /** The text typed so far (from the in-place editor). */
+  setTextContent(text: string): void {
+    if (!this.textEdit) return;
+    this.textEdit = { ...this.textEdit, text };
+    this.changed();
+  }
+
+  /** Esc or a click outside: the text becomes a new layer, or the edited one changes (one step). */
+  commitText(): void {
+    const e = this.textEdit;
+    const doc = this.doc;
+    this.textEdit = null;
+    this.changed();
+    if (!e || !doc) return;
+    this.committingText = true;
+    try {
+      const model = textModel(e.text, e.style, e.mode, e.box);
+      const empty = e.text.trim() === '';
+      if (e.layerId === null) {
+        if (empty) return;
+        const { tiles } = this.renderTextModel(model, e.origin);
+        const layer = createTextLayer(textLayerName(e.text), model, e.origin, tiles);
+        const { parentId, index } = this.insertionPoint();
+        this.exec(new AddLayerCommand(layer, index, parentId, 'Type Layer'));
+        return;
+      }
+      if (!doc.has(e.layerId)) return;
+      const layer = doc.layer(e.layerId);
+      if (layer.type !== 'text') return;
+      // Emptied: the layer goes (unless it is the only one).
+      if (empty) return doc.allLayers().length > 1 ? this.exec(new DeleteLayerCommand(layer.id)) : undefined;
+      const o = textOrigin(layer);
+      if (sameModel(model, layer.text) && o.x === e.origin.x && o.y === e.origin.y) return;
+      const { tiles } = this.renderTextModel(model, e.origin);
+      this.exec(
+        new SetTextCommand('Edit Type Layer', layer.id, {
+          text: model,
+          transform: translation(e.origin.x, e.origin.y),
+          tiles,
+        }),
+      );
+    } finally {
+      this.committingText = false;
+    }
+  }
+
+  /** Esc in the editor, keeping nothing typed. */
+  cancelText(): void {
+    this.textEdit = null;
+    this.changed();
+  }
+
+  /** Gestures of the M3 tools never cross documents. */
+  private dropToolDrags(): void {
+    this.gradientDrag = null;
+    this.cloneStroke = null;
+    this.clonePreview = null;
+    this.textDrag = null;
+  }
+
+  /** A pending text edit is committed before anything else changes the document. */
+  private settleText(): void {
+    if (this.textEdit && !this.committingText) this.commitText();
+  }
+
+  private renderTextModel(model: TextModel, origin: { x: number; y: number }) {
+    const r = this.options.renderText ? this.options.renderText(model, origin) : emptyRendering();
+    // Pixels farther off the canvas than a layer may hold are dropped, as the Move tool does.
+    const doc = this.doc!;
+    const range = tileRange(doc.width, doc.height, TILE_SIZE);
+    for (const key of [...r.tiles.keys()]) {
+      const [tx, ty] = parseTileKey(key);
+      if (tx < range.tx0 || tx >= range.tx1 || ty < range.ty0 || ty >= range.ty1) r.tiles.set(key, undefined);
+    }
+    return r;
+  }
+
+  /** While a layer's text is edited in place, the canvas shows the layer without it (the editor shows it). */
+  private textEditPreview(): Document | null {
+    const e = this.textEdit;
+    const doc = this.doc;
+    if (!e?.layerId || !doc?.has(e.layerId)) return null;
+    const swap = (list: readonly Layer[]): Layer[] =>
+      list.map((l): Layer => {
+        if (l.type === 'group') return { ...l, children: swap(l.children) };
+        return l.id === e.layerId ? { ...l, visible: false } : l;
+      });
+    const preview = new Document(doc.width, doc.height, swap(doc.layers));
+    preview.selection = doc.selection;
+    return preview;
+  }
+
+  /** Layer › Rasterize Type: the text layer becomes a raster layer of what it shows (one step). */
+  rasterizeType(): void {
+    const doc = this.doc;
+    if (!doc || this.busy) return;
+    this.settleText();
+    const layer = doc.activeLayer;
+    if (layer.type !== 'text') return this.notice('Select a text layer to rasterize.');
+    const id = layer.id;
+    this.exec(
+      new TreeCommand('Rasterize Type', (d) => {
+        const swap = (list: Layer[]): Layer[] =>
+          list.map((l) => {
+            if (l.type === 'group') {
+              l.children = swap(l.children);
+              return l;
+            }
+            return l.id === id && l.type === 'text' ? rasterize(l) : l;
+          });
+        return { root: swap(cloneTree(d.layers)), activeLayerId: id };
+      }),
     );
   }
 
@@ -3083,7 +3359,7 @@ export class Editor {
     const doc = this.doc;
     if (!doc) return Promise.resolve();
     const active = doc.activeLayer;
-    if (!sampleAll && active.type !== 'raster')
+    if (!sampleAll && !hasPixels(active))
       return Promise.resolve(this.notice('Select a layer to sample, or sample all layers.'));
     const layers = sampleAll
       ? toSnapshot(doc).layers
@@ -3444,7 +3720,7 @@ export class Editor {
   /** Every raster layer's tiles for a pixel job, and its mask under `<id>#mask` (resampled the same way). */
   private layerTiles(): LayerTiles[] {
     return this.doc!.allLayers().flatMap((l) => [
-      ...(l.type === 'raster' ? [fromGrid(l.id, l.tiles)] : []),
+      ...(hasPixels(l) ? [fromGrid(l.id, l.tiles)] : []),
       // Adjustment layers have only their mask.
       ...(l.type !== 'group' && l.mask ? [fromGrid(`${l.id}#mask`, l.mask.grid)] : []),
     ]);
@@ -3533,7 +3809,7 @@ export class Editor {
   revealAll(): void {
     const doc = this.doc;
     if (!doc || this.busy) return;
-    const b = contentBounds(doc.allLayers().flatMap((l) => (l.type === 'raster' ? [l.tiles] : [])));
+    const b = contentBounds(doc.allLayers().flatMap((l) => (hasPixels(l) ? [l.tiles] : [])));
     const x0 = Math.min(0, b?.x0 ?? 0);
     const y0 = Math.min(0, b?.y0 ?? 0);
     const x1 = Math.max(doc.width, b?.x1 ?? 0);
@@ -3689,6 +3965,7 @@ export class Editor {
     if (tool === 'bucket') return void this.paintBucket(e);
     if (tool === 'gradient') return this.beginGradient(e);
     if (tool === 'clone') return this.beginClone(e);
+    if (tool === 'text') return this.textPointerDown(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,
@@ -3710,6 +3987,7 @@ export class Editor {
       (this.editingMask || layer.type === 'adjustment') && layer.mask ? this.maskPaintValue(tool) : null;
     if (layer.locks.all || (onMask === null && layer.locks.pixels))
       return this.notice('This layer is locked.');
+    if (onMask === null && layer.type === 'text') return this.notice(RASTERIZE_FIRST);
     const settings = this.strokeSettings(tool, onMask === null ? layer.locks.transparency : false);
     const generator = new DabGenerator(settings);
     const smoother = new PulledString((settings.smoothing * SMOOTHING_SCREEN_PX) / this.viewport.zoom);
@@ -3801,6 +4079,8 @@ export class Editor {
     if (blocker) return blocker;
     const rasters = layerIds.flatMap((id) => movedRasters(doc, id));
     if (rasters.some((l) => l.locks.pixels)) return 'This layer’s pixels are locked.';
+    if (rasters.some((l) => l.type === 'text'))
+      return 'Free Transform does not keep text editable yet. Rasterize the text layer first (Layer › Rasterize Type).';
     const rasterIds = new Set(rasters.map((l) => l.id));
     const selection = doc.selection;
     if (!selection) {
@@ -4035,6 +4315,11 @@ export class Editor {
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
     if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) return this.moveGradient(e);
     if (this.cloneStroke && e.pointerId === this.cloneStroke.pointerId) return this.moveClone(e);
+    if (this.textDrag && e.pointerId === this.textDrag.pointerId) {
+      const p = this.docPoint(e);
+      this.textDrag = { ...this.textDrag, current: { x: p.x, y: p.y } };
+      return this.changed();
+    }
     if (this.lassoDraw) return this.lassoMove(e);
     if (this.tool === 'crop') return this.moveCrop(e);
     const stroke = this.stroke;
@@ -4063,6 +4348,7 @@ export class Editor {
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) this.endMarquee();
     if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) void this.endGradient();
     if (this.cloneStroke && e.pointerId === this.cloneStroke.pointerId) this.endClone();
+    if (this.textDrag && e.pointerId === this.textDrag.pointerId) this.endTextDrag();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
     if (this.guideDrag && e.pointerId === this.guideDrag.pointerId) this.endGuideDrag();
     if (this.moving && e.pointerId === this.moving.pointerId) {
@@ -4147,7 +4433,7 @@ export class Editor {
     const layerMask = stroke.mask ? layer.mask : null;
     for (const key of this.strokeBuffer.keys()) {
       const [tileX, tileY] = parseTileKey(key);
-      const old = layer.type === 'raster' ? layer.tiles.get(key) : undefined;
+      const old = hasPixels(layer) ? layer.tiles.get(key) : undefined;
       // Painting only reaches selected pixels, in proportion to their coverage (FR-SEL-06).
       const mask = selection?.tile(key);
       if (selection && !mask) continue;
@@ -4243,7 +4529,12 @@ export class Editor {
       : undefined;
     const shown = this.transformShown();
     this.compositor.render(
-      shown?.doc ?? this.clonePreview ?? this.adjustPreview ?? this.filterPreview ?? this.doc,
+      shown?.doc ??
+        this.clonePreview ??
+        this.textEditPreview() ??
+        this.adjustPreview ??
+        this.filterPreview ??
+        this.doc,
       this.viewport,
       { cssWidth, cssHeight, width, height, dpr },
       preview,
