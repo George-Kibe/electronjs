@@ -16,6 +16,7 @@ import { BLEND_MODE_LABELS, IMPLEMENTED_BLEND_MODES } from '../../engine/doc/ble
 import { GRADIENT_PRESET_LABELS, type GradientPreset, type GradientType } from '../../engine/ops/gradient';
 import { SHAPE_LABELS } from '../../engine/shape/shape';
 import { Button } from './Button';
+import { FontPicker } from './FontPicker';
 
 type Props = {
   tool: Tool;
@@ -709,25 +710,6 @@ function ShapeOptions({
   );
 }
 
-/** Common families; any installed font can be typed (the font list arrives with Local Font Access). */
-const FONT_SUGGESTIONS = [
-  'sans-serif',
-  'serif',
-  'monospace',
-  'system-ui',
-  'Arial',
-  'Helvetica',
-  'Verdana',
-  'Georgia',
-  'Times New Roman',
-  'Courier New',
-  'Noto Sans',
-  'Noto Serif',
-  'Roboto',
-  'DejaVu Sans',
-  'Segoe UI',
-];
-
 const ALIGNS: ReadonlyArray<readonly [ToolOptions['text']['align'], string, string]> = [
   ['left', '⯇', 'Align left'],
   ['center', '≡', 'Centre'],
@@ -750,21 +732,7 @@ function TextOptions({
   const [r, g, b] = o.color;
   return (
     <>
-      <label className="flex items-center gap-1">
-        <span className="text-ui-muted">Font</span>
-        <input
-          aria-label="Font"
-          list="font-suggestions"
-          value={o.family}
-          onChange={(e) => e.target.value.trim() && set({ family: e.target.value })}
-          className="bg-ui-bg border-ui-border w-36 rounded border px-1 py-0.5"
-        />
-        <datalist id="font-suggestions">
-          {FONT_SUGGESTIONS.map((f) => (
-            <option key={f} value={f} />
-          ))}
-        </datalist>
-      </label>
+      <FontPicker value={o.family} onChange={(family) => set({ family })} />
       <Select
         label="Weight"
         value={o.weight}
