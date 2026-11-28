@@ -2,7 +2,8 @@
 // Layer tile with optional live brush preview, composited onto the backdrop. Formula source: W3C
 // Compositing and Blending Level 1 — §5.1 source-over (Normal, via GL blending) and, for other modes, the
 // general formula in blend.glsl reading the backdrop copy. Must match brush/brush.ts applyStroke() and
-// doc/blend.ts. The selection clips the preview exactly as Editor.commitStroke clips the commit.
+// doc/blend.ts. The selection clips the preview exactly as Editor.commitStroke clips the commit. A brush
+// blend mode (FR-PNT-10) uses the same general formula against the layer's own pixel.
 precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_tile;   // premultiplied RGBA8
@@ -12,6 +13,7 @@ uniform bool u_hasStroke;
 uniform vec3 u_color;       // straight 0..1
 uniform float u_brushOpacity;
 uniform int u_mode;         // 0 = paint, 1 = erase
+uniform int u_paintBlend;   // the brush's blend mode (FR-PNT-10), index into blend.glsl; 9 = Dissolve
 uniform bool u_preserveAlpha; // transparency lock: painting keeps the existing alpha
 uniform bool u_hasGrain;
 uniform sampler2D u_grain;  // R8 GRAIN_SIZE² brush grain (brush/tips.ts), sampled at whole document pixels
@@ -52,10 +54,17 @@ void main() {
     ivec2 px = min(ivec2(floor(v_uv * 256.0)), ivec2(255)); // tile-local pixel
     if (u_hasGrain) a *= texelFetch(u_grain, px % 128, 0).r; // tile origins are multiples of 128
     if (u_hasMask) a *= texelFetch(u_mask, px, 0).r;
+    // Dissolve paints each pixel fully or not at all (the layer mode's noise, per document pixel).
+    if (u_mode == 0 && u_paintBlend == 9)
+      a = dissolveNoise(u_tileOrigin + floor(v_uv * u_tileSize)) < a ? 1.0 : 0.0;
+    // The colour laid down: the brush colour, or its blend with the pixel underneath (brush.ts applyStroke).
+    vec3 cs = u_color;
+    if (u_mode == 0 && u_paintBlend != 0 && u_paintBlend != 9 && d.a > 0.0)
+      cs = mix(u_color, blendColor(u_paintBlend, d.rgb / d.a, u_color), u_preserveAlpha ? 1.0 : d.a);
     if (u_preserveAlpha) {
-      d = u_mode == 0 ? vec4(mix(d.rgb, u_color * d.a, a), d.a) : d;
+      d = u_mode == 0 ? vec4(mix(d.rgb, cs * d.a, a), d.a) : d;
     } else {
-      d = u_mode == 0 ? vec4(u_color * a, a) + d * (1.0 - a) : d * (1.0 - a);
+      d = u_mode == 0 ? vec4(cs * a, a) + d * (1.0 - a) : d * (1.0 - a);
     }
   }
   // The layer mask scales the layer before opacity and blending (as doc/flatten.ts compositeSpan).

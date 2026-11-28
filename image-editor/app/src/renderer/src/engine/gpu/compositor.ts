@@ -411,6 +411,7 @@ export class Compositor {
       gl.uniform3f(p.uniform('u_color'), r / 255, g / 255, b / 255);
       gl.uniform1f(p.uniform('u_brushOpacity'), preview.settings.opacity);
       gl.uniform1i(p.uniform('u_mode'), preview.settings.mode === 'erase' ? 1 : 0);
+      gl.uniform1i(p.uniform('u_paintBlend'), blendModeIndex(preview.settings.blendMode ?? 'normal'));
       gl.uniform1i(p.uniform('u_preserveAlpha'), preview.preserveAlpha ? 1 : 0);
       const grain = preview.settings.aliased ? null : this.grainTexture(preview.settings.tip);
       gl.uniform1i(p.uniform('u_hasGrain'), grain ? 1 : 0);

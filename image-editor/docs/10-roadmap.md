@@ -309,14 +309,14 @@ Photoshop/GIMP/Photopea (manual checklist).
 Slices (planned at the start of M3; the ones marked ⚑ touch an "ask a human first" area in AGENTS.md and
 start only after approval):
 
-- [ ] Slice 1 — painting extras: Paint Bucket and Gradient (G, Shift+G; FR-PNT-03/04)
-  - [ ] 1a Paint Bucket (FR-PNT-03). As built: G, and Alt-click picks a colour as with the brush. A click
+- [x] Slice 1 — painting extras: Paint Bucket and Gradient (G, Shift+G; FR-PNT-03/04)
+  - [x] 1a Paint Bucket (FR-PNT-03). As built: G, and Alt-click picks a colour as with the brush. A click
         pours the foreground colour into the area the Magic Wand would select there, with the same options
         (tolerance, contiguous, anti-alias, sample all layers), within the selection by its coverage. It
         blends Normal at 100 % in straight alpha, keeps alpha when transparency is locked, and is one undo
         step. A click outside the selection fills nothing. It runs in the ops worker (`ops/fill.ts` on
-        `magicWand`'s region). Filling a layer mask with the bucket is later.
-  - [ ] 1b Gradient (FR-PNT-04). As built: Shift+G (G picks the last of Paint Bucket and Gradient), or
+        `magicWand`'s region). Filling a layer mask with the bucket is later. E2E green on 3 OSes (run 46065373546).
+  - [x] 1b Gradient (FR-PNT-04). As built: Shift+G (G picks the last of Paint Bucket and Gradient), or
         the toolbar's flyout. Drag from start to end (Shift: 45° steps); the line shows while dragging. Linear,
         radial, angle, reflected and diamond; colours Foreground to Background, Foreground to Transparent,
         Black-White or Spectrum, with Reverse; any of the 18 blend modes, opacity and dither (on by default,
@@ -325,10 +325,10 @@ start only after approval):
         one undo step, computed in bands on the ops worker pool (`ops/gradient.ts`): a 24 MP gradient takes
         about 0.6 s on the 4-core laptop. A golden sheet covers the five types
         at three settings. Not yet: editing a gradient's stops and saving custom presets (FR-PNT-04's
-        "custom presets"), which needs a gradient editor.
-- [ ] Slice 2 — Clone Stamp (S; FR-PNT-05), brush blend modes and "Lock transparent pixels" for every
+        "custom presets"), which needs a gradient editor. E2E green on 3 OSes (run 46065389156).
+- [x] Slice 2 — Clone Stamp (S; FR-PNT-05), brush blend modes and "Lock transparent pixels" for every
       painting tool (FR-PNT-10)
-  - [ ] 2a Clone Stamp (FR-PNT-05). As built: S. Alt-click sets the source (a crosshair marks it, and during
+  - [x] 2a Clone Stamp (FR-PNT-05). As built: S. Alt-click sets the source (a crosshair marks it, and during
         a stroke it shows the pixel being sampled). Then paint with the brush options (size, hardness,
         opacity, flow, tip, pressure). Aligned (on by default) keeps the offset from the first stroke after
         the Alt-click; off, each stroke starts again at the source. Samples the active layer or all layers
@@ -336,10 +336,14 @@ start only after approval):
         copies are exact. Within the selection, keeping alpha when transparency is locked; one undo step.
         The stroke is composited on the CPU as you paint (`brush/clone.ts`) and shown as a preview document.
         With this, transparency lock is respected by every painting tool (brush, pencil, eraser, bucket,
-        gradient, clone).
-  - [ ] 2b Brush blend modes (FR-PNT-10): the brush and pencil paint with any of the 18 modes. This
-        changes how strokes composite on the GPU and the CPU, next to the blend-mode shaders (an
-        "ask a human first" area), so it waits for review.
+        gradient, clone). E2E green on 3 OSes (run 46066688180).
+  - [x] 2b Brush blend modes (FR-PNT-10), approved. As built: the brush and pencil have a Mode (the 18
+        blend modes; the eraser has none). The colour is blended with the layer's own pixel before it is laid
+        down, by the W3C general formula the layers use: Cs' = (1 − αb)·Cs + αb·B(Cb, Cs), with αb taken as 1
+        when transparency is locked. Dissolve paints each pixel fully or not at all with the layer mode's
+        noise. The GPU preview (`layer.frag`) and the CPU commit (`brush.ts applyStroke`) agree within ±2/255
+        for every mode tested, and Normal is unchanged byte for byte. The layer blend shaders and the golden
+        baselines are untouched. E2E green on 3 OSes (run 46068222430).
 - [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep`
 - [ ] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep`
 - [ ] Slice 5 ⚑ — layer styles: drop shadow, stroke, outer glow (FR-LAY-07), stored in `.iep`

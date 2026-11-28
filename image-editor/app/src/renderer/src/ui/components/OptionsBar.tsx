@@ -145,6 +145,14 @@ function PaintOptions({
   const aliased = tool === 'pencil' || (tool === 'eraser' && options.eraser.pencil);
   return (
     <>
+      {(tool === 'brush' || tool === 'pencil') && (
+        <Select
+          label="Mode"
+          value={o.blendMode ?? 'normal'}
+          options={IMPLEMENTED_BLEND_MODES.map((m) => [m, BLEND_MODE_LABELS[m]] as const)}
+          onChange={(blendMode) => set({ blendMode })}
+        />
+      )}
       {tool === 'eraser' && (
         <Select
           label="Mode"

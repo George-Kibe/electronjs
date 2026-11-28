@@ -196,6 +196,7 @@ export type BrushOptions = Pick<
   | 'pressureSize'
   | 'pressureOpacity'
   | 'tip'
+  | 'blendMode'
 >;
 
 export type ToolOptions = {
@@ -241,6 +242,7 @@ const brushDefaults = (o: Partial<BrushOptions> = {}): BrushOptions => ({
   pressureSize: DEFAULT_BRUSH.pressureSize,
   pressureOpacity: DEFAULT_BRUSH.pressureOpacity,
   tip: DEFAULT_BRUSH.tip,
+  blendMode: DEFAULT_BRUSH.blendMode,
   ...o,
 });
 
@@ -3743,6 +3745,7 @@ export class Editor {
         aliased: pencil,
         mode: transparencyLocked ? 'paint' : 'erase',
         color: transparencyLocked ? background : foreground,
+        blendMode: 'normal', // the eraser has no mode
       };
     }
     return { ...o[tool], aliased: tool === 'pencil', mode: 'paint', color: foreground };

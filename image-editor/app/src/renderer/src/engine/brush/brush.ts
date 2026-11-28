@@ -1,3 +1,5 @@
+import { blendModeIndex, blendRGB, DISSOLVE, dissolveNoise } from '../doc/blend';
+import type { BlendMode } from '../doc/document';
 import { createTile, TILE_BYTES, TILE_SIZE, type Tile } from '../tiles/tile';
 import { GRAIN_SIZE, tipGrain, type BrushTip } from './tips';
 
@@ -26,6 +28,11 @@ export type BrushSettings = {
   /** Pencil (FR-PNT-02): whole pixels only, no anti-aliasing; hardness and tip are ignored. */
   aliased: boolean;
   tip: BrushTip;
+  /**
+   * Brush blend mode (FR-PNT-10): the colour is blended with the layer's own pixel before it is laid down
+   * (the W3C general formula, as for layers). Dissolve paints each pixel fully or not at all.
+   */
+  blendMode?: BlendMode;
 };
 
 export const DEFAULT_BRUSH: BrushSettings = {
@@ -41,6 +48,7 @@ export const DEFAULT_BRUSH: BrushSettings = {
   pressureOpacity: false,
   aliased: false,
   tip: 'round',
+  blendMode: 'normal',
 };
 
 export type Dab = { x: number; y: number; radius: number; alpha: number };
@@ -197,7 +205,10 @@ export function accumulateDabs(
 export function applyStroke(
   before: Tile | undefined,
   coverage: Float32Array,
-  settings: Pick<BrushSettings, 'color' | 'opacity' | 'mode'> & { tip?: BrushTip; aliased?: boolean },
+  settings: Pick<BrushSettings, 'color' | 'opacity' | 'mode' | 'blendMode'> & {
+    tip?: BrushTip;
+    aliased?: boolean;
+  },
   bounds: { tileX: number; tileY: number; docWidth: number; docHeight: number },
   /** Transparency lock (FR-LAY-02): paint recolours existing pixels only; the eraser does nothing. */
   preserveAlpha = false,
@@ -207,6 +218,8 @@ export function applyStroke(
   const w = Math.min(TILE_SIZE, bounds.docWidth - bounds.tileX * TILE_SIZE);
   const h = Math.min(TILE_SIZE, bounds.docHeight - bounds.tileY * TILE_SIZE);
   const [cr, cg, cb] = settings.color;
+  const blend = settings.mode === 'erase' ? 0 : blendModeIndex(settings.blendMode ?? 'normal');
+  const mixed = new Float64Array(3);
   // Grain is sampled at document pixels; tile origins are multiples of GRAIN_SIZE (see tips.ts).
   const grain = settings.aliased ? null : tipGrain(settings.tip ?? 'round');
   let changed = false;
@@ -214,16 +227,42 @@ export function applyStroke(
     for (let x = 0; x < w; x++) {
       const i = y * TILE_SIZE + x;
       const g = grain ? grain[(y % GRAIN_SIZE) * GRAIN_SIZE + (x % GRAIN_SIZE)]! / 255 : 1;
-      const as = coverage[i]! * settings.opacity * g;
+      let as = coverage[i]! * settings.opacity * g;
       if (as <= 0) continue;
+      // Dissolve: each pixel is painted fully or not at all (the same noise as the layer mode).
+      if (blend === DISSOLVE) {
+        as = dissolveNoise(bounds.tileX * TILE_SIZE + x, bounds.tileY * TILE_SIZE + y) < as ? 1 : 0;
+        if (as === 0) continue;
+      }
       changed = true;
       const p = i * 4;
       const ad = out[p + 3]! / 255;
+      // The colour laid down: the brush colour, or with a mode its blend with the pixel underneath.
+      let sr = cr;
+      let sg = cg;
+      let sb = cb;
+      if (blend !== 0 && blend !== DISSOLVE && ad > 0) {
+        blendRGB(
+          blend,
+          out[p]! / 255,
+          out[p + 1]! / 255,
+          out[p + 2]! / 255,
+          cr / 255,
+          cg / 255,
+          cb / 255,
+          mixed,
+        );
+        // W3C general formula: Cs' = (1 − αb)·Cs + αb·B(Cb, Cs); with transparency locked αb counts as 1.
+        const k = preserveAlpha ? 1 : ad;
+        sr = cr + (mixed[0]! * 255 - cr) * k;
+        sg = cg + (mixed[1]! * 255 - cg) * k;
+        sb = cb + (mixed[2]! * 255 - cb) * k;
+      }
       if (preserveAlpha) {
         if (ad === 0) continue;
-        out[p] = out[p]! + (cr - out[p]!) * as;
-        out[p + 1] = out[p + 1]! + (cg - out[p + 1]!) * as;
-        out[p + 2] = out[p + 2]! + (cb - out[p + 2]!) * as;
+        out[p] = out[p]! + (sr - out[p]!) * as;
+        out[p + 1] = out[p + 1]! + (sg - out[p + 1]!) * as;
+        out[p + 2] = out[p + 2]! + (sb - out[p + 2]!) * as;
         continue;
       }
       if (settings.mode === 'erase') {
@@ -231,9 +270,9 @@ export function applyStroke(
         continue;
       }
       const ao = as + ad * (1 - as);
-      out[p] = (cr * as + out[p]! * ad * (1 - as)) / ao;
-      out[p + 1] = (cg * as + out[p + 1]! * ad * (1 - as)) / ao;
-      out[p + 2] = (cb * as + out[p + 2]! * ad * (1 - as)) / ao;
+      out[p] = (sr * as + out[p]! * ad * (1 - as)) / ao;
+      out[p + 1] = (sg * as + out[p + 1]! * ad * (1 - as)) / ao;
+      out[p + 2] = (sb * as + out[p + 2]! * ad * (1 - as)) / ao;
       out[p + 3] = ao * 255;
     }
   }

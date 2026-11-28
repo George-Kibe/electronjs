@@ -310,3 +310,35 @@ test(`[${target}] clone stamp: Alt-click a source, paint a copy of it elsewhere,
   await expect.poll(() => canvasPixel(win, ...at(210, 150))).toEqual([255, 255, 255]);
   await close();
 });
+
+test(`[${target}] brush blend modes: Multiply and Screen blend the colour with the pixels painted on (FR-PNT-10)`, async () => {
+  const { win, close } = await launch();
+  await newDocument(win);
+  const at = await docToPage(win);
+  const options = win.getByRole('toolbar', { name: 'Tool options' });
+  const colour = async (hex: string) => {
+    await win.getByRole('button', { name: /^Foreground colour/ }).click();
+    const picker = win.getByRole('dialog', { name: 'Foreground colour' });
+    await picker.getByRole('textbox', { name: 'Hex' }).fill(hex);
+    await picker.getByRole('button', { name: 'OK' }).click();
+  };
+  await options.getByRole('slider', { name: 'Size' }).fill('20');
+  await colour('FF0000');
+  await paintLine(win, at(20, 100), at(280, 100));
+
+  // Blue in Multiply across the red: red × blue is black; on white it stays blue.
+  await colour('0000FF');
+  await options.getByRole('combobox', { name: 'Mode' }).selectOption('multiply');
+  await paintLine(win, at(100, 20), at(100, 180));
+  // Screen: red and blue make magenta; blue screened on white is white.
+  await options.getByRole('combobox', { name: 'Mode' }).selectOption('screen');
+  await paintLine(win, at(200, 20), at(200, 180));
+  await win.mouse.move(...at(10, 190)); // keep the brush outline off the pixels read
+
+  await expect(history(win).getByRole('button', { name: 'Brush' })).toHaveCount(3);
+  await expect.poll(() => canvasPixel(win, ...at(100, 100))).toEqual([0, 0, 0]);
+  expect(await canvasPixel(win, ...at(100, 40))).toEqual([0, 0, 255]);
+  expect(await canvasPixel(win, ...at(200, 100))).toEqual([255, 0, 255]);
+  expect(await canvasPixel(win, ...at(200, 40))).toEqual([255, 255, 255]);
+  await close();
+});

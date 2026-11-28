@@ -184,6 +184,10 @@ Mask     { pixels: TileGrid (A8, stored as R channel), defaultValue: 0|255, enab
   reference that the preview shader is tested against. It measured about 17–22 ms per stroke in the M0 spike.
   An async PBO readback remains an optimisation option (ADR-0003 follow-ups).
 - Eraser = the same pipeline with a destination-out blend. Clone stamp samples a source texture with an offset.
+  *As built (M3):* a brush blend mode (FR-PNT-10) blends the colour with the layer's pixel by the layers'
+  general formula before the coverage lays it down (`layer.frag` preview, `applyStroke` commit). The clone
+  stamp composites on the CPU while painting (`brush/clone.ts`) instead of sampling a texture: a source
+  offset by whole pixels straddles tile textures, and a CPU preview of the tiles under the brush is cheap.
 
 ### 5.4 Selections
 
