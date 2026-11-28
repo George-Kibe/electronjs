@@ -254,12 +254,20 @@ export function LayersPanel({ editor, snap }: Props) {
                   ) : (
                     /* What painting edits: the pixels or the mask (FR-LAY-04). */
                     <button
-                      aria-label={row.type === 'text' ? `Edit ${row.name} text` : `Edit ${row.name} pixels`}
+                      aria-label={
+                        row.type === 'text'
+                          ? `Edit ${row.name} text`
+                          : row.type === 'shape'
+                            ? `${row.name} shape`
+                            : `Edit ${row.name} pixels`
+                      }
                       aria-pressed={row.mask ? row.id === snap.activeLayerId && !snap.editingMask : undefined}
                       title={
                         row.type === 'text'
                           ? 'Text layer: double-click to edit the text'
-                          : "Paint on the layer's pixels"
+                          : row.type === 'shape'
+                            ? 'Shape layer: change it with the Shape tool’s options'
+                            : "Paint on the layer's pixels"
                       }
                       className={`relative shrink-0 rounded ${row.mask && row.id === snap.activeLayerId && !snap.editingMask ? 'ring-brand ring-2' : ''}`}
                       onClick={(e) => {
@@ -274,12 +282,12 @@ export function LayersPanel({ editor, snap }: Props) {
                       }}
                     >
                       <Thumbnail editor={editor} row={row} />
-                      {row.type === 'text' && (
+                      {(row.type === 'text' || row.type === 'shape') && (
                         <span
                           aria-hidden
                           className="bg-ui-panel absolute right-0 bottom-0 rounded-tl px-0.5 text-[9px] leading-none font-bold"
                         >
-                          T
+                          {row.type === 'text' ? 'T' : '◆'}
                         </span>
                       )}
                     </button>

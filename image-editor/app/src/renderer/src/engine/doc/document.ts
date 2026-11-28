@@ -150,10 +150,40 @@ export type TextLayer = Omit<RasterLayer, 'type'> & {
   transform: number[];
 };
 
-export type Layer = RasterLayer | GroupLayer | AdjustmentLayer | TextLayer;
+export type ShapeKind = 'rect' | 'rounded-rect' | 'ellipse' | 'line' | 'polygon' | 'star';
 
-/** Layers whose pixels live in tiles: raster layers and text layers (their rendering). */
-export const hasPixels = (l: Layer): l is RasterLayer | TextLayer => l.type === 'raster' || l.type === 'text';
+/**
+ * A shape (docs/05 §1 ShapeModel, FR-PNT-08), in px from the layer's origin. `params`: `w`, `h` (the box
+ * the shape fills from the origin; any kind), `radius` (rounded-rect), `sides` (polygon), `points` and
+ * `inner` (star: the inner radius as a fraction of the outer), `x2`, `y2`, `arrowStart`, `arrowEnd` (line:
+ * from the origin to (x2, y2), arrowheads 0 or 1).
+ */
+export type ShapeModel = {
+  kind: ShapeKind;
+  params: Record<string, number>;
+  fill: { type: 'none' | 'solid'; color?: RGBA };
+  stroke: { color: RGBA; width: number; align: 'inside' | 'center' | 'outside'; dash?: number[] } | null;
+};
+
+/**
+ * A shape layer (FR-PNT-08, docs/05 §1): an editable shape and its rendering in `tiles` (docs/05's
+ * `cache`), like a text layer: it composites, masks and clips as pixels; editing renders it again.
+ */
+export type ShapeLayer = Omit<RasterLayer, 'type'> & {
+  readonly type: 'shape';
+  shape: ShapeModel;
+  transform: number[];
+};
+
+export type Layer = RasterLayer | GroupLayer | AdjustmentLayer | TextLayer | ShapeLayer;
+
+/** Layers drawn from a description (text, shapes): they keep it, a transform and their rendering. */
+export type VectorLayer = TextLayer | ShapeLayer;
+export const isVector = (l: Layer): l is VectorLayer => l.type === 'text' || l.type === 'shape';
+
+/** Layers whose pixels live in tiles: raster layers, and text and shape layers (their rendering). */
+export const hasPixels = (l: Layer): l is RasterLayer | VectorLayer =>
+  l.type === 'raster' || l.type === 'text' || l.type === 'shape';
 
 /** The plain text of a model, paragraphs joined by newlines. */
 export function plainText(model: TextModel): string {
@@ -161,7 +191,7 @@ export function plainText(model: TextModel): string {
 }
 
 /** The text block's top-left corner (the transform's translation). */
-export const textOrigin = (l: TextLayer): { x: number; y: number } => ({
+export const textOrigin = (l: VectorLayer): { x: number; y: number } => ({
   x: l.transform[2]!,
   y: l.transform[5]!,
 });
@@ -169,13 +199,17 @@ export const textOrigin = (l: TextLayer): { x: number; y: number } => ({
 export const translation = (x: number, y: number): number[] => [1, 0, x, 0, 1, y, 0, 0, 1];
 
 /** Layer › Rasterize Type: the text layer as the raster layer it draws (same id, props, pixels and mask). */
-export function rasterize(l: TextLayer): RasterLayer {
-  const { text: _text, transform: _transform, ...rest } = l;
+export function rasterize(l: VectorLayer): RasterLayer {
+  if (l.type === 'text') {
+    const { text: _text, transform: _transform, ...rest } = l;
+    return { ...rest, type: 'raster' };
+  }
+  const { shape: _shape, transform: _transform, ...rest } = l;
   return { ...rest, type: 'raster' };
 }
 
 /** The text layer moved by (dx, dy): its rendering is moved by the caller; the text follows. */
-export function shiftText(l: TextLayer, dx: number, dy: number): number[] {
+export function shiftText(l: VectorLayer, dx: number, dy: number): number[] {
   const t = l.transform.slice();
   t[2] = t[2]! + dx;
   t[5] = t[5]! + dy;
@@ -237,6 +271,33 @@ export function createTextLayer(
     clipped: false,
     tiles,
     text,
+    transform: translation(origin.x, origin.y),
+    ...rest,
+    ...(extra ? { extra } : {}),
+  };
+}
+
+/** A new shape layer with `tiles` as its rendering (FR-PNT-08). */
+export function createShapeLayer(
+  name: string,
+  shape: ShapeModel,
+  origin: { x: number; y: number },
+  tiles = new TileGrid(),
+  props: Partial<LayerProps> & { id?: string; extra?: Record<string, unknown>; mask?: LayerMask | null } = {},
+): ShapeLayer {
+  const { id, extra, ...rest } = props;
+  return {
+    id: id ?? newLayerId(),
+    type: 'shape',
+    name,
+    visible: true,
+    opacity: 1,
+    fillOpacity: 1,
+    blendMode: 'normal',
+    locks: { ...NO_LOCKS },
+    clipped: false,
+    tiles,
+    shape,
     transform: translation(origin.x, origin.y),
     ...rest,
     ...(extra ? { extra } : {}),
@@ -388,14 +449,14 @@ export class Document {
   }
 
   /** A layer that can have a mask: a raster, text or adjustment layer (FR-LAY-04). */
-  masked(id: string): RasterLayer | AdjustmentLayer | TextLayer {
+  masked(id: string): RasterLayer | AdjustmentLayer | VectorLayer {
     const layer = this.layer(id);
     if (layer.type === 'group') throw new Error(`Layer ${id} cannot have a mask`);
     return layer;
   }
 
   /** The layer `id` with pixels (raster or text); throws for groups and adjustment layers. */
-  pixels(id: string): RasterLayer | TextLayer {
+  pixels(id: string): RasterLayer | VectorLayer {
     const layer = this.layer(id);
     if (!hasPixels(layer)) throw new Error(`Layer ${id} has no pixels`);
     return layer;

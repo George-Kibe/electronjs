@@ -4,12 +4,13 @@ import { TILE_BYTES, TILE_SIZE, TileGrid } from '../tiles/tile';
 import { cloneTree, TreeCommand, type CanvasGeometry, type TreeEdit } from './commands';
 import {
   createRasterLayer,
+  isVector,
   rasterize,
   shiftText,
   type Document,
   type Layer,
   type RasterLayer,
-  type TextLayer,
+  type VectorLayer,
 } from './document';
 import type { Mask } from './selection';
 import { translateGrid } from './translate';
@@ -29,7 +30,7 @@ function transformRasters(
   canvas: (doc: Document) => CanvasGeometry,
   /** `old` is the canvas size before the edit. */
   transform: (
-    layer: RasterLayer | TextLayer,
+    layer: RasterLayer | VectorLayer,
     range: TileRange,
     old: { width: number; height: number },
   ) => TileGrid,
@@ -67,7 +68,7 @@ function transformRasters(
           newTileBytes += grid.size * TILE_BYTES;
           mask = { ...mask, grid };
         }
-        if (l.type === 'text')
+        if (isVector(l))
           return shift
             ? { ...l, tiles, mask, transform: shiftText(l, shift.dx, shift.dy) }
             : { ...rasterize(l), tiles, mask };

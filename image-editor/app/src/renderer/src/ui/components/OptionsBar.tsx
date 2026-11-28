@@ -14,6 +14,7 @@ import {
 import type { TransformParams } from '../../engine/tools/transform';
 import { BLEND_MODE_LABELS, IMPLEMENTED_BLEND_MODES } from '../../engine/doc/blend';
 import { GRADIENT_PRESET_LABELS, type GradientPreset, type GradientType } from '../../engine/ops/gradient';
+import { SHAPE_LABELS } from '../../engine/shape/shape';
 import { Button } from './Button';
 
 type Props = {
@@ -34,6 +35,8 @@ type Props = {
   onActualSize: () => void;
   /** Opens the colour picker for the Type tool's colour. */
   onEditTextColor?: () => void;
+  /** Opens the colour picker for the Shape tool's fill or stroke. */
+  onEditShapeColor?: (which: 'fill' | 'stroke') => void;
   transform: EditorSnapshot['transform'];
   onTransform: {
     params: (patch: Partial<TransformParams>) => void;
@@ -56,6 +59,7 @@ const TOOL_NAMES: Record<Tool, string> = {
   gradient: 'Gradient',
   clone: 'Clone Stamp',
   text: 'Type',
+  shape: 'Shape',
   hand: 'Hand',
   zoom: 'Zoom',
 };
@@ -547,6 +551,164 @@ function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: 
   );
 }
 
+const SHAPE_BUTTONS: ReadonlyArray<readonly [ToolOptions['shape']['kind'], string]> = [
+  ['rect', '▭'],
+  ['rounded-rect', '▢'],
+  ['ellipse', '◯'],
+  ['line', '╱'],
+  ['polygon', '⬠'],
+  ['star', '☆'],
+];
+
+/** A colour swatch with a None toggle (shape fill and stroke). */
+function ColorChoice(props: {
+  label: string;
+  color: ToolOptions['shape']['fill'];
+  onEdit: () => void;
+  onNone: () => void;
+}) {
+  const c = props.color;
+  return (
+    <span className="flex items-center gap-1">
+      <span className="text-ui-muted">{props.label}</span>
+      <button
+        aria-label={c ? `${props.label} colour rgb(${c[0]}, ${c[1]}, ${c[2]})` : `${props.label}: none`}
+        title={`${props.label} colour`}
+        className="border-ui-border h-5 w-5 rounded border"
+        style={{
+          background: c
+            ? `rgb(${c[0]}, ${c[1]}, ${c[2]})`
+            : 'linear-gradient(to top right, transparent 45%, #d22 45% 55%, transparent 55%)',
+        }}
+        onClick={props.onEdit}
+      />
+      {c && (
+        <Button
+          aria-label={`No ${props.label.toLowerCase()}`}
+          title={`No ${props.label.toLowerCase()}`}
+          onClick={props.onNone}
+        >
+          ∅
+        </Button>
+      )}
+    </span>
+  );
+}
+
+/** Shape tool options (FR-PNT-08): kind, fill, stroke (colour, width, position, dash) and the kind's own. */
+function ShapeOptions({
+  options,
+  onOptions,
+  onEditColor,
+}: {
+  options: ToolOptions;
+  onOptions: Props['onOptions'];
+  onEditColor: (which: 'fill' | 'stroke') => void;
+}) {
+  const o = options.shape;
+  const set = (patch: Partial<ToolOptions['shape']>) => onOptions('shape', patch);
+  const number = (
+    label: string,
+    value: number,
+    min: number,
+    max: number,
+    key: keyof ToolOptions['shape'],
+    step = 1,
+  ) => (
+    <label className="flex items-center gap-1">
+      <span className="text-ui-muted">{label}</span>
+      <input
+        type="number"
+        aria-label={label}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (v >= min && v <= max) set({ [key]: v } as Partial<ToolOptions['shape']>);
+        }}
+        className="bg-ui-bg border-ui-border w-14 rounded border px-1 py-0.5"
+      />
+    </label>
+  );
+  return (
+    <>
+      <div role="group" aria-label="Shape" className="flex gap-0.5">
+        {SHAPE_BUTTONS.map(([kind, icon]) => (
+          <Button
+            key={kind}
+            aria-pressed={o.kind === kind}
+            active={o.kind === kind}
+            aria-label={SHAPE_LABELS[kind]}
+            title={SHAPE_LABELS[kind]}
+            onClick={() => set({ kind })}
+          >
+            {icon}
+          </Button>
+        ))}
+      </div>
+      {o.kind !== 'line' && (
+        <ColorChoice
+          label="Fill"
+          color={o.fill}
+          onEdit={() => onEditColor('fill')}
+          onNone={() => set({ fill: null })}
+        />
+      )}
+      <ColorChoice
+        label="Stroke"
+        color={o.stroke}
+        onEdit={() => onEditColor('stroke')}
+        onNone={() => set({ stroke: null })}
+      />
+      {number('Width', o.strokeWidth, 0, 1000, 'strokeWidth', 0.5)}
+      {o.kind !== 'line' && (
+        <Select
+          label="Position"
+          value={o.strokeAlign}
+          options={[
+            ['inside', 'Inside'],
+            ['center', 'Centre'],
+            ['outside', 'Outside'],
+          ]}
+          onChange={(strokeAlign) => set({ strokeAlign })}
+        />
+      )}
+      <Select
+        label="Dash"
+        value={o.dash}
+        options={[
+          ['solid', 'Solid'],
+          ['dashed', 'Dashed'],
+          ['dotted', 'Dotted'],
+        ]}
+        onChange={(dash) => set({ dash })}
+      />
+      {o.kind === 'rounded-rect' && number('Radius', o.radius, 0, 5000, 'radius')}
+      {o.kind === 'polygon' && number('Sides', o.sides, 3, 100, 'sides')}
+      {o.kind === 'star' && number('Points', o.points, 3, 100, 'points')}
+      {o.kind === 'star' && number('Inner', o.inner, 0.05, 1, 'inner', 0.05)}
+      {o.kind === 'line' && (
+        <>
+          <Toggle
+            label="◁"
+            title="Arrowhead at the start"
+            checked={o.arrowStart}
+            onChange={(arrowStart) => set({ arrowStart })}
+          />
+          <Toggle
+            label="▷"
+            title="Arrowhead at the end"
+            checked={o.arrowEnd}
+            onChange={(arrowEnd) => set({ arrowEnd })}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
 /** Common families; any installed font can be typed (the font list arrives with Local Font Access). */
 const FONT_SUGGESTIONS = [
   'sans-serif',
@@ -824,6 +986,7 @@ export function OptionsBar({
   onFit,
   onActualSize,
   onEditTextColor,
+  onEditShapeColor,
   transform,
   onTransform,
 }: Props) {
@@ -853,6 +1016,13 @@ export function OptionsBar({
       {tool === 'wand' && <WandOptions options={options} onOptions={onOptions} />}
       {tool === 'bucket' && <RegionOptions tool="bucket" options={options} onOptions={onOptions} />}
       {tool === 'gradient' && <GradientOptions options={options} onOptions={onOptions} />}
+      {tool === 'shape' && (
+        <ShapeOptions
+          options={options}
+          onOptions={onOptions}
+          onEditColor={onEditShapeColor ?? (() => undefined)}
+        />
+      )}
       {tool === 'text' && (
         <TextOptions
           options={options}

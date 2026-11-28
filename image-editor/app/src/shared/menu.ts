@@ -45,6 +45,7 @@ export const MENU_COMMANDS = [
   'layer.sendBackward',
   'layer.mergeDown',
   'layer.rasterizeType',
+  'layer.rasterizeShape',
   'layer.mergeVisible',
   'layer.flatten',
   'layer.alignLeft',

@@ -23,6 +23,7 @@ import {
   SetGuidesCommand,
   SetLayerMaskCommand,
   SetSelectionCommand,
+  SetShapeCommand,
   SetTextCommand,
   TreeCommand,
   cloneTree,
@@ -39,11 +40,25 @@ import {
   type TextStyle,
 } from './text/text';
 import {
+  DEFAULT_SHAPE_STYLE,
+  emptyShape,
+  reshaped,
+  SHAPE_KINDS,
+  SHAPE_LABELS,
+  shapeModel,
+  shapePath,
+  styleOfShape,
+  type ShapeRenderer,
+  type ShapeStyle,
+} from './shape/shape';
+import {
   createAdjustmentLayer,
   createGroupLayer,
   createRasterLayer,
+  createShapeLayer,
   createTextLayer,
   hasPixels,
+  isVector,
   plainText,
   rasterize,
   textOrigin,
@@ -52,7 +67,9 @@ import {
   Document,
   type RasterLayer as RasterLayerOf,
   type TextLayer,
+  type ShapeModel,
   type TextModel,
+  type VectorLayer,
   type BlendMode,
   type Layer,
   type LayerLocks,
@@ -202,6 +219,7 @@ export type Tool =
   | 'gradient'
   | 'clone'
   | 'text'
+  | 'shape'
   | 'hand'
   | 'zoom';
 export type PaintTool = 'brush' | 'pencil' | 'eraser';
@@ -246,6 +264,8 @@ export type ToolOptions = {
   clone: BrushOptions & { aligned: boolean; sampleAll: boolean };
   /** Type tool (FR-TXT-01/02): the style of new text, and of the text being edited. */
   text: TextStyle;
+  /** Shape tool (FR-PNT-08): what to draw, and the look of new shapes and of a selected shape layer. */
+  shape: ShapeStyle;
   /** Gradient (FR-PNT-04): geometry, colours (a preset of the current colours), opacity, mode, dither. */
   gradient: {
     type: GradientType;
@@ -285,6 +305,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   gradient: { type: 'linear', preset: 'fg-bg', opacity: 1, mode: 'normal', dither: true, reverse: false },
   clone: { ...brushDefaults(), aligned: true, sampleAll: false },
   text: DEFAULT_TEXT_STYLE,
+  shape: DEFAULT_SHAPE_STYLE,
 };
 
 /** Foreground/background colours (FR-PNT-07) and recently painted colours, newest first. */
@@ -302,9 +323,11 @@ export type TextEditState = {
   style: TextStyle;
 };
 
-/** Tools that change pixels refuse text layers: their pixels are the text's rendering (FR-TXT-01). */
-const RASTERIZE_FIRST =
-  'This is a text layer. To change its pixels, rasterize it first (Layer › Rasterize Type).';
+/** Tools that change pixels refuse text and shape layers: their pixels are a rendering (FR-TXT-01, FR-PNT-08). */
+const rasterizeFirst = (l: Layer) =>
+  l.type === 'shape'
+    ? 'This is a shape layer. To change its pixels, rasterize it first (Layer › Rasterize Shape).'
+    : 'This is a text layer. To change its pixels, rasterize it first (Layer › Rasterize Type).';
 
 /** Smoothing 100 % is a 60 screen-px string (scaled to document px by the zoom at stroke start). */
 const SMOOTHING_SCREEN_PX = 60;
@@ -389,6 +412,8 @@ export type EditorSnapshot = {
   textEdit: TextEditState | null;
   /** A text box being dragged out with the Type tool, in document px. */
   textBox: Bounds | null;
+  /** The outline of the shape being dragged out (SVG path data from `origin`, document px). */
+  shapeOutline: { origin: { x: number; y: number }; d: string } | null;
   /** A lasso outline being drawn (doc px), and for the polygonal lasso the pointer's position. */
   lasso: { kind: LassoKind; points: Point[]; hover: Point | null } | null;
   /** Select › Reselect has something to bring back. */
@@ -591,6 +616,8 @@ export type EditorOptions = {
   spillStore?: SpillStore;
   /** Lays out and draws text layers (FR-TXT-01..03; the page's text engine). Without one, text draws nothing. */
   renderText?: TextRenderer;
+  /** Draws shape layers (FR-PNT-08; canvas paths in the page). Without one, shapes draw nothing. */
+  renderShape?: ShapeRenderer;
 };
 
 /**
@@ -717,6 +744,13 @@ export class Editor {
   } | null = null;
   /** A text edit is being committed (its own command must not commit it again). */
   private committingText = false;
+  private shapeDrag: {
+    pointerId: number;
+    start: { x: number; y: number };
+    current: { x: number; y: number };
+    shift: boolean;
+    alt: boolean;
+  } | null = null;
   private marqueeDrag: {
     pointerId: number;
     start: { x: number; y: number };
@@ -1241,6 +1275,7 @@ export class Editor {
       gradientLine: this.gradientDrag && { start: this.gradientDrag.start, end: this.gradientDrag.end },
       cloneSource: this.cloneSourceShown(),
       textEdit: this.textEdit,
+      shapeOutline: this.shapeDraft(),
       textBox: this.textDrag && {
         x0: Math.min(this.textDrag.start.x, this.textDrag.current.x),
         y0: Math.min(this.textDrag.start.y, this.textDrag.current.y),
@@ -1287,7 +1322,7 @@ export class Editor {
         hover: this.transform.hover,
         dragging: this.transform.drag !== null,
       },
-      options: this.toolOptions,
+      options: this.optionsShown(),
       colors: this.colors,
       cursor: this.cursor,
       job:
@@ -1323,6 +1358,7 @@ export class Editor {
       this.gradientDrag !== null ||
       this.cloneStroke !== null ||
       this.textDrag !== null ||
+      this.shapeDrag !== null ||
       this.lassoDraw?.pointerId != null
     );
   }
@@ -1733,6 +1769,8 @@ export class Editor {
     this.toolOptions = { ...this.toolOptions, [tool]: next };
     // The Type tool's options restyle the text being edited (the whole layer in this version).
     if (tool === 'text' && this.textEdit) this.textEdit = { ...this.textEdit, style: next as TextStyle };
+    // The Shape tool's look applies to a selected shape layer too (FR-PNT-08: shapes stay editable).
+    if (tool === 'shape' && this.tool === 'shape') this.restyleActiveShape(next as ShapeStyle, patch);
     this.changed();
   }
 
@@ -1929,7 +1967,7 @@ export class Editor {
   }
 
   /** The active layer if it can have a mask (raster or adjustment), else null with a notice. */
-  private activeMasked(): RasterLayerOf | TextLayer | Extract<Layer, { type: 'adjustment' }> | null {
+  private activeMasked(): RasterLayerOf | VectorLayer | Extract<Layer, { type: 'adjustment' }> | null {
     const layer = this.doc?.activeLayer;
     if (!layer || layer.type === 'group') {
       this.notice('Select a layer (groups get masks in a later version).');
@@ -2023,7 +2061,7 @@ export class Editor {
     if (layer.type === 'adjustment') return 'This is an adjustment layer: change it in the Properties panel.';
     if (this.editingMask && layer.mask)
       return 'Adjusting a mask is not supported yet. Click the layer’s thumbnail.';
-    if (layer.type === 'text') return RASTERIZE_FIRST;
+    if (isVector(layer)) return rasterizeFirst(layer);
     if (layer.locks.all || layer.locks.pixels) return 'This layer is locked.';
     if (!layer.visible) return 'This layer is hidden. Show it to adjust it.';
     return null;
@@ -2569,7 +2607,7 @@ export class Editor {
 
   /** Layer › Layer Mask › Apply: the mask is baked into the pixels' alpha, then removed (one step). */
   applyLayerMask(): void {
-    if (this.doc?.activeLayer.type === 'text') return this.notice(RASTERIZE_FIRST);
+    if (this.doc && isVector(this.doc.activeLayer)) return this.notice(rasterizeFirst(this.doc.activeLayer));
     const layer = this.activeRaster();
     const mask = layer?.mask;
     if (!layer || !mask || this.busy) return;
@@ -2742,7 +2780,7 @@ export class Editor {
     const mask = doc?.selection;
     if (!doc || !mask || this.busy) return;
     const layer = doc.activeLayer;
-    if (layer.type === 'text') return this.notice(RASTERIZE_FIRST);
+    if (isVector(layer)) return this.notice(rasterizeFirst(layer));
     if (layer.type !== 'raster')
       return this.notice(
         `Select a layer to clear (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`,
@@ -2871,7 +2909,7 @@ export class Editor {
   /** Why the active layer cannot take paint from the bucket or the gradient, or null. */
   private fillBlocker(tool: string): string | null {
     const layer = this.doc!.activeLayer;
-    if (layer.type === 'text') return RASTERIZE_FIRST;
+    if (isVector(layer)) return rasterizeFirst(layer);
     if (layer.type !== 'raster')
       return `Select a layer to paint on (${layer.type === 'group' ? 'groups' : 'adjustment layers'} have no pixels).`;
     if (this.editingMask) return `The ${tool} paints pixels. Click the layer thumbnail to edit them.`;
@@ -3092,6 +3130,7 @@ export class Editor {
     this.cloneStroke = null;
     this.clonePreview = null;
     this.textDrag = null;
+    this.shapeDrag = null;
   }
 
   /** A pending text edit is committed before anything else changes the document. */
@@ -3101,13 +3140,7 @@ export class Editor {
 
   private renderTextModel(model: TextModel, origin: { x: number; y: number }) {
     const r = this.options.renderText ? this.options.renderText(model, origin) : emptyRendering();
-    // Pixels farther off the canvas than a layer may hold are dropped, as the Move tool does.
-    const doc = this.doc!;
-    const range = tileRange(doc.width, doc.height, TILE_SIZE);
-    for (const key of [...r.tiles.keys()]) {
-      const [tx, ty] = parseTileKey(key);
-      if (tx < range.tx0 || tx >= range.tx1 || ty < range.ty0 || ty >= range.ty1) r.tiles.set(key, undefined);
-    }
+    this.withinRange(r.tiles);
     return r;
   }
 
@@ -3128,25 +3161,155 @@ export class Editor {
 
   /** Layer › Rasterize Type: the text layer becomes a raster layer of what it shows (one step). */
   rasterizeType(): void {
+    this.rasterizeVector('text');
+  }
+
+  /** Layer › Rasterize Shape: the shape layer becomes a raster layer of what it shows (one step). */
+  rasterizeShape(): void {
+    this.rasterizeVector('shape');
+  }
+
+  private rasterizeVector(type: 'text' | 'shape'): void {
     const doc = this.doc;
     if (!doc || this.busy) return;
     this.settleText();
     const layer = doc.activeLayer;
-    if (layer.type !== 'text') return this.notice('Select a text layer to rasterize.');
+    if (layer.type !== type) return this.notice(`Select a ${type} layer to rasterize.`);
     const id = layer.id;
     this.exec(
-      new TreeCommand('Rasterize Type', (d) => {
+      new TreeCommand(type === 'text' ? 'Rasterize Type' : 'Rasterize Shape', (d) => {
         const swap = (list: Layer[]): Layer[] =>
           list.map((l) => {
             if (l.type === 'group') {
               l.children = swap(l.children);
               return l;
             }
-            return l.id === id && l.type === 'text' ? rasterize(l) : l;
+            return l.id === id && isVector(l) ? rasterize(l) : l;
           });
         return { root: swap(cloneTree(d.layers)), activeLayerId: id };
       }),
     );
+  }
+
+  // ---- Shape tool (U; FR-PNT-08) -----------------------------------------------------------------
+
+  /** Drag out a shape: Shift keeps it square, round or at 45°; Alt draws from the centre. */
+  private beginShape(e: PointerEvent): void {
+    if (!this.doc || this.busy) return;
+    const p = this.docPoint(e);
+    this.shapeDrag = {
+      pointerId: e.pointerId,
+      start: { x: p.x, y: p.y },
+      current: { x: p.x, y: p.y },
+      shift: e.shiftKey,
+      alt: e.altKey,
+    };
+    this.changed();
+  }
+
+  /** The shape being dragged: its origin and model (null while not dragging or too small). */
+  private draggedShape(): { origin: { x: number; y: number }; model: ShapeModel } | null {
+    const d = this.shapeDrag;
+    if (!d) return null;
+    const style = this.toolOptions.shape;
+    let dx = d.current.x - d.start.x;
+    let dy = d.current.y - d.start.y;
+    if (style.kind === 'line') {
+      if (d.shift) {
+        const step = Math.PI / 4;
+        const a = Math.round(Math.atan2(dy, dx) / step) * step;
+        const len = Math.hypot(dx, dy);
+        dx = Math.cos(a) * len;
+        dy = Math.sin(a) * len;
+      }
+      if (Math.hypot(dx, dy) < 1) return null;
+      return {
+        origin: { x: Math.round(d.start.x), y: Math.round(d.start.y) },
+        model: shapeModel(style, Math.round(dx), Math.round(dy)),
+      };
+    }
+    if (d.shift) {
+      const side = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = Math.sign(dx || 1) * side;
+      dy = Math.sign(dy || 1) * side;
+    }
+    const x0 = d.alt ? d.start.x - Math.abs(dx) : Math.min(d.start.x, d.start.x + dx);
+    const y0 = d.alt ? d.start.y - Math.abs(dy) : Math.min(d.start.y, d.start.y + dy);
+    const w = Math.round(d.alt ? Math.abs(dx) * 2 : Math.abs(dx));
+    const h = Math.round(d.alt ? Math.abs(dy) * 2 : Math.abs(dy));
+    if (w < 1 || h < 1) return null;
+    return { origin: { x: Math.round(x0), y: Math.round(y0) }, model: shapeModel(style, w, h) };
+  }
+
+  private shapeDraft(): EditorSnapshot['shapeOutline'] {
+    const s = this.draggedShape();
+    return s && { origin: s.origin, d: shapePath(s.model) };
+  }
+
+  /** The drag becomes a new shape layer above the active one (one step). */
+  private endShape(): void {
+    const shape = this.draggedShape();
+    this.shapeDrag = null;
+    this.changed();
+    if (!shape || !this.doc) return;
+    const label = SHAPE_LABELS[shape.model.kind];
+    const tiles = this.renderShapeModel(shape.model, shape.origin);
+    const layer = createShapeLayer(this.nextName(label), shape.model, shape.origin, tiles);
+    const { parentId, index } = this.insertionPoint();
+    this.exec(new AddLayerCommand(layer, index, parentId, label));
+  }
+
+  /** U picks the Shape tool; again (or Shift+U) it cycles the kind of shape to draw (docs/03 §4). */
+  cycleShapeKind(): void {
+    if (this.tool !== 'shape') return this.setTool('shape');
+    const i = SHAPE_KINDS.indexOf(this.toolOptions.shape.kind);
+    this.toolOptions = {
+      ...this.toolOptions,
+      shape: { ...this.toolOptions.shape, kind: SHAPE_KINDS[(i + 1) % SHAPE_KINDS.length]! },
+    };
+    this.changed();
+  }
+
+  /** With the Shape tool, a selected shape layer's look is what the options bar shows. */
+  private optionsShown(): ToolOptions {
+    const active = this.doc?.has(this.doc.activeLayerId) ? this.doc.activeLayer : null;
+    if (this.tool !== 'shape' || active?.type !== 'shape') return this.toolOptions;
+    return { ...this.toolOptions, shape: styleOfShape(active.shape, this.toolOptions.shape) };
+  }
+
+  /** The options bar changed the look: a selected shape layer takes it (coalesced into one step). */
+  private restyleActiveShape(next: ShapeStyle, patch: Partial<ShapeStyle>): void {
+    const doc = this.doc;
+    const layer = doc?.has(doc.activeLayerId) ? doc.activeLayer : null;
+    if (!layer || layer.type !== 'shape' || this.busy) return;
+    if (Object.keys(patch).every((k) => k === 'kind')) return; // the kind is for the next shape
+    const style = { ...styleOfShape(layer.shape, next), ...patch };
+    const shape = reshaped(layer.shape, style);
+    if (JSON.stringify(shape) === JSON.stringify(layer.shape)) return;
+    this.exec(
+      new SetShapeCommand('Edit Shape', layer.id, {
+        shape,
+        transform: layer.transform,
+        tiles: this.renderShapeModel(shape, textOrigin(layer)),
+      }),
+      { coalesce: true },
+    );
+  }
+
+  private renderShapeModel(shape: ShapeModel, origin: { x: number; y: number }): TileGrid {
+    const tiles = this.options.renderShape ? this.options.renderShape(shape, origin) : emptyShape();
+    return this.withinRange(tiles);
+  }
+
+  /** Pixels farther off the canvas than a layer may hold are dropped, as the Move tool does. */
+  private withinRange(tiles: TileGrid): TileGrid {
+    const doc = this.doc!;
+    const range = tileRange(doc.width, doc.height, TILE_SIZE);
+    for (const key of [...tiles.keys()]) {
+      const [tx, ty] = parseTileKey(key);
+      if (tx < range.tx0 || tx >= range.tx1 || ty < range.ty0 || ty >= range.ty1) tiles.set(key, undefined);
+    }
+    return tiles;
   }
 
   // ---- Clone Stamp (S; FR-PNT-05) --------------------------------------------------------------
@@ -3966,6 +4129,7 @@ export class Editor {
     if (tool === 'gradient') return this.beginGradient(e);
     if (tool === 'clone') return this.beginClone(e);
     if (tool === 'text') return this.textPointerDown(e);
+    if (tool === 'shape') return this.beginShape(e);
     if (tool === 'eyedropper') {
       this.sampling = {
         pointerId: e.pointerId,
@@ -3987,7 +4151,7 @@ export class Editor {
       (this.editingMask || layer.type === 'adjustment') && layer.mask ? this.maskPaintValue(tool) : null;
     if (layer.locks.all || (onMask === null && layer.locks.pixels))
       return this.notice('This layer is locked.');
-    if (onMask === null && layer.type === 'text') return this.notice(RASTERIZE_FIRST);
+    if (onMask === null && isVector(layer)) return this.notice(rasterizeFirst(layer));
     const settings = this.strokeSettings(tool, onMask === null ? layer.locks.transparency : false);
     const generator = new DabGenerator(settings);
     const smoother = new PulledString((settings.smoothing * SMOOTHING_SCREEN_PX) / this.viewport.zoom);
@@ -4079,8 +4243,11 @@ export class Editor {
     if (blocker) return blocker;
     const rasters = layerIds.flatMap((id) => movedRasters(doc, id));
     if (rasters.some((l) => l.locks.pixels)) return 'This layer’s pixels are locked.';
-    if (rasters.some((l) => l.type === 'text'))
-      return 'Free Transform does not keep text editable yet. Rasterize the text layer first (Layer › Rasterize Type).';
+    const vector = rasters.find(isVector);
+    if (vector)
+      return vector.type === 'text'
+        ? 'Free Transform does not keep text editable yet. Rasterize the text layer first (Layer › Rasterize Type).'
+        : 'Free Transform does not keep shapes editable yet. Rasterize the shape layer first (Layer › Rasterize Shape).';
     const rasterIds = new Set(rasters.map((l) => l.id));
     const selection = doc.selection;
     if (!selection) {
@@ -4315,6 +4482,11 @@ export class Editor {
     if (this.marqueeDrag && e.pointerId === this.marqueeDrag.pointerId) return this.moveMarquee(e);
     if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) return this.moveGradient(e);
     if (this.cloneStroke && e.pointerId === this.cloneStroke.pointerId) return this.moveClone(e);
+    if (this.shapeDrag && e.pointerId === this.shapeDrag.pointerId) {
+      const p = this.docPoint(e);
+      this.shapeDrag = { ...this.shapeDrag, current: { x: p.x, y: p.y }, shift: e.shiftKey, alt: e.altKey };
+      return this.changed();
+    }
     if (this.textDrag && e.pointerId === this.textDrag.pointerId) {
       const p = this.docPoint(e);
       this.textDrag = { ...this.textDrag, current: { x: p.x, y: p.y } };
@@ -4349,6 +4521,7 @@ export class Editor {
     if (this.gradientDrag && e.pointerId === this.gradientDrag.pointerId) void this.endGradient();
     if (this.cloneStroke && e.pointerId === this.cloneStroke.pointerId) this.endClone();
     if (this.textDrag && e.pointerId === this.textDrag.pointerId) this.endTextDrag();
+    if (this.shapeDrag && e.pointerId === this.shapeDrag.pointerId) this.endShape();
     if (this.lassoDraw?.kind === 'freehand' && e.pointerId === this.lassoDraw.pointerId) this.finishLasso();
     if (this.guideDrag && e.pointerId === this.guideDrag.pointerId) this.endGuideDrag();
     if (this.moving && e.pointerId === this.moving.pointerId) {

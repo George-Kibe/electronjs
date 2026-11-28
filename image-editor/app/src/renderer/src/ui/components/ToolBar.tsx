@@ -18,6 +18,7 @@ const GROUPS: ToolInfo[][] = [
   ],
   [{ id: 'clone', label: 'Clone Stamp', key: 'S', icon: '⎘' }],
   [{ id: 'text', label: 'Type', key: 'T', icon: 'T' }],
+  [{ id: 'shape', label: 'Shape', key: 'U', icon: '▭' }],
   [{ id: 'eraser', label: 'Eraser', key: 'E', icon: '⌫' }],
   [
     { id: 'bucket', label: 'Paint Bucket', key: 'G', icon: '🪣' },

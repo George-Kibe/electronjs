@@ -260,6 +260,37 @@ export const TextLayerEntry = LayerBase.extend({
 });
 export type TextLayerEntry = z.infer<typeof TextLayerEntry>;
 
+const rgba = z.tuple([range(0, 255), range(0, 255), range(0, 255), range(0, 1)]);
+
+/** A shape (docs/05 §1 ShapeModel, FR-PNT-08), range-checked: files are untrusted. */
+export const ShapeModelSchema = z.object({
+  kind: z.enum(['rect', 'rounded-rect', 'ellipse', 'line', 'polygon', 'star']),
+  params: z
+    .record(z.string().max(32), range(-300_000, 300_000))
+    .refine((p) => Object.keys(p).length <= 32, 'Too many shape parameters')
+    .refine((p) => (p['sides'] ?? 3) >= 3 && (p['sides'] ?? 3) <= 100, 'Bad polygon')
+    .refine((p) => (p['points'] ?? 3) >= 3 && (p['points'] ?? 3) <= 100, 'Bad star'),
+  fill: z.object({ type: z.enum(['none', 'solid']), color: rgba.optional() }),
+  stroke: z
+    .object({
+      color: rgba,
+      width: range(0, 10_000),
+      align: z.enum(['inside', 'center', 'outside']),
+      dash: z.array(range(0, 1000)).max(16).optional(),
+    })
+    .nullable(),
+});
+
+/** A shape layer (docs/05 §2): the shape, a row-major 3×3 transform, and `cache`, its rendering. */
+export const ShapeLayerEntry = LayerBase.extend({
+  type: z.literal('shape'),
+  shape: ShapeModelSchema,
+  transform: z.array(z.number().finite()).length(9),
+  cache: EntryPath,
+  mask: LayerMaskEntry.optional(),
+});
+export type ShapeLayerEntry = z.infer<typeof ShapeLayerEntry>;
+
 /** Children are validated recursively by the reader (depth and total count are limited). */
 export const GroupLayerEntry = LayerBase.extend({
   type: z.literal('group'),

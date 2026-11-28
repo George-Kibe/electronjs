@@ -61,6 +61,9 @@ All notable changes to ImageEditor are documented here. The format follows
 - View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
   the whole image with the part in view outlined; click or drag in it to move around, and use its slider
   to zoom.
+- Shapes (U): rectangles, rounded rectangles, ellipses, lines with arrowheads, polygons and stars, each
+  on its own layer that stays editable: change its fill, stroke (width, position, dashes) or corners later
+  from the options bar. Layer › Rasterize Shape turns it into pixels.
 - Text (T): click to type on the canvas, or drag a box for text that wraps. Choose the font, size, weight,
   italic, colour, alignment, spacing, underline and strikethrough. Click the text later to edit it; it moves
   with the Move tool and is saved in the project. Layer › Rasterize Type turns it into pixels.

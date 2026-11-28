@@ -2,7 +2,7 @@ import type { BrushSettings } from '../brush/brush';
 import { GRAIN_SIZE, tipGrain, type BrushTip } from '../brush/tips';
 import { blendModeIndex, DISSOLVE } from '../doc/blend';
 import { isNeutral, preparedFor, type Adjustment } from '../ops/adjust';
-import { hasPixels, type Document, type Layer, type RasterLayer, type TextLayer } from '../doc/document';
+import { hasPixels, type Document, type Layer, type RasterLayer, type VectorLayer } from '../doc/document';
 import type { Mask, MaskTile } from '../doc/selection';
 import { PIXEL_GRID_ZOOM, type Viewport } from '../render/viewport';
 import { parseTileKey, TILE_SIZE, tileKey, type TileKey } from '../tiles/tile';
@@ -367,13 +367,13 @@ export class Compositor {
   }
 
   private drawRaster(
-    layer: RasterLayer | TextLayer,
+    layer: RasterLayer | VectorLayer,
     opacity: number,
     mode: number,
     backdrop: Target | null,
     ctx: DrawContext,
     preview: StrokePreview | undefined,
-    clip: RasterLayer | TextLayer | null = null,
+    clip: RasterLayer | VectorLayer | null = null,
   ): void {
     const gl = this.gl;
     const p = this.layerProgram;
@@ -496,7 +496,7 @@ export class Compositor {
     layer: Extract<Layer, { type: 'adjustment' }>,
     target: Target,
     ctx: DrawContext,
-    clip: RasterLayer | TextLayer | null,
+    clip: RasterLayer | VectorLayer | null,
     preview?: StrokePreview,
   ): void {
     const opacity = layer.opacity * layer.fillOpacity;
@@ -633,7 +633,7 @@ export class Compositor {
   }
 
   /** Keys of the layer's tiles that land in the visible canvas `rect` once shifted by the move offset. */
-  private movedTiles(layer: RasterLayer | TextLayer, move: MovePreview, rect: DrawContext['rect']) {
+  private movedTiles(layer: RasterLayer | VectorLayer, move: MovePreview, rect: DrawContext['rect']) {
     const keys: TileKey[] = [];
     for (const key of layer.tiles.keys()) {
       const [tx, ty] = parseTileKey(key);

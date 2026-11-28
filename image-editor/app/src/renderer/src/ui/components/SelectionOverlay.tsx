@@ -9,6 +9,7 @@ type Props = {
   gradientLine?: EditorSnapshot['gradientLine'];
   cloneSource?: EditorSnapshot['cloneSource'];
   textBox?: EditorSnapshot['textBox'];
+  shapeOutline?: EditorSnapshot['shapeOutline'];
 };
 
 /** Black dashes over white, 1 screen px at any zoom (FR-SEL-06). */
@@ -35,9 +36,11 @@ export function SelectionOverlay({
   gradientLine,
   cloneSource,
   textBox,
+  shapeOutline,
 }: Props) {
   const { zoom, panX, panY } = useSyncExternalStore(editor.subscribeView, editor.getView);
-  if (!selection && !marquee && !lasso && !gradientLine && !cloneSource && !textBox) return null;
+  if (!selection && !marquee && !lasso && !gradientLine && !cloneSource && !textBox && !shapeOutline)
+    return null;
   // The Clone Stamp's source: a crosshair 8 screen px each way (FR-PNT-05).
   const arm = 8 / zoom;
   // The outline drawn so far; a polygon also shows the edge to the pointer.
@@ -72,6 +75,12 @@ export function SelectionOverlay({
         )}
         {selection && (
           <Ants>{(p) => <path d={selection.outline} {...(p as React.SVGProps<SVGPathElement>)} />}</Ants>
+        )}
+        {shapeOutline && (
+          // The shape being dragged out with the Shape tool (FR-PNT-08): its outline.
+          <g transform={`translate(${shapeOutline.origin.x} ${shapeOutline.origin.y})`}>
+            <Ants>{(p) => <path d={shapeOutline.d} {...(p as React.SVGProps<SVGPathElement>)} />}</Ants>
+          </g>
         )}
         {textBox && (
           // A text box being dragged out with the Type tool (FR-TXT-01).
