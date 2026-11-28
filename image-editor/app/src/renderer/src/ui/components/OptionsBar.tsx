@@ -32,6 +32,8 @@ type Props = {
   };
   onFit: () => void;
   onActualSize: () => void;
+  /** Opens the colour picker for the Type tool's colour. */
+  onEditTextColor?: () => void;
   transform: EditorSnapshot['transform'];
   onTransform: {
     params: (patch: Partial<TransformParams>) => void;
@@ -53,6 +55,7 @@ const TOOL_NAMES: Record<Tool, string> = {
   bucket: 'Paint Bucket',
   gradient: 'Gradient',
   clone: 'Clone Stamp',
+  text: 'Type',
   hand: 'Hand',
   zoom: 'Zoom',
 };
@@ -544,6 +547,153 @@ function WandOptions({ options, onOptions }: { options: ToolOptions; onOptions: 
   );
 }
 
+/** Common families; any installed font can be typed (the font list arrives with Local Font Access). */
+const FONT_SUGGESTIONS = [
+  'sans-serif',
+  'serif',
+  'monospace',
+  'system-ui',
+  'Arial',
+  'Helvetica',
+  'Verdana',
+  'Georgia',
+  'Times New Roman',
+  'Courier New',
+  'Noto Sans',
+  'Noto Serif',
+  'Roboto',
+  'DejaVu Sans',
+  'Segoe UI',
+];
+
+const ALIGNS: ReadonlyArray<readonly [ToolOptions['text']['align'], string, string]> = [
+  ['left', '⯇', 'Align left'],
+  ['center', '≡', 'Centre'],
+  ['right', '⯈', 'Align right'],
+  ['justify', '☰', 'Justify'],
+];
+
+/** Type tool options (FR-TXT-02): font, style, size, colour, alignment, spacing, decoration. */
+function TextOptions({
+  options,
+  onOptions,
+  onEditColor,
+}: {
+  options: ToolOptions;
+  onOptions: Props['onOptions'];
+  onEditColor: () => void;
+}) {
+  const o = options.text;
+  const set = (patch: Partial<ToolOptions['text']>) => onOptions('text', patch);
+  const [r, g, b] = o.color;
+  return (
+    <>
+      <label className="flex items-center gap-1">
+        <span className="text-ui-muted">Font</span>
+        <input
+          aria-label="Font"
+          list="font-suggestions"
+          value={o.family}
+          onChange={(e) => e.target.value.trim() && set({ family: e.target.value })}
+          className="bg-ui-bg border-ui-border w-36 rounded border px-1 py-0.5"
+        />
+        <datalist id="font-suggestions">
+          {FONT_SUGGESTIONS.map((f) => (
+            <option key={f} value={f} />
+          ))}
+        </datalist>
+      </label>
+      <Select
+        label="Weight"
+        value={o.weight}
+        options={[
+          [300, 'Light'],
+          [400, 'Regular'],
+          [500, 'Medium'],
+          [700, 'Bold'],
+          [900, 'Black'],
+        ]}
+        onChange={(weight) => set({ weight })}
+      />
+      <Toggle label="I" title="Italic" checked={o.italic} onChange={(italic) => set({ italic })} />
+      <label className="flex items-center gap-1">
+        <span className="text-ui-muted">Size</span>
+        <input
+          type="number"
+          aria-label="Font size"
+          min={1}
+          max={2500}
+          value={o.size}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (v >= 1 && v <= 2500) set({ size: v });
+          }}
+          className="bg-ui-bg border-ui-border w-16 rounded border px-1 py-0.5"
+        />
+        <span className="text-ui-muted">px</span>
+      </label>
+      <button
+        aria-label={`Text colour rgb(${r}, ${g}, ${b})`}
+        title="Text colour"
+        className="border-ui-border h-5 w-5 rounded border"
+        style={{ background: `rgb(${r}, ${g}, ${b})` }}
+        onClick={onEditColor}
+      />
+      <div role="group" aria-label="Alignment" className="flex gap-0.5">
+        {ALIGNS.map(([align, icon, title]) => (
+          <Button
+            key={align}
+            aria-pressed={o.align === align}
+            active={o.align === align}
+            aria-label={title}
+            title={title}
+            onClick={() => set({ align })}
+          >
+            {icon}
+          </Button>
+        ))}
+      </div>
+      <label className="flex items-center gap-1">
+        <span className="text-ui-muted">Spacing</span>
+        <input
+          type="number"
+          aria-label="Letter spacing"
+          step={0.5}
+          value={o.letterSpacing}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v >= -1000 && v <= 1000) set({ letterSpacing: v });
+          }}
+          className="bg-ui-bg border-ui-border w-14 rounded border px-1 py-0.5"
+        />
+      </label>
+      <label className="flex items-center gap-1">
+        <span className="text-ui-muted">Line</span>
+        <input
+          type="number"
+          aria-label="Line height"
+          step={0.1}
+          min={0.5}
+          max={5}
+          value={o.lineHeight}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (v >= 0.5 && v <= 5) set({ lineHeight: v });
+          }}
+          className="bg-ui-bg border-ui-border w-14 rounded border px-1 py-0.5"
+        />
+      </label>
+      <Toggle
+        label="U"
+        title="Underline"
+        checked={o.underline}
+        onChange={(underline) => set({ underline })}
+      />
+      <Toggle label="S" title="Strikethrough" checked={o.strike} onChange={(strike) => set({ strike })} />
+    </>
+  );
+}
+
 const GRADIENT_TYPE_BUTTONS: ReadonlyArray<readonly [GradientType, string, string]> = [
   ['linear', '▭', 'Linear gradient'],
   ['radial', '◎', 'Radial gradient'],
@@ -673,6 +823,7 @@ export function OptionsBar({
   onCrop,
   onFit,
   onActualSize,
+  onEditTextColor,
   transform,
   onTransform,
 }: Props) {
@@ -702,6 +853,13 @@ export function OptionsBar({
       {tool === 'wand' && <WandOptions options={options} onOptions={onOptions} />}
       {tool === 'bucket' && <RegionOptions tool="bucket" options={options} onOptions={onOptions} />}
       {tool === 'gradient' && <GradientOptions options={options} onOptions={onOptions} />}
+      {tool === 'text' && (
+        <TextOptions
+          options={options}
+          onOptions={onOptions}
+          onEditColor={onEditTextColor ?? (() => undefined)}
+        />
+      )}
       {tool === 'clone' && (
         <>
           <PaintOptions tool="clone" options={options} onOptions={onOptions} />

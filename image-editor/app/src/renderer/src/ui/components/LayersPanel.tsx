@@ -254,17 +254,34 @@ export function LayersPanel({ editor, snap }: Props) {
                   ) : (
                     /* What painting edits: the pixels or the mask (FR-LAY-04). */
                     <button
-                      aria-label={`Edit ${row.name} pixels`}
+                      aria-label={row.type === 'text' ? `Edit ${row.name} text` : `Edit ${row.name} pixels`}
                       aria-pressed={row.mask ? row.id === snap.activeLayerId && !snap.editingMask : undefined}
-                      title="Paint on the layer's pixels"
-                      className={`shrink-0 rounded ${row.mask && row.id === snap.activeLayerId && !snap.editingMask ? 'ring-brand ring-2' : ''}`}
+                      title={
+                        row.type === 'text'
+                          ? 'Text layer: double-click to edit the text'
+                          : "Paint on the layer's pixels"
+                      }
+                      className={`relative shrink-0 rounded ${row.mask && row.id === snap.activeLayerId && !snap.editingMask ? 'ring-brand ring-2' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         editor.setActiveLayer(row.id);
                         editor.editLayerMask(false);
                       }}
+                      onDoubleClick={(e) => {
+                        if (row.type !== 'text') return;
+                        e.stopPropagation();
+                        editor.editTextLayer(row.id);
+                      }}
                     >
                       <Thumbnail editor={editor} row={row} />
+                      {row.type === 'text' && (
+                        <span
+                          aria-hidden
+                          className="bg-ui-panel absolute right-0 bottom-0 rounded-tl px-0.5 text-[9px] leading-none font-bold"
+                        >
+                          T
+                        </span>
+                      )}
                     </button>
                   )}
                   {row.mask && (

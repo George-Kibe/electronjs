@@ -5,6 +5,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   createAdjustmentLayer,
+  createTextLayer,
   createGroupLayer,
   createRasterLayer,
   Document,
@@ -13,6 +14,7 @@ import {
 import { defaultAdjustment } from '../ops/adjust';
 import { ellipseMask, Mask, rectMask } from '../doc/selection';
 import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
+import { DEFAULT_TEXT_STYLE, textModel } from '../text/text';
 import { encodeTiles, IepError, readIep, writeIep } from './iep';
 import { fromSnapshot, toSnapshot } from './snapshot';
 
@@ -200,12 +202,88 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
   });
 
   it('leaves out layer types it cannot show, and opens read-only so they are not lost by saving over', () => {
-    const bytes = zip(manifest({}, [layerEntry(), { id: 'T1', type: 'text', name: 'Title' }]), {
+    const bytes = zip(manifest({}, [layerEntry(), { id: 'S1', type: 'smart-object', name: 'Logo' }]), {
       'layers/0/tiles.bin': oneTile(),
     });
     const { readOnlyReason, doc } = readIep(bytes, BUDGET);
     expect(readOnlyReason).toMatch(/1 layer/);
     expect(doc.layers.map((l) => l.id)).toEqual(['L1']);
+  });
+
+  describe('text layers (FR-TXT-01, docs/05 §2)', () => {
+    const model = textModel('Sale\nToday', {
+      ...DEFAULT_TEXT_STYLE,
+      family: 'Noto Sans',
+      size: 72,
+      color: [200, 30, 40, 1],
+    });
+    const textDoc = () => {
+      const cache = TileGrid.filled(300, 120, [200, 30, 40, 255]);
+      const mask = new TileGrid();
+      mask.set('0,0', createTile(new Uint8ClampedArray(TILE_BYTES).map((_, i) => (i % 4 === 3 ? 128 : 0))));
+      return new Document(512, 512, [
+        createRasterLayer('bg', TileGrid.filled(512, 512, [255, 255, 255, 255])),
+        createTextLayer('Sale', model, { x: 40, y: 60 }, cache, {
+          opacity: 0.8,
+          mask: { grid: mask, background: 255, enabled: true, linked: true },
+        }),
+      ]);
+    };
+
+    it('round-trip their text, position, rendering and mask, editable', () => {
+      const doc = textDoc();
+      const { doc: back, readOnlyReason } = roundTrip(doc);
+      expect(readOnlyReason).toBeNull();
+      const t = back.layers[1]!;
+      expect(t.type).toBe('text');
+      if (t.type !== 'text') return;
+      expect(t.text).toEqual(model);
+      expect(t.transform).toEqual([1, 0, 40, 0, 1, 60, 0, 0, 1]);
+      expect(t.opacity).toBe(0.8);
+      const orig = doc.layers[1]! as typeof t;
+      expect([...t.tiles.keys()].sort()).toEqual([...orig.tiles.keys()].sort());
+      for (const [k, tile] of orig.tiles.entries()) expect(t.tiles.get(k)!.data).toEqual(tile.data);
+      expect(t.mask?.grid.get('0,0')!.data[3]).toBe(128);
+    });
+
+    it('store the rendering as the layer’s cache, so the file shows where the fonts are missing', () => {
+      const files = unzipSync(writeIep(toSnapshot(textDoc()), { appVersion: '0.1.0' }));
+      const m = JSON.parse(strFromU8(files['manifest.json']!)) as { layers: Array<Record<string, unknown>> };
+      const entry = m.layers[1]!;
+      expect(entry['type']).toBe('text');
+      expect(entry['cache']).toMatch(/^layers\/\d+\/tiles\.bin$/);
+      expect(entry['tiles']).toBeUndefined();
+      expect(files[entry['cache'] as string]).toBeDefined();
+    });
+
+    it('a transform this version cannot edit opens as pixels, read-only', () => {
+      const files = unzipSync(writeIep(toSnapshot(textDoc()), { appVersion: '0.1.0' }));
+      const m = JSON.parse(strFromU8(files['manifest.json']!)) as { layers: Array<Record<string, unknown>> };
+      m.layers[1]!['transform'] = [0, -1, 40, 1, 0, 60, 0, 0, 1]; // rotated 90°
+      files['manifest.json'] = strToU8(JSON.stringify(m));
+      const { doc, readOnlyReason } = readIep(zipSync(files as Zippable), BUDGET);
+      expect(doc.layers[1]!.type).toBe('raster');
+      expect(readOnlyReason).toMatch(/text layer is transformed/);
+    });
+
+    it.each([
+      [
+        'a size of 0',
+        (t: { paragraphs: Array<{ runs: Array<{ size: number }> }> }) => (t.paragraphs[0]!.runs[0]!.size = 0),
+      ],
+      [
+        'too much text',
+        (t: { paragraphs: Array<{ runs: Array<{ text: string }> }> }) =>
+          (t.paragraphs[0]!.runs[0]!.text = 'x'.repeat(100_001)),
+      ],
+      ['a box without its size', (t: { mode: string }) => (t.mode = 'box')],
+    ])('refuses text with %s (files are untrusted)', (_, damage) => {
+      const files = unzipSync(writeIep(toSnapshot(textDoc()), { appVersion: '0.1.0' }));
+      const m = JSON.parse(strFromU8(files['manifest.json']!)) as { layers: Array<Record<string, unknown>> };
+      (damage as (t: unknown) => void)(m.layers[1]!['text']);
+      files['manifest.json'] = strToU8(JSON.stringify(m));
+      expect(() => readIep(zipSync(files as Zippable), BUDGET)).toThrow(IepError);
+    });
   });
 
   it('round-trips adjustment layers with their settings, mask, clipping and blend mode (FR-ADJ-01)', () => {

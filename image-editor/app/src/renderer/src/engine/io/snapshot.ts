@@ -4,10 +4,12 @@ import {
   createAdjustmentLayer,
   createGroupLayer,
   createRasterLayer,
+  createTextLayer,
   Document,
   type BlendMode,
   type Layer,
   type LayerLocks,
+  type TextModel,
 } from '../doc/document';
 import { createTile, TILE_BYTES, TileGrid, type TileKey } from '../tiles/tile';
 
@@ -38,7 +40,15 @@ export type MaskSnapshot = {
 export type LayerSnapshot =
   | (SnapshotBase & { type: 'raster'; tiles: Array<[TileKey, Uint8Array]>; mask?: MaskSnapshot | null })
   | (SnapshotBase & { type: 'group'; passThrough: boolean; collapsed: boolean; children: LayerSnapshot[] })
-  | (SnapshotBase & { type: 'adjustment'; adjustment: Adjustment; mask?: MaskSnapshot | null });
+  | (SnapshotBase & { type: 'adjustment'; adjustment: Adjustment; mask?: MaskSnapshot | null })
+  /** Text (FR-TXT-01): the model and transform, and `tiles` its rendering (docs/05's cache). */
+  | (SnapshotBase & {
+      type: 'text';
+      text: TextModel;
+      transform: number[];
+      tiles: Array<[TileKey, Uint8Array]>;
+      mask?: MaskSnapshot | null;
+    });
 
 export type DocSnapshot = {
   width: number;
@@ -89,6 +99,15 @@ export function layerToSnapshot(l: Layer): LayerSnapshot {
       }
     : {};
   if (l.type === 'adjustment') return { ...base, type: 'adjustment', adjustment: l.adjustment, ...mask };
+  if (l.type === 'text')
+    return {
+      ...base,
+      type: 'text',
+      text: l.text,
+      transform: l.transform,
+      tiles: gridEntries(l.tiles),
+      ...mask,
+    };
   return {
     ...base,
     type: 'raster',
@@ -162,6 +181,15 @@ function layerFromSnapshot(l: LayerSnapshot): Layer {
     const { adjustment, type: _type, mask, ...props } = l;
     return createAdjustmentLayer(l.name, adjustment, { ...props, ...maskOf(mask) });
   }
+  if (l.type === 'text') {
+    const { tiles, type: _type, mask, text, transform, ...props } = l;
+    const layer = createTextLayer(l.name, text, { x: 0, y: 0 }, gridFrom(tiles), {
+      ...props,
+      ...(mask ? maskOf(mask) : {}),
+    });
+    layer.transform = transform.slice();
+    return layer;
+  }
   const { tiles, type: _type, mask, ...props } = l;
   return createRasterLayer(l.name, gridFrom(tiles), { ...props, ...(mask ? maskOf(mask) : {}) });
 }
@@ -200,6 +228,7 @@ export function snapshotLayers(layers: readonly LayerSnapshot[]): import('../doc
       m && maskTiles ? { tile: (key: TileKey) => maskTiles.get(key), background: m.background } : null;
     if (l.type === 'adjustment')
       return { ...l, kind: 'adjustment', prepared: preparedFor(l.adjustment), mask, clipped: l.clipped };
+    // A text layer composites as its rendering.
     const tiles = new Map(l.tiles);
     return { ...l, kind: 'raster', tile: (key: TileKey) => tiles.get(key), mask, clipped: l.clipped };
   });

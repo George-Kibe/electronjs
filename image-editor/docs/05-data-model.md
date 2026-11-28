@@ -148,6 +148,10 @@ Entries (count ×): i32 tx | i32 ty | u8 kind (0=data, 1=uniform) | u32 payloadL
 
 Little-endian. Only non-empty tiles are written. Text and shape layers store their cache so files render
 even when the fonts are missing. On load, if the fonts are available, text re-rasterizes on the first edit.
+*As built (M3 slice 3a):* a text entry carries `text` (the TextModel, range-checked: up to 100 000
+characters, sizes 0.5–5000 px, a box needs its size), `transform` (9 numbers, row-major; this version writes
+only a translation) and `cache` (its tiles, like a raster layer's `tiles`), plus an optional `mask`. A
+transform with rotation or scale (a newer version's) opens as a raster layer and the document read-only.
 
 ### 2.3 Versioning & compatibility
 

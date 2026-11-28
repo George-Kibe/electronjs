@@ -344,7 +344,22 @@ start only after approval):
         noise. The GPU preview (`layer.frag`) and the CPU commit (`brush.ts applyStroke`) agree within ±2/255
         for every mode tested, and Normal is unchanged byte for byte. The layer blend shaders and the golden
         baselines are untouched. E2E green on 3 OSes (run 46068222430).
-- [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep`
+- [ ] Slice 3 ⚑ — text layers (FR-LAY-01, FR-TXT-01..03): a new layer type in `.iep` (approved)
+  - [x] 3a Text layers end to end. As built: the Type tool (T). Click for point text, drag for a text box;
+        type in place (the editor is the text itself, scaled with the zoom); Esc, Ctrl/⌘+Enter or a click
+        outside commits, as one undo step ("Type Layer", "Edit Type Layer"); emptied text removes the
+        layer. Click a text layer (or double-click its thumbnail) to edit it. The options bar sets font
+        (any installed family by name), weight, italic, size, colour, alignment, letter spacing, line
+        height, underline and strikethrough, for the whole layer. Chromium lays the text out (shaping,
+        bidi, emoji, wrapping) and each word is painted onto tiles (`lib/text-render.ts`), so a text layer
+        composites, masks and clips like pixels. Moving, crop and Canvas Size keep it text; rotate, flip and
+        Image Size turn it into pixels; tools that paint, filter, adjust or transform pixels ask for
+        Layer › Rasterize Type first. Saved in `.iep` per docs/05 §2 (text, transform, `cache`), validated
+        with limits; a transform this version cannot edit opens as pixels, read-only. E2E green on 3 OSes
+        (run 46140292251).
+  - [ ] 3b Per-character styling (colour, weight, size) from a selection in the editor, and the installed
+        font list (Local Font Access API; needs the permission in main, docs/06).
+  - [ ] 3c FR-TXT-03 checks for complex scripts, RTL and emoji in the editor and the rendering.
 - [ ] Slice 4 ⚑ — shape layers (FR-PNT-08): a new layer type in `.iep`
 - [ ] Slice 5 ⚑ — layer styles: drop shadow, stroke, outer glow (FR-LAY-07), stored in `.iep`
 - [ ] Slice 6 — PSD import (FR-DOC-07) in the files worker, with a fixture corpus and fuzzing (untrusted

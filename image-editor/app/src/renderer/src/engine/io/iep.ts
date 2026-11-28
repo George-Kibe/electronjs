@@ -10,6 +10,7 @@ import {
   IEP_VERSION,
   Manifest,
   RasterLayerEntry,
+  TextLayerEntry,
   tileRange,
 } from '@shared/iep-schema';
 import { MASK_TILE_BYTES } from '../doc/selection';
@@ -158,6 +159,7 @@ const KNOWN_MANIFEST_KEYS = new Set(['format', 'version', 'app', 'document', 'la
 const KNOWN_RASTER_KEYS = new Set(Object.keys(RasterLayerEntry.shape));
 const KNOWN_GROUP_KEYS = new Set(Object.keys(GroupLayerEntry.shape));
 const KNOWN_ADJUSTMENT_KEYS = new Set(Object.keys(AdjustmentLayerEntry.shape));
+const KNOWN_TEXT_KEYS = new Set(Object.keys(TextLayerEntry.shape));
 
 function pick(obj: Record<string, unknown>, known: Set<string>): Record<string, unknown> | undefined {
   const extra = Object.fromEntries(Object.entries(obj).filter(([k]) => !known.has(k)));
@@ -214,6 +216,12 @@ export function writeIep(
     }
     const tiles = `layers/${n}/tiles.bin`;
     files[tiles] = [encodeTiles(l.tiles), { level: 0 }]; // payloads are already deflated
+    if (l.type === 'text') {
+      // docs/05 §2: the rendering is the text layer's `cache`.
+      const mask = l.mask ? writeMask(l.mask, n) : undefined;
+      delete (common as Record<string, unknown>)['mask'];
+      return { ...common, text: l.text, transform: l.transform, cache: tiles, ...(mask ? { mask } : {}) };
+    }
     if (!l.mask) {
       delete (common as Record<string, unknown>)['mask']; // never keep a stale reference from another version
       return { ...common, tiles };
@@ -311,10 +319,20 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         kind: 'adjustment';
         entry: AdjustmentLayerEntry;
         mask: { bin: Uint8Array; index: TileIndex[] } | null;
+      }
+    | {
+        kind: 'text';
+        entry: TextLayerEntry;
+        bin: Uint8Array;
+        index: TileIndex[];
+        mask: { bin: Uint8Array; index: TileIndex[] } | null;
+        /** A transform this version cannot edit (rotation, scale): the layer opens as its pixels. */
+        asPixels: boolean;
       };
   const ids = new Set<string>();
   let skipped = 0;
   let missingMasks = 0;
+  let transformedText = 0;
   let tileCount = 0;
   let layerCount = 0;
   const plan = (list: unknown[], depth: number): Plan[] => {
@@ -325,7 +343,10 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
       const base = LayerBase.safeParse(raw);
       if (!base.success) throw new IepError('This project has an invalid layer.');
       const known =
-        base.data.type === 'raster' || base.data.type === 'group' || base.data.type === 'adjustment';
+        base.data.type === 'raster' ||
+        base.data.type === 'group' ||
+        base.data.type === 'adjustment' ||
+        base.data.type === 'text';
       // An adjustment of a kind from a newer version is left out like an unknown layer type.
       const kind = (raw as { adjustment?: { kind?: unknown } }).adjustment?.kind;
       if (!known || (base.data.type === 'adjustment' && !ADJUSTMENT_KIND_NAMES.some((k) => k === kind))) {
@@ -359,6 +380,19 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         out.push({ kind: 'adjustment', entry: adjustment.data, mask: maskOf(adjustment.data.mask) });
         continue;
       }
+      if (base.data.type === 'text') {
+        const text = TextLayerEntry.safeParse(raw);
+        if (!text.success) throw new IepError('This project has an invalid layer.');
+        const bin = entries[text.data.cache];
+        if (!bin) throw new IepError(`Layer “${text.data.name}” is missing its pixels.`);
+        const index = indexTiles(bin, range);
+        tileCount += index.length;
+        const [a, b, , c, d, , g, h, i] = text.data.transform;
+        const asPixels = a !== 1 || b !== 0 || c !== 0 || d !== 1 || g !== 0 || h !== 0 || i !== 1;
+        if (asPixels) transformedText++;
+        out.push({ kind: 'text', entry: text.data, bin, index, mask: maskOf(text.data.mask), asPixels });
+        continue;
+      }
       const layer = RasterLayerEntry.safeParse(raw);
       if (!layer.success) throw new IepError('This project has an invalid layer.');
       const bin = entries[layer.data.tiles];
@@ -377,6 +411,10 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
   if (missingMasks > 0)
     reasons.push(
       `${missingMasks} layer mask${missingMasks === 1 ? ' is' : 's are'} missing from this file, so ${missingMasks === 1 ? 'its layer shows' : 'their layers show'} unmasked.`,
+    );
+  if (transformedText > 0)
+    reasons.push(
+      `${transformedText} text layer${transformedText === 1 ? ' is' : 's are'} transformed in a way this version cannot edit, so ${transformedText === 1 ? 'it opens' : 'they open'} as pixels.`,
     );
   if (plans.length === 0) throw new IepError('This project has no layers this version can open.');
   // The saved selection: optional, so a missing or damaged entry only loses the selection, never the file.
@@ -445,6 +483,21 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         type: 'adjustment',
         adjustment: p.entry.adjustment,
         mask,
+        ...(extra ? { extra } : {}),
+      };
+    }
+    if (p.kind === 'text') {
+      const tiles = p.index.map((t): [TileKey, Uint8Array] => [tileKey(t.tx, t.ty), decodeTile(p.bin, t)]);
+      // Pixels only (the document opens read-only, so the text in the file is never saved over).
+      if (p.asPixels) return { ...common, type: 'raster', tiles, ...(mask ? { mask } : {}) };
+      const extra = pick(p.entry, KNOWN_TEXT_KEYS);
+      return {
+        ...common,
+        type: 'text',
+        text: p.entry.text,
+        transform: p.entry.transform,
+        tiles,
+        ...(mask ? { mask } : {}),
         ...(extra ? { extra } : {}),
       };
     }

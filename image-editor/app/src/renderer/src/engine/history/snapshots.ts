@@ -1,5 +1,5 @@
 import { TreeCommand, type CanvasGeometry } from '../doc/commands';
-import { copyMask, type Document, type Layer } from '../doc/document';
+import { copyMask, hasPixels, type Document, type Layer } from '../doc/document';
 import { TileGrid } from '../tiles/tile';
 
 /**
@@ -62,7 +62,7 @@ export function collectTileIds(layers: readonly Layer[], into: Set<number>): Set
   for (const l of layers) {
     if (l.type === 'group') collectTileIds(l.children, into);
     else {
-      if (l.type === 'raster') for (const [, t] of l.tiles.entries()) into.add(t.id);
+      if (hasPixels(l)) for (const [, t] of l.tiles.entries()) into.add(t.id);
       if (l.mask) for (const [, t] of l.mask.grid.entries()) into.add(t.id);
     }
   }

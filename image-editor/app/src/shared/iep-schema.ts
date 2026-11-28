@@ -11,6 +11,8 @@ export const IEP_LIMITS = {
   maxGroupDepth: 32,
   maxTilesPerLayer: 10_000,
   maxManifestBytes: 16 * 1024 * 1024,
+  /** Characters in one text layer (FR-TXT-01). */
+  maxTextChars: 100_000,
 } as const;
 
 /**
@@ -205,6 +207,58 @@ export const AdjustmentLayerEntry = LayerBase.extend({
   mask: LayerMaskEntry.optional(),
 });
 export type AdjustmentLayerEntry = z.infer<typeof AdjustmentLayerEntry>;
+
+const textRun = z.object({
+  text: z.string().max(IEP_LIMITS.maxTextChars),
+  font: z.object({
+    family: z.string().min(1).max(256),
+    postscriptName: z.string().max(256).optional(),
+    weight: z.number().int().min(1).max(1000),
+    style: z.enum(['normal', 'italic']),
+  }),
+  size: range(0.5, 5000),
+  color: z.tuple([range(0, 255), range(0, 255), range(0, 255), range(0, 1)]),
+  letterSpacing: range(-1000, 1000),
+  underline: z.boolean(),
+  strike: z.boolean(),
+});
+
+/** A text layer's text (docs/05 §1 TextModel, FR-TXT-01/02), range-checked: files are untrusted. */
+export const TextModelSchema = z
+  .object({
+    mode: z.enum(['point', 'box']),
+    box: z.object({ w: range(1, 300_000), h: range(1, 300_000) }).optional(),
+    paragraphs: z
+      .array(
+        z.object({
+          align: z.enum(['left', 'center', 'right', 'justify']),
+          lineHeight: range(0.1, 10),
+          runs: z.array(textRun).min(1).max(10_000),
+        }),
+      )
+      .min(1)
+      .max(10_000),
+  })
+  .refine(
+    (t) =>
+      t.paragraphs.reduce((n, p) => n + p.runs.reduce((m, r) => m + r.text.length, 0), 0) <=
+      IEP_LIMITS.maxTextChars,
+    'Too much text',
+  )
+  .refine((t) => t.mode === 'point' || t.box !== undefined, 'A text box needs its size');
+
+/**
+ * A text layer (docs/05 §2): the text, a row-major 3×3 transform, and `cache`, its rendering as tiles, so
+ * the file shows even where the fonts are missing.
+ */
+export const TextLayerEntry = LayerBase.extend({
+  type: z.literal('text'),
+  text: TextModelSchema,
+  transform: z.array(z.number().finite()).length(9),
+  cache: EntryPath,
+  mask: LayerMaskEntry.optional(),
+});
+export type TextLayerEntry = z.infer<typeof TextLayerEntry>;
 
 /** Children are validated recursively by the reader (depth and total count are limited). */
 export const GroupLayerEntry = LayerBase.extend({

@@ -197,6 +197,7 @@ export function menuTemplate(
         cmd('Merge Down', 'layer.mergeDown', 'CmdOrCtrl+E'),
         cmd('Merge Visible', 'layer.mergeVisible', 'CmdOrCtrl+Shift+E'),
         cmd('Flatten Image', 'layer.flatten'),
+        cmd('Rasterize Type', 'layer.rasterizeType'),
         { type: 'separator' },
         cmd('Create Clipping Mask', 'layer.clip', 'CmdOrCtrl+Alt+G'),
         cmd('Release Clipping Mask', 'layer.unclip'),

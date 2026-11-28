@@ -9,7 +9,9 @@ import {
   type Document,
   type Layer,
   type RasterLayer,
+  type TextLayer,
   copyMask,
+  hasPixels,
 } from './document';
 import { compositeTile, liveLayers, type FlatLayer } from './flatten';
 
@@ -29,7 +31,7 @@ const lockedAll = (l: Layer) => l.locks.all;
 function tileKeys(layers: readonly Layer[], out = new Set<TileKey>()): Set<TileKey> {
   for (const l of layers) {
     if (l.type === 'group') tileKeys(l.children, out);
-    else if (l.type === 'raster') for (const k of l.tiles.keys()) out.add(k);
+    else if (hasPixels(l)) for (const k of l.tiles.keys()) out.add(k);
   }
   return out;
 }
@@ -66,13 +68,10 @@ function deepCopy(layer: Layer, suffix: string): Layer {
     return { ...common, type: 'adjustment', mask: layer.mask ? copyMask(layer.mask) : null } as Layer;
   const grid = new TileGrid();
   for (const [k, t] of layer.tiles.entries()) grid.set(k, t); // tiles are immutable: share them
-  // The copy gets its own mask grid: painting one mask must not change the other.
-  return {
-    ...common,
-    type: 'raster',
-    tiles: grid,
-    mask: layer.mask ? copyMask(layer.mask) : null,
-  } as RasterLayer;
+  // The copy gets its own mask grid: painting one mask must not change the other. Text models and
+  // transforms are replaced, never mutated, so a text copy can share them.
+  return { ...common, tiles: grid, mask: layer.mask ? copyMask(layer.mask) : null } as
+    RasterLayer | TextLayer;
 }
 
 /** Layer › Duplicate (Ctrl+J): a copy above the original, selected. */
@@ -154,6 +153,8 @@ export function mergeDownBlocker(doc: Document, id: string): string | null {
   const loc = doc.locate(id);
   const below = loc.siblings[loc.index - 1];
   if (!below) return 'There is no layer below to merge into.';
+  if (below.type === 'text')
+    return 'The layer below is a text layer: rasterize it first (Layer › Rasterize Type).';
   if (below.type !== 'raster')
     return below.type === 'group' ? 'The layer below is a group.' : 'The layer below is an adjustment layer.';
   if (!loc.layer.visible || !below.visible) return 'Both layers must be visible.';

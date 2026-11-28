@@ -2,7 +2,15 @@ import { tileRange } from '@shared/iep-schema';
 import { clipGrid, flipGrid, rotateGrid, type TileRange, type Turns } from '../ops/canvas';
 import { TILE_BYTES, TILE_SIZE, TileGrid } from '../tiles/tile';
 import { cloneTree, TreeCommand, type CanvasGeometry, type TreeEdit } from './commands';
-import { createRasterLayer, type Document, type Layer, type RasterLayer } from './document';
+import {
+  createRasterLayer,
+  rasterize,
+  shiftText,
+  type Document,
+  type Layer,
+  type RasterLayer,
+  type TextLayer,
+} from './document';
 import type { Mask } from './selection';
 import { translateGrid } from './translate';
 
@@ -20,7 +28,16 @@ function transformRasters(
   label: string,
   canvas: (doc: Document) => CanvasGeometry,
   /** `old` is the canvas size before the edit. */
-  transform: (layer: RasterLayer, range: TileRange, old: { width: number; height: number }) => TileGrid,
+  transform: (
+    layer: RasterLayer | TextLayer,
+    range: TileRange,
+    old: { width: number; height: number },
+  ) => TileGrid,
+  /**
+   * The edit only moves pixels by whole pixels (crop, Canvas Size): text layers stay text and move with
+   * them. Without it (rotate, flip, resample) text layers become raster layers of what they show.
+   */
+  shift?: { dx: number; dy: number },
 ): TreeCommand {
   return new TreeCommand(label, (d): TreeEdit => {
     const old = { width: d.width, height: d.height };
@@ -50,7 +67,11 @@ function transformRasters(
           newTileBytes += grid.size * TILE_BYTES;
           mask = { ...mask, grid };
         }
-        return { ...l, tiles, mask } as RasterLayer;
+        if (l.type === 'text')
+          return shift
+            ? { ...l, tiles, mask, transform: shiftText(l, shift.dx, shift.dy) }
+            : { ...rasterize(l), tiles, mask };
+        return { ...l, tiles, mask };
       });
     return {
       root: visit(cloneTree(d.layers)),
@@ -143,6 +164,7 @@ export function resizeCanvas(
     'Canvas Size',
     (d) => ({ width, height, guides: shiftGuides(d.meta.guides, dx, dy) }),
     (l, range) => translateGrid(l.tiles, dx, dy, range),
+    { dx, dy },
   );
 }
 
@@ -173,6 +195,7 @@ export function cropDocument(
       const moved = translateGrid(l.tiles, -r.x, -r.y, range);
       return deletePixels ? clipGrid(moved, r.width, r.height) : moved;
     },
+    { dx: -r.x, dy: -r.y },
   );
 }
 

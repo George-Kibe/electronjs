@@ -134,6 +134,9 @@
 - Click for point text, drag for a paragraph box. Editing happens in place. The options bar has font
   (searchable list with live previews), style, size, colour, alignment and letter spacing. Esc or clicking
   outside commits. Double-clicking the layer thumbnail selects all its text.
+- *As built (M3 slice 3a):* clicking a text layer with the Type tool opens it with all its text selected.
+  The font field takes any installed family by name, with suggestions; the searchable list of installed
+  fonts comes with Local Font Access (slice 3b). Styles apply to the whole layer in this version.
 
 ### 5.7 AI tools
 
