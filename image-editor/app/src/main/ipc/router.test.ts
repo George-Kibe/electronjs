@@ -27,6 +27,7 @@ describe('registerIpc', () => {
       'app.getInfo',
       'app.getLaunchFiles',
       'app.setDocumentEdited',
+      'app.takeHandover',
       'codec.decode',
       'codec.encode',
       'dialog.openImage',
@@ -45,6 +46,7 @@ describe('registerIpc', () => {
       'recovery.write',
       'settings.get',
       'settings.update',
+      'window.moveDocument',
     ]);
   });
 

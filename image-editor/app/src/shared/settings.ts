@@ -45,6 +45,28 @@ export const FilesSettings = z.looseObject({
     .default([]),
 });
 
+export const PANEL_IDS = ['layers', 'swatches', 'history'] as const;
+export type PanelId = (typeof PANEL_IDS)[number];
+
+export const PanelState = z.object({
+  id: z.enum(PANEL_IDS),
+  /** Shown in the dock (Window menu). */
+  visible: z.boolean(),
+  /** Expanded (false = only the header shows). */
+  open: z.boolean(),
+  /** Share of the dock's height among open panels (flex-grow weight). */
+  size: z.number().min(0.1).max(10),
+});
+export type PanelState = z.infer<typeof PanelState>;
+
+/** Panel layout (FR-GEN-01, docs/03 §3): order, visibility, sizes and the dock width. */
+export const WorkspaceSettings = z.looseObject({
+  preset: z.enum(['essentials', 'photography', 'custom']).default('essentials'),
+  /** null = the preset's layout. */
+  panels: z.array(PanelState).max(PANEL_IDS.length).nullable().default(null),
+  width: z.number().int().min(200).max(480).default(240),
+});
+
 export const PrivacySettings = z.looseObject({
   /** Opt-in crash reports without image content or file names (FR-GEN-07). */
   crashReports: z.boolean().default(false),
@@ -56,6 +78,7 @@ export const Settings = z.looseObject({
   performance: PerformanceSettings.default(() => PerformanceSettings.parse({})),
   files: FilesSettings.default(() => FilesSettings.parse({})),
   privacy: PrivacySettings.default(() => PrivacySettings.parse({})),
+  workspace: WorkspaceSettings.default(() => WorkspaceSettings.parse({})),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -79,12 +102,14 @@ export const SettingsPatch = z.strictObject({
   performance: patchOf(PerformanceSettings).optional(),
   files: patchOf(FilesSettings).optional(),
   privacy: patchOf(PrivacySettings).optional(),
+  workspace: patchOf(WorkspaceSettings).optional(),
 });
 export type SettingsPatch = {
   general?: Partial<Settings['general']>;
   performance?: Partial<Settings['performance']>;
   files?: Partial<Settings['files']>;
   privacy?: Partial<Settings['privacy']>;
+  workspace?: Partial<Settings['workspace']>;
 };
 
 export const DEFAULT_SETTINGS: Settings = Settings.parse({});
@@ -98,6 +123,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
     performance: { ...settings.performance, ...p.performance },
     files: { ...settings.files, ...p.files },
     privacy: { ...settings.privacy, ...p.privacy },
+    workspace: { ...settings.workspace, ...p.workspace },
   });
 }
 

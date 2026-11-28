@@ -15,6 +15,10 @@ export const api: ImageEditorApi = {
     getLaunchFiles: () => unwrap(bridge.app.getLaunchFiles()),
     setDocumentEdited: (edited) => unwrap(bridge.app.setDocumentEdited(edited)),
     closeWindow: () => unwrap(bridge.app.closeWindow()),
+    takeHandover: () => unwrap(bridge.app.takeHandover()),
+  },
+  window: {
+    moveDocument: (req) => unwrap(bridge.window.moveDocument(req)),
   },
   dialog: {
     openImage: () => unwrap(bridge.dialog.openImage()),

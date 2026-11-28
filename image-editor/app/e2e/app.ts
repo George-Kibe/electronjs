@@ -71,6 +71,8 @@ export type Launched = {
   win: Page;
   /** Disconnects the extra CDP client first, so no in-flight call fails while the app exits. */
   close: () => Promise<void>;
+  /** Every app window's page (several windows: a tab moved out, FR-DOC-03). */
+  pages: () => Page[];
 };
 
 /** A fresh, empty profile folder (pass it to several launches to test persistence). */
@@ -125,7 +127,12 @@ export async function launch(
     await close();
     throw err;
   }
-  return { app, win, close };
+  const pages = () =>
+    browser
+      .contexts()
+      .flatMap((c) => c.pages())
+      .filter((p) => /^(app|https?):/.test(p.url()));
+  return { app, win, close, pages };
 }
 
 export async function snapshot(win: Page, name: string): Promise<void> {

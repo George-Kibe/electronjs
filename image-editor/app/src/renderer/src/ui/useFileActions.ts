@@ -188,6 +188,24 @@ export function useFileActions(
     [editor, confirmDiscard],
   );
 
+  /**
+   * Window › Move Tab to New Window, or dragging a tab out of the window (FR-DOC-03): the document moves
+   * with its file and save state; here the tab closes without asking (nothing is lost).
+   */
+  const moveToNewWindow = useCallback(
+    async (id?: string, at: { x: number; y: number } | null = null) => {
+      const doc = editor && editor.describeDocument(id ?? editor.getSnapshot().doc?.id ?? '');
+      const snapshot = doc && editor.getDocSnapshot(doc.id);
+      if (!doc || !snapshot) return;
+      await run(`Moving ${doc.name} to a new window…`, async () => {
+        const project = await writeProject(snapshot, appVersion.current);
+        await api.window.moveDocument({ project, document: doc, at });
+        editor.closeDocument(doc.id);
+      });
+    },
+    [editor, run],
+  );
+
   /** Before the window closes: asks about every tab with unsaved changes, in turn. Cancel stops. */
   const confirmCloseAll = useCallback(async (): Promise<boolean> => {
     for (;;) {
@@ -314,6 +332,7 @@ export function useFileActions(
       openDialog,
       openRecent,
       closeDocument,
+      moveToNewWindow,
       newDocument,
       save,
       saveAs,
@@ -333,6 +352,7 @@ export function useFileActions(
       openDialog,
       openRecent,
       closeDocument,
+      moveToNewWindow,
       openPixels,
       newDocument,
       save,

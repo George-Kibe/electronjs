@@ -47,6 +47,13 @@ export const MENU_COMMANDS = [
   'view.fit',
   'view.actualSize',
   'view.pixelGrid',
+  'window.moveTab',
+  'window.layers',
+  'window.swatches',
+  'window.history',
+  'window.essentials',
+  'window.photography',
+  'window.resetWorkspace',
 ] as const;
 export type MenuCommandId = (typeof MENU_COMMANDS)[number];
 

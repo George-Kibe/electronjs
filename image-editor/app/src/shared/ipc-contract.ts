@@ -29,6 +29,18 @@ export const RecentItem = z.object({
 export type RecentItem = z.infer<typeof RecentItem>;
 
 const RecoveryId = z.object({ id: z.uuid() });
+
+/** A document moving to another window (FR-DOC-03): its identity, file and save state. */
+export const MovedDocument = z.object({
+  id: z.uuid(),
+  name: z.string().max(255),
+  file: FileRef.nullable(),
+  isProject: z.boolean(),
+  dirty: z.boolean(),
+  readOnlyReason: z.string().max(500).nullable(),
+});
+export type MovedDocument = z.infer<typeof MovedDocument>;
+const Handover = z.object({ project: Bytes, document: MovedDocument });
 export const RecoveryItem = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -89,6 +101,17 @@ export const ipcContract = {
   'recovery.list': { request: z.void(), response: z.array(RecoveryItem) },
   'recovery.read': { request: RecoveryId, response: Bytes },
   'recovery.discard': { request: RecoveryId, response: z.void() },
+  /** Opens a new window for a document dragged out of a tab (FR-DOC-03), near the screen point. */
+  'window.moveDocument': {
+    request: z.object({
+      project: Bytes,
+      document: MovedDocument,
+      at: z.object({ x: z.number(), y: z.number() }).nullable(),
+    }),
+    response: z.void(),
+  },
+  /** In a window opened by window.moveDocument: the document it should show (once). */
+  'app.takeHandover': { request: z.void(), response: Handover.nullable() },
   /** User settings (FR-GEN-04, docs/05 §3). */
   'settings.get': { request: z.void(), response: Settings },
   /** Validated patch; the saved settings come back and every window gets 'settings.changed'. */
@@ -121,6 +144,10 @@ export interface ImageEditorApi {
     getLaunchFiles(): Promise<ResponseOf<'app.getLaunchFiles'>>;
     setDocumentEdited(edited: boolean): Promise<void>;
     closeWindow(): Promise<void>;
+    takeHandover(): Promise<ResponseOf<'app.takeHandover'>>;
+  };
+  window: {
+    moveDocument(req: RequestOf<'window.moveDocument'>): Promise<void>;
   };
   dialog: {
     openImage(): Promise<ResponseOf<'dialog.openImage'>>;
