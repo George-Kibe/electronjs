@@ -8,14 +8,21 @@ import {
   type DragEvent,
 } from 'react';
 import type { MenuCommandId } from '@shared/menu';
-import { Editor, isPaintTool, type EditorSnapshot, type EditorState, type Tool } from '../engine/editor';
+import {
+  Editor,
+  isPaintTool,
+  type EditorSnapshot,
+  type EditorState,
+  type Tool,
+  type ToolOptions,
+} from '../engine/editor';
 import { api, errorMessage, events } from '../lib/api';
 import { readProject } from '../lib/files';
 import { runOps, warmUpOps } from '../lib/ops';
 import { OpfsSpillStore } from '../lib/scratch';
 import { renderText } from '../lib/text-render';
 import { renderShape } from '../lib/shape-render';
-import { TextEditor } from './components/TextEditor';
+import { TextEditor, textSelection } from './components/TextEditor';
 import { HANDLE_CURSORS } from '../engine/tools/crop';
 import { transformCursor } from '../engine/tools/transform';
 import { ADJUSTMENT_KINDS, type AdjustmentKind } from '../engine/ops/adjust';
@@ -78,6 +85,33 @@ const CURSORS: Partial<Record<Tool, string>> = {
   text: 'cursor-text',
   shape: 'cursor-crosshair',
 };
+
+/**
+ * Tool options from the options bar. While text is being typed, colour, weight and size apply to the
+ * selected characters if some are selected (FR-TXT-02 per-character styling), else to the whole layer.
+ */
+function setOptions<T extends keyof ToolOptions>(
+  editor: Editor,
+  tool: T,
+  patch: Partial<ToolOptions[T]>,
+): void {
+  if (tool === 'text') {
+    const p = patch as Partial<ToolOptions['text']>;
+    const keys = Object.keys(p);
+    const perCharacter =
+      keys.length > 0 && keys.every((k) => k === 'color' || k === 'weight' || k === 'size');
+    if (
+      perCharacter &&
+      textSelection.apply?.({
+        ...(p.color ? { color: p.color } : {}),
+        ...(p.weight !== undefined ? { weight: p.weight } : {}),
+        ...(p.size !== undefined ? { size: p.size } : {}),
+      })
+    )
+      return;
+  }
+  editor.setToolOptions(tool, patch);
+}
 
 type Picking = 'foreground' | 'background' | 'text' | 'shapeFill' | 'shapeStroke';
 const PICKER_TITLES: Record<Picking, string> = {
@@ -481,7 +515,7 @@ export function App() {
           tool={snap.tool}
           options={snap.options}
           zoom={snap.zoom}
-          onOptions={(tool, patch) => editor.setToolOptions(tool, patch)}
+          onOptions={(tool, patch) => setOptions(editor, tool, patch)}
           onResetTool={(tool) => editor.resetToolOptions(tool)}
           onAlign={(edge) => editor.align(edge)}
           crop={snap.crop}
@@ -724,7 +758,7 @@ export function App() {
             const rgba: [number, number, number, number] = [c[0], c[1], c[2], 1];
             if (picking === 'foreground') editor.setForeground(c);
             else if (picking === 'background') editor.setBackground(c);
-            else if (picking === 'text') editor.setToolOptions('text', { color: rgba });
+            else if (picking === 'text') setOptions(editor, 'text', { color: rgba });
             else editor.setToolOptions('shape', picking === 'shapeFill' ? { fill: rgba } : { stroke: rgba });
             setPicking(null);
           }}

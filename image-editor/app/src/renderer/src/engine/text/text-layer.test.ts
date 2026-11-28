@@ -15,7 +15,17 @@ import { duplicateLayer, mergeDownBlocker } from '../doc/layer-ops';
 import { translateLayer } from '../doc/translate';
 import { History } from '../history/history';
 import { TileGrid } from '../tiles/tile';
-import { DEFAULT_TEXT_STYLE, restyled, styleOf, textLayerName, textModel } from './text';
+import {
+  DEFAULT_TEXT_STYLE,
+  linesText,
+  modelFromRuns,
+  restyled,
+  runsOf,
+  styleOf,
+  textLayerName,
+  textModel,
+  type RunPatch,
+} from './text';
 
 /** A document with a white background and a text layer whose "rendering" is a 100×40 block at (50, 60). */
 function setup() {
@@ -127,5 +137,41 @@ describe('text layers with the other tools (FR-TXT-01)', () => {
     expect(r.opacity).toBe(0.5);
     expect(r.tiles).toBe(text.tiles);
     expect('text' in r).toBe(false);
+  });
+});
+
+describe('per-character styling (FR-TXT-02)', () => {
+  const base = { ...DEFAULT_TEXT_STYLE, size: 40, color: [0, 0, 0, 1] as [number, number, number, number] };
+
+  it('runs keep their own colour, weight and size over the layer’s style, and read back unchanged', () => {
+    const lines: RunPatch[][] = [
+      [{ text: 'Hello ' }, { text: 'World', color: [255, 0, 0, 1], weight: 700 }],
+      [],
+      [{ text: 'big', size: 80 }],
+    ];
+    const model = modelFromRuns(lines, base);
+    expect(model.paragraphs).toHaveLength(3);
+    const world = model.paragraphs[0]!.runs[1]!;
+    expect(world.color).toEqual([255, 0, 0, 1]);
+    expect(world.font.weight).toBe(700);
+    expect(world.size).toBe(40);
+    expect(model.paragraphs[2]!.runs[0]!.size).toBe(80);
+    expect(plainText(model)).toBe('Hello World\n\nbig');
+    // What the editor shows is only what differs from the layer, and it rebuilds the same model.
+    expect(runsOf(model, base)).toEqual([
+      [{ text: 'Hello ' }, { text: 'World', color: [255, 0, 0, 1], weight: 700 }],
+      [{ text: '' }],
+      [{ text: 'big', size: 80 }],
+    ]);
+    expect(modelFromRuns(runsOf(model, base), base)).toEqual(model);
+    expect(linesText(lines)).toBe('Hello World\n\nbig');
+  });
+
+  it('a whole-layer change of the base leaves per-character overrides as they are', () => {
+    const model = modelFromRuns([[{ text: 'a' }, { text: 'b', color: [0, 0, 255, 1] }]], base);
+    const bigger = modelFromRuns(runsOf(model, base), { ...base, size: 60, color: [0, 128, 0, 1] });
+    expect(bigger.paragraphs[0]!.runs[0]!.color).toEqual([0, 128, 0, 1]);
+    expect(bigger.paragraphs[0]!.runs[1]!.color).toEqual([0, 0, 255, 1]);
+    expect(bigger.paragraphs[0]!.runs.every((r) => r.size === 60)).toBe(true);
   });
 });

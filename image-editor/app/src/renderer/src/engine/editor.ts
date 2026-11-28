@@ -34,8 +34,11 @@ import {
   emptyRendering,
   sameModel,
   styleOf,
+  linesText,
+  modelFromRuns,
+  runsOf,
   textLayerName,
-  textModel,
+  type RunPatch,
   type TextRenderer,
   type TextStyle,
 } from './text/text';
@@ -59,7 +62,6 @@ import {
   createTextLayer,
   hasPixels,
   isVector,
-  plainText,
   rasterize,
   textOrigin,
   translation,
@@ -319,7 +321,8 @@ export type TextEditState = {
   origin: { x: number; y: number };
   mode: TextModel['mode'];
   box?: { w: number; h: number };
-  text: string;
+  /** The text so far as lines of runs: per-character colour, weight and size over `style` (FR-TXT-02). */
+  lines: RunPatch[][];
   style: TextStyle;
 };
 
@@ -3027,7 +3030,7 @@ export class Editor {
       origin: box ? origin : { x: Math.round(d.start.x), y: Math.round(d.start.y) },
       mode: box ? 'box' : 'point',
       ...(box ? { box } : {}),
-      text: '',
+      lines: [],
       style: this.toolOptions.text,
     };
     this.changed();
@@ -3065,7 +3068,7 @@ export class Editor {
       origin: textOrigin(layer),
       mode: layer.text.mode,
       ...(layer.text.box ? { box: layer.text.box } : {}),
-      text: plainText(layer.text),
+      lines: runsOf(layer.text, style),
       style,
     };
     if (this.tool !== 'text') this.tool = 'text';
@@ -3073,9 +3076,9 @@ export class Editor {
   }
 
   /** The text typed so far (from the in-place editor). */
-  setTextContent(text: string): void {
+  setTextRuns(lines: RunPatch[][]): void {
     if (!this.textEdit) return;
-    this.textEdit = { ...this.textEdit, text };
+    this.textEdit = { ...this.textEdit, lines };
     this.changed();
   }
 
@@ -3088,12 +3091,13 @@ export class Editor {
     if (!e || !doc) return;
     this.committingText = true;
     try {
-      const model = textModel(e.text, e.style, e.mode, e.box);
-      const empty = e.text.trim() === '';
+      const model = modelFromRuns(e.lines, e.style, e.mode, e.box);
+      const text = linesText(e.lines);
+      const empty = text.trim() === '';
       if (e.layerId === null) {
         if (empty) return;
         const { tiles } = this.renderTextModel(model, e.origin);
-        const layer = createTextLayer(textLayerName(e.text), model, e.origin, tiles);
+        const layer = createTextLayer(textLayerName(text), model, e.origin, tiles);
         const { parentId, index } = this.insertionPoint();
         this.exec(new AddLayerCommand(layer, index, parentId, 'Type Layer'));
         return;

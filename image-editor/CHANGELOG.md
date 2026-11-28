@@ -61,6 +61,8 @@ All notable changes to ImageEditor are documented here. The format follows
 - View › Grid (Ctrl+') shows a grid that things snap to. The Navigator panel (Window › Navigator) shows
   the whole image with the part in view outlined; click or drag in it to move around, and use its slider
   to zoom.
+- Text: select some characters to give them their own colour, weight or size. The font field lists the
+  fonts installed on your computer, each shown in its own face. Right-to-left scripts and emoji work.
 - Shapes (U): rectangles, rounded rectangles, ellipses, lines with arrowheads, polygons and stars, each
   on its own layer that stays editable: change its fill, stroke (width, position, dashes) or corners later
   from the options bar. Layer › Rasterize Shape turns it into pixels.

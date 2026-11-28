@@ -110,3 +110,53 @@ export function textLayerName(text: string): string {
 }
 
 export const sameModel = (a: TextModel, b: TextModel): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * A stretch of text as the in-place editor holds it (FR-TXT-02): the characters and what they change of
+ * the layer's style. Per-character styling in v1 is colour, weight and size; the rest is the layer's.
+ */
+export type RunPatch = { text: string; color?: RGBA; weight?: number; size?: number };
+
+/** Lines of runs (from the editor) as a model in `style`, each run keeping its own colour, weight, size. */
+export function modelFromRuns(
+  lines: RunPatch[][],
+  style: TextStyle,
+  mode: TextModel['mode'] = 'point',
+  box?: { w: number; h: number },
+): TextModel {
+  const base = textModel('', style, mode, box);
+  return {
+    ...base,
+    paragraphs: (lines.length ? lines : [[]]).map((line) => ({
+      align: style.align,
+      lineHeight: style.lineHeight,
+      runs: (line.length ? line : [{ text: '' }]).map((r) => ({
+        ...run(r.text, style),
+        ...(r.color ? { color: [r.color[0], r.color[1], r.color[2], r.color[3]] as RGBA } : {}),
+        ...(r.size !== undefined ? { size: r.size } : {}),
+        font: { ...run('', style).font, ...(r.weight !== undefined ? { weight: r.weight } : {}) },
+      })),
+    })),
+  };
+}
+
+/** A model's lines of runs, with only what differs from `style` (what the editor shows as overrides). */
+export function runsOf(model: TextModel, style: TextStyle): RunPatch[][] {
+  return model.paragraphs.map((p) =>
+    p.runs
+      .filter((r) => r.text !== '' || p.runs.length === 1)
+      .map((r) => {
+        const out: RunPatch = { text: r.text };
+        const c = style.color;
+        if (r.color.some((v, i) => v !== c[i])) out.color = [r.color[0], r.color[1], r.color[2], r.color[3]];
+        if (r.font.weight !== style.weight) out.weight = r.font.weight;
+        if (r.size !== style.size) out.size = r.size;
+        return out;
+      })
+      .filter((r, _i, all) => r.text !== '' || all.length === 1),
+  );
+}
+
+/** The plain text of editor lines. */
+export const linesText = (lines: RunPatch[][]): string =>
+  lines.map((l) => l.map((r) => r.text).join('')).join('\n');

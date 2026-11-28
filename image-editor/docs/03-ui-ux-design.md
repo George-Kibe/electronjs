@@ -135,8 +135,9 @@
   (searchable list with live previews), style, size, colour, alignment and letter spacing. Esc or clicking
   outside commits. Double-clicking the layer thumbnail selects all its text.
 - *As built (M3 slice 3a):* clicking a text layer with the Type tool opens it with all its text selected.
-  The font field takes any installed family by name, with suggestions; the searchable list of installed
-  fonts comes with Local Font Access (slice 3b). Styles apply to the whole layer in this version.
+  The font field is a searchable list of the installed families, each in its own face (slice 3b).
+  Colour, weight and size apply to the selected characters while typing, otherwise to the whole layer;
+  the other styles are the layer's.
 
 ### 5.7 AI tools
 
