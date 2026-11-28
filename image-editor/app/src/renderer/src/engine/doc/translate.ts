@@ -14,12 +14,13 @@ import {
 import type { Command, DirtySet, TileHolder } from './commands';
 import {
   hasPixels,
+  isVector,
   shiftText,
   walkLayers,
   type Document,
   type Layer,
   type RasterLayer,
-  type TextLayer,
+  type VectorLayer,
 } from './document';
 
 /**
@@ -60,7 +61,7 @@ export function translateGrid(
  * The layers with pixels a move of `id` affects: the layer itself, or every raster and text layer inside a
  * group (text moves with its rendering).
  */
-export function movedRasters(doc: Document, id: string): Array<RasterLayer | TextLayer> {
+export function movedRasters(doc: Document, id: string): Array<RasterLayer | VectorLayer> {
   const layer = doc.layer(id);
   if (hasPixels(layer)) return [layer];
   if (layer.type === 'adjustment') return [];
@@ -120,7 +121,7 @@ export class TranslateCommand implements Command {
     }
     for (const [id, t] of this.texts) {
       const layer = doc.layer(id);
-      if (layer.type === 'text') layer.transform = t[side];
+      if (isVector(layer)) layer.transform = t[side];
     }
     return { layerIds: [...pixels.keys()].map((id) => id.replace(/#mask$/, '')), tiles: 'all' };
   }
@@ -195,8 +196,7 @@ export function translateMoves(
       if (before.has(layer.id)) continue; // already moved (a layer inside a moved group)
       before.set(layer.id, [...layer.tiles.entries()]);
       after.set(layer.id, [...translateGrid(layer.tiles, dx, dy, range).entries()]);
-      if (layer.type === 'text')
-        texts.set(layer.id, { before: layer.transform, after: shiftText(layer, dx, dy) });
+      if (isVector(layer)) texts.set(layer.id, { before: layer.transform, after: shiftText(layer, dx, dy) });
       if (layer.mask?.linked) {
         before.set(`${layer.id}#mask`, [...layer.mask.grid.entries()]);
         after.set(`${layer.id}#mask`, [...translateGrid(layer.mask.grid, dx, dy, range).entries()]);

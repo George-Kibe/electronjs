@@ -7,6 +7,7 @@ import {
   type Layer,
   type LayerMask,
   type LayerProps,
+  type ShapeModel,
   type TextModel,
 } from './document';
 import type { Mask } from './selection';
@@ -548,6 +549,64 @@ export class SetTextCommand implements Command {
 
   tileHolders(): Iterable<TileHolder> {
     return this.before ? [this.afterTiles, this.before.tiles] : [this.afterTiles];
+  }
+}
+
+/** Edits a shape layer (FR-PNT-08): its shape, position and rendering, as one step (like SetTextCommand). */
+export class SetShapeCommand implements Command {
+  private before: { shape: ShapeModel; transform: number[]; tiles: Map<TileKey, Tile | undefined> } | null =
+    null;
+  private readonly afterTiles: Map<TileKey, Tile | undefined>;
+
+  constructor(
+    readonly label: string,
+    private readonly layerId: string,
+    private readonly after: { shape: ShapeModel; transform: number[]; tiles: TileGrid },
+  ) {
+    this.afterTiles = new Map(after.tiles.entries());
+  }
+
+  private install(
+    doc: Document,
+    shape: ShapeModel,
+    transform: number[],
+    tiles: Map<TileKey, Tile | undefined>,
+  ) {
+    const layer = doc.layer(this.layerId);
+    if (layer.type !== 'shape') throw new Error(`${this.layerId} is not a shape layer`);
+    layer.shape = shape;
+    layer.transform = transform;
+    layer.tiles.clear();
+    for (const [k, t] of tiles) layer.tiles.set(k, t);
+    return { layerIds: [this.layerId], tiles: 'all' as const };
+  }
+
+  do(doc: Document): DirtySet {
+    const layer = doc.layer(this.layerId);
+    if (layer.type !== 'shape') throw new Error(`${this.layerId} is not a shape layer`);
+    this.before ??= { shape: layer.shape, transform: layer.transform, tiles: new Map(layer.tiles.entries()) };
+    return this.install(doc, this.after.shape, this.after.transform, this.afterTiles);
+  }
+
+  undo(doc: Document): DirtySet {
+    const b = this.before!;
+    return this.install(doc, b.shape, b.transform, b.tiles);
+  }
+
+  sizeBytes(): number {
+    return 512 + (this.afterTiles.size + (this.before?.tiles.size ?? 0)) * TILE_BYTES;
+  }
+
+  tileHolders(): Iterable<TileHolder> {
+    return this.before ? [this.afterTiles, this.before.tiles] : [this.afterTiles];
+  }
+
+  /** Dragging a slider in the options bar (e.g. stroke width) is one step. */
+  mergeWith(next: Command): Command | null {
+    if (!(next instanceof SetShapeCommand) || next.layerId !== this.layerId || !this.before) return null;
+    const merged = new SetShapeCommand(this.label, this.layerId, next.after);
+    merged.before = this.before;
+    return merged;
   }
 }
 

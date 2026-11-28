@@ -9,7 +9,7 @@ import {
   type Document,
   type Layer,
   type RasterLayer,
-  type TextLayer,
+  type VectorLayer,
   copyMask,
   hasPixels,
 } from './document';
@@ -71,7 +71,7 @@ function deepCopy(layer: Layer, suffix: string): Layer {
   // The copy gets its own mask grid: painting one mask must not change the other. Text models and
   // transforms are replaced, never mutated, so a text copy can share them.
   return { ...common, tiles: grid, mask: layer.mask ? copyMask(layer.mask) : null } as
-    RasterLayer | TextLayer;
+    RasterLayer | VectorLayer;
 }
 
 /** Layer › Duplicate (Ctrl+J): a copy above the original, selected. */
@@ -155,6 +155,8 @@ export function mergeDownBlocker(doc: Document, id: string): string | null {
   if (!below) return 'There is no layer below to merge into.';
   if (below.type === 'text')
     return 'The layer below is a text layer: rasterize it first (Layer › Rasterize Type).';
+  if (below.type === 'shape')
+    return 'The layer below is a shape layer: rasterize it first (Layer › Rasterize Shape).';
   if (below.type !== 'raster')
     return below.type === 'group' ? 'The layer below is a group.' : 'The layer below is an adjustment layer.';
   if (!loc.layer.visible || !below.visible) return 'Both layers must be visible.';

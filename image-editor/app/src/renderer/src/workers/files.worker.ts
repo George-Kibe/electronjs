@@ -48,7 +48,7 @@ const layersOf = (doc: DocSnapshot) => snapshotLayers(doc.layers);
 function tileBuffers(layers: LayerSnapshot[], out: ArrayBuffer[] = []): ArrayBuffer[] {
   for (const l of layers) {
     if (l.type === 'group') tileBuffers(l.children, out);
-    else if (l.type === 'raster' || l.type === 'text')
+    else if (l.type === 'raster' || l.type === 'text' || l.type === 'shape')
       for (const [, t] of l.tiles) out.push(t.buffer as ArrayBuffer);
   }
   return out;

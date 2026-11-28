@@ -4,11 +4,13 @@ import {
   createAdjustmentLayer,
   createGroupLayer,
   createRasterLayer,
+  createShapeLayer,
   createTextLayer,
   Document,
   type BlendMode,
   type Layer,
   type LayerLocks,
+  type ShapeModel,
   type TextModel,
 } from '../doc/document';
 import { createTile, TILE_BYTES, TileGrid, type TileKey } from '../tiles/tile';
@@ -45,6 +47,14 @@ export type LayerSnapshot =
   | (SnapshotBase & {
       type: 'text';
       text: TextModel;
+      transform: number[];
+      tiles: Array<[TileKey, Uint8Array]>;
+      mask?: MaskSnapshot | null;
+    })
+  /** A shape (FR-PNT-08): the model and transform, and `tiles` its rendering. */
+  | (SnapshotBase & {
+      type: 'shape';
+      shape: ShapeModel;
       transform: number[];
       tiles: Array<[TileKey, Uint8Array]>;
       mask?: MaskSnapshot | null;
@@ -104,6 +114,15 @@ export function layerToSnapshot(l: Layer): LayerSnapshot {
       ...base,
       type: 'text',
       text: l.text,
+      transform: l.transform,
+      tiles: gridEntries(l.tiles),
+      ...mask,
+    };
+  if (l.type === 'shape')
+    return {
+      ...base,
+      type: 'shape',
+      shape: l.shape,
       transform: l.transform,
       tiles: gridEntries(l.tiles),
       ...mask,
@@ -184,6 +203,15 @@ function layerFromSnapshot(l: LayerSnapshot): Layer {
   if (l.type === 'text') {
     const { tiles, type: _type, mask, text, transform, ...props } = l;
     const layer = createTextLayer(l.name, text, { x: 0, y: 0 }, gridFrom(tiles), {
+      ...props,
+      ...(mask ? maskOf(mask) : {}),
+    });
+    layer.transform = transform.slice();
+    return layer;
+  }
+  if (l.type === 'shape') {
+    const { tiles, type: _type, mask, shape, transform, ...props } = l;
+    const layer = createShapeLayer(l.name, shape, { x: 0, y: 0 }, gridFrom(tiles), {
       ...props,
       ...(mask ? maskOf(mask) : {}),
     });

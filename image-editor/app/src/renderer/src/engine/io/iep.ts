@@ -10,6 +10,7 @@ import {
   IEP_VERSION,
   Manifest,
   RasterLayerEntry,
+  ShapeLayerEntry,
   TextLayerEntry,
   tileRange,
 } from '@shared/iep-schema';
@@ -155,11 +156,18 @@ function decodeTile(bin: Uint8Array, e: TileIndex, bytes: number = TILE_BYTES): 
 // ---- project zip ---------------------------------------------------------------------------------
 
 const KNOWN_DOC_KEYS = new Set(Object.keys(DocumentEntry.shape));
+
+/** A 3×3 row-major transform that only translates (all this version can edit for text and shapes). */
+function onlyTranslation(t: number[]): boolean {
+  const [a, b, , c, d, , g, h, i] = t;
+  return a === 1 && b === 0 && c === 0 && d === 1 && g === 0 && h === 0 && i === 1;
+}
 const KNOWN_MANIFEST_KEYS = new Set(['format', 'version', 'app', 'document', 'layers']);
 const KNOWN_RASTER_KEYS = new Set(Object.keys(RasterLayerEntry.shape));
 const KNOWN_GROUP_KEYS = new Set(Object.keys(GroupLayerEntry.shape));
 const KNOWN_ADJUSTMENT_KEYS = new Set(Object.keys(AdjustmentLayerEntry.shape));
 const KNOWN_TEXT_KEYS = new Set(Object.keys(TextLayerEntry.shape));
+const KNOWN_SHAPE_KEYS = new Set(Object.keys(ShapeLayerEntry.shape));
 
 function pick(obj: Record<string, unknown>, known: Set<string>): Record<string, unknown> | undefined {
   const extra = Object.fromEntries(Object.entries(obj).filter(([k]) => !known.has(k)));
@@ -216,11 +224,12 @@ export function writeIep(
     }
     const tiles = `layers/${n}/tiles.bin`;
     files[tiles] = [encodeTiles(l.tiles), { level: 0 }]; // payloads are already deflated
-    if (l.type === 'text') {
-      // docs/05 §2: the rendering is the text layer's `cache`.
+    if (l.type === 'text' || l.type === 'shape') {
+      // docs/05 §2: the rendering is the text or shape layer's `cache`.
       const mask = l.mask ? writeMask(l.mask, n) : undefined;
       delete (common as Record<string, unknown>)['mask'];
-      return { ...common, text: l.text, transform: l.transform, cache: tiles, ...(mask ? { mask } : {}) };
+      const model = l.type === 'text' ? { text: l.text } : { shape: l.shape };
+      return { ...common, ...model, transform: l.transform, cache: tiles, ...(mask ? { mask } : {}) };
     }
     if (!l.mask) {
       delete (common as Record<string, unknown>)['mask']; // never keep a stale reference from another version
@@ -328,6 +337,14 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         mask: { bin: Uint8Array; index: TileIndex[] } | null;
         /** A transform this version cannot edit (rotation, scale): the layer opens as its pixels. */
         asPixels: boolean;
+      }
+    | {
+        kind: 'shape';
+        entry: ShapeLayerEntry;
+        bin: Uint8Array;
+        index: TileIndex[];
+        mask: { bin: Uint8Array; index: TileIndex[] } | null;
+        asPixels: boolean;
       };
   const ids = new Set<string>();
   let skipped = 0;
@@ -346,7 +363,8 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         base.data.type === 'raster' ||
         base.data.type === 'group' ||
         base.data.type === 'adjustment' ||
-        base.data.type === 'text';
+        base.data.type === 'text' ||
+        base.data.type === 'shape';
       // An adjustment of a kind from a newer version is left out like an unknown layer type.
       const kind = (raw as { adjustment?: { kind?: unknown } }).adjustment?.kind;
       if (!known || (base.data.type === 'adjustment' && !ADJUSTMENT_KIND_NAMES.some((k) => k === kind))) {
@@ -387,10 +405,21 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         if (!bin) throw new IepError(`Layer “${text.data.name}” is missing its pixels.`);
         const index = indexTiles(bin, range);
         tileCount += index.length;
-        const [a, b, , c, d, , g, h, i] = text.data.transform;
-        const asPixels = a !== 1 || b !== 0 || c !== 0 || d !== 1 || g !== 0 || h !== 0 || i !== 1;
+        const asPixels = !onlyTranslation(text.data.transform);
         if (asPixels) transformedText++;
         out.push({ kind: 'text', entry: text.data, bin, index, mask: maskOf(text.data.mask), asPixels });
+        continue;
+      }
+      if (base.data.type === 'shape') {
+        const shape = ShapeLayerEntry.safeParse(raw);
+        if (!shape.success) throw new IepError('This project has an invalid layer.');
+        const bin = entries[shape.data.cache];
+        if (!bin) throw new IepError(`Layer “${shape.data.name}” is missing its pixels.`);
+        const index = indexTiles(bin, range);
+        tileCount += index.length;
+        const asPixels = !onlyTranslation(shape.data.transform);
+        if (asPixels) transformedText++;
+        out.push({ kind: 'shape', entry: shape.data, bin, index, mask: maskOf(shape.data.mask), asPixels });
         continue;
       }
       const layer = RasterLayerEntry.safeParse(raw);
@@ -414,7 +443,7 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
     );
   if (transformedText > 0)
     reasons.push(
-      `${transformedText} text layer${transformedText === 1 ? ' is' : 's are'} transformed in a way this version cannot edit, so ${transformedText === 1 ? 'it opens' : 'they open'} as pixels.`,
+      `${transformedText} text or shape layer${transformedText === 1 ? ' is' : 's are'} transformed in a way this version cannot edit, so ${transformedText === 1 ? 'it opens' : 'they open'} as pixels.`,
     );
   if (plans.length === 0) throw new IepError('This project has no layers this version can open.');
   // The saved selection: optional, so a missing or damaged entry only loses the selection, never the file.
@@ -483,6 +512,20 @@ export function readIep(bytes: Uint8Array, opts: IepReadOptions): IepReadResult 
         type: 'adjustment',
         adjustment: p.entry.adjustment,
         mask,
+        ...(extra ? { extra } : {}),
+      };
+    }
+    if (p.kind === 'shape') {
+      const tiles = p.index.map((t): [TileKey, Uint8Array] => [tileKey(t.tx, t.ty), decodeTile(p.bin, t)]);
+      if (p.asPixels) return { ...common, type: 'raster', tiles, ...(mask ? { mask } : {}) };
+      const extra = pick(p.entry, KNOWN_SHAPE_KEYS);
+      return {
+        ...common,
+        type: 'shape',
+        shape: p.entry.shape,
+        transform: p.entry.transform,
+        tiles,
+        ...(mask ? { mask } : {}),
         ...(extra ? { extra } : {}),
       };
     }

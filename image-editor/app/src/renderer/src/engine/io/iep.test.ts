@@ -5,6 +5,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   createAdjustmentLayer,
+  createShapeLayer,
   createTextLayer,
   createGroupLayer,
   createRasterLayer,
@@ -15,6 +16,7 @@ import { defaultAdjustment } from '../ops/adjust';
 import { ellipseMask, Mask, rectMask } from '../doc/selection';
 import { createTile, TILE_BYTES, TileGrid } from '../tiles/tile';
 import { DEFAULT_TEXT_STYLE, textModel } from '../text/text';
+import { DEFAULT_SHAPE_STYLE, shapeModel } from '../shape/shape';
 import { encodeTiles, IepError, readIep, writeIep } from './iep';
 import { fromSnapshot, toSnapshot } from './snapshot';
 
@@ -263,7 +265,7 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
       files['manifest.json'] = strToU8(JSON.stringify(m));
       const { doc, readOnlyReason } = readIep(zipSync(files as Zippable), BUDGET);
       expect(doc.layers[1]!.type).toBe('raster');
-      expect(readOnlyReason).toMatch(/text layer is transformed/);
+      expect(readOnlyReason).toMatch(/text or shape layer is transformed/);
     });
 
     it.each([
@@ -283,6 +285,75 @@ describe('.iep writer/reader (FR-DOC-04, docs/05 §2)', () => {
       (damage as (t: unknown) => void)(m.layers[1]!['text']);
       files['manifest.json'] = strToU8(JSON.stringify(m));
       expect(() => readIep(zipSync(files as Zippable), BUDGET)).toThrow(IepError);
+    });
+  });
+
+  describe('shape layers (FR-PNT-08, docs/05 §2)', () => {
+    const shape = shapeModel(
+      {
+        ...DEFAULT_SHAPE_STYLE,
+        kind: 'star',
+        points: 6,
+        stroke: [10, 20, 30, 1],
+        strokeWidth: 3,
+        dash: 'dashed',
+      },
+      120,
+      90,
+    );
+    const shapeDoc = () =>
+      new Document(512, 512, [
+        createRasterLayer('bg', TileGrid.filled(512, 512, [255, 255, 255, 255])),
+        createShapeLayer('Star 1', shape, { x: 20, y: 30 }, TileGrid.filled(150, 130, [0, 0, 0, 255])),
+      ]);
+
+    it('round-trip their shape, position and rendering, editable', () => {
+      const { doc, readOnlyReason } = roundTrip(shapeDoc());
+      expect(readOnlyReason).toBeNull();
+      const l = doc.layers[1]!;
+      expect(l.type).toBe('shape');
+      if (l.type !== 'shape') return;
+      expect(l.shape).toEqual(shape);
+      expect(l.transform).toEqual([1, 0, 20, 0, 1, 30, 0, 0, 1]);
+      expect(l.tiles.size).toBeGreaterThan(0);
+    });
+
+    it.each([
+      [
+        '2 sides',
+        (sh: { kind: string; params: Record<string, number> }) => {
+          sh.kind = 'polygon';
+          sh.params['sides'] = 2;
+        },
+      ],
+      [
+        'too many parameters',
+        (sh: { params: Record<string, number> }) => {
+          for (let i = 0; i < 40; i++) sh.params[`p${i}`] = 1;
+        },
+      ],
+      ['an unknown kind', (sh: { kind: string }) => (sh.kind = 'heart')],
+    ] as Array<[string, (sh: never) => unknown]>)(
+      'refuses a shape with %s (files are untrusted)',
+      (_, damage) => {
+        const files = unzipSync(writeIep(toSnapshot(shapeDoc()), { appVersion: '0.1.0' }));
+        const m = JSON.parse(strFromU8(files['manifest.json']!)) as {
+          layers: Array<Record<string, unknown>>;
+        };
+        damage(m.layers[1]!['shape'] as never);
+        files['manifest.json'] = strToU8(JSON.stringify(m));
+        expect(() => readIep(zipSync(files as Zippable), BUDGET)).toThrow(IepError);
+      },
+    );
+
+    it('a rotated shape opens as pixels, read-only', () => {
+      const files = unzipSync(writeIep(toSnapshot(shapeDoc()), { appVersion: '0.1.0' }));
+      const m = JSON.parse(strFromU8(files['manifest.json']!)) as { layers: Array<Record<string, unknown>> };
+      m.layers[1]!['transform'] = [0, -1, 20, 1, 0, 30, 0, 0, 1];
+      files['manifest.json'] = strToU8(JSON.stringify(m));
+      const { doc, readOnlyReason } = readIep(zipSync(files as Zippable), BUDGET);
+      expect(doc.layers[1]!.type).toBe('raster');
+      expect(readOnlyReason).toMatch(/shape layer is transformed/);
     });
   });
 

@@ -152,6 +152,9 @@ even when the fonts are missing. On load, if the fonts are available, text re-ra
 characters, sizes 0.5–5000 px, a box needs its size), `transform` (9 numbers, row-major; this version writes
 only a translation) and `cache` (its tiles, like a raster layer's `tiles`), plus an optional `mask`. A
 transform with rotation or scale (a newer version's) opens as a raster layer and the document read-only.
+A shape entry is the same with `shape` (the ShapeModel; `params` use `w`, `h`, `radius`, `sides`, `points`,
+`inner`, `x2`, `y2`, `arrowStart`, `arrowEnd`; at most 32, polygons and stars 3–100 corners; dashes are in
+stroke widths).
 
 ### 2.3 Versioning & compatibility
 
